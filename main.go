@@ -147,12 +147,26 @@ func vectorSearch(queryVector []float32) ([]EmbeddingDoc, error) {
 // HTTP接口
 func main() {
 	http.HandleFunc("/generate", func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		id, err := generateAndStore(string(body))
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "读取请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		var requestData struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(body, &requestData); err != nil {
+			http.Error(w, "解析请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		id, err := generateAndStore(requestData.Text)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"id": id})
 	})
 

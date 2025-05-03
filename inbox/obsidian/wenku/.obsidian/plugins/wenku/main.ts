@@ -9,6 +9,9 @@ interface SearchResult {
   content: string;
 	hasEmbedding?: boolean; // 标识是否用于下一步 Embedding
 }
+interface GenerateResult {
+  id: string; 
+}
 // Remember to rename these classes and interfaces!
 
 interface MyPluginSettings {
@@ -86,6 +89,27 @@ export default class MyPlugin extends Plugin {
       console.error("API 错误:", error);
     }
   }
+  private async generateVector(text: string): Promise<string> {
+    try {
+      const response = await request({
+        url: 'http://localhost:8080/generate',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({  text }) // 自动序列化text字段 
+      });
+ 
+      const result: GenerateResult = JSON.parse(response); 
+      if (!result.id)  throw new Error("无效的ID响应");
+ 
+			console.info(`生成的ID: ${result.id}`);
+      return result.id; 
+ 
+    } catch (error) {
+      const msg = error instanceof Error ? error.message  : '未知错误';
+      new Notice(`生成失败: ${msg}`);
+      throw error; // 允许上层逻辑捕获处理 
+    }
+  }
 
 	async onload() {
 		await this.loadSettings();
@@ -118,6 +142,15 @@ export default class MyPlugin extends Plugin {
 										new Notice(`${result.content} 已存在无需Embedding`);
 									} else if (result && !result.hasEmbedding) {
 										new Notice(`${result.content} 开始进行Embedding`);
+										this.generateVector(result.content)
+											.then((id) => {
+												this.vectorCache.set(result.content, { id, content: result.content, hasEmbedding: true });
+												new Notice(`Embedding 完成，ID: ${id}, 内容: ${result.content}`);
+											})
+											.catch((error) => {
+												console.error("处理请求时出错:", error);
+												new Notice(`处理请求时出错: ${error instanceof Error ? error.message : String(error)}`);
+											});
 									}
 								});
 							})
