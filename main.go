@@ -157,13 +157,21 @@ func main() {
 	})
 
 	http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
-		// 读取用户提交的文本
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "读取请求体失败", http.StatusBadRequest)
 			return
 		}
-		text := string(body)
+
+		var requestData struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(body, &requestData); err != nil {
+			http.Error(w, "解析请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		text := requestData.Text
 		fmt.Printf("search text: %s\n", text)
 		// 生成文本向量
 		vector, err := generateEmbedding(text)

@@ -8,7 +8,7 @@ $ curl http://localhost:11434/api/embeddings -d '{
 }'
 
 # Test
-$ curl -X POST http://localhost:8080/generate -d "Hello World"
-$ curl -X POST http://localhost:8080/generate -d "Hi World"
-$ curl -X POST http://localhost:8080/search -d "world"
+$ curl -X POST http://localhost:8080/generate -H "Content-Type: application/json" -d '{"text": "Hello World"}'
+$ curl -X POST http://localhost:8080/generate -H "Content-Type: application/json" -d '{"text": "Hi World"}'
+$ curl -X POST http://localhost:8080/search -H "Content-Type: application/json" -d '{"text": "world"}'
 ```
