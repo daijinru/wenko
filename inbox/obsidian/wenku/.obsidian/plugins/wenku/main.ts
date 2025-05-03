@@ -1,5 +1,14 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import {
+	App, Editor, MarkdownView, Modal,
+	Notice, Plugin, PluginSettingTab, Setting,
+	request,
+} from 'obsidian';
 
+interface SearchResult {
+  id: string;
+  content: string;
+	hasEmbedding?: boolean; // 标识是否用于下一步 Embedding
+}
 // Remember to rename these classes and interfaces!
 
 interface MyPluginSettings {
@@ -31,6 +40,53 @@ export default class MyPlugin extends Plugin {
     return highlights;
   }
 
+	private vectorCache = new Map<string, SearchResult>();
+	private vectorCacheGet(inputText: string): string {
+		if (this.vectorCache.has(inputText)) {
+			return this.vectorCache.get(inputText)!.content;
+		}
+		return "";
+	}
+  private async diffSearchVector(inputText: string): Promise<SearchResult | void> {
+    try {
+			// 检查缓存
+			console.info("正在检查缓存内容:", this.vectorCache);
+			const cachedContent = this.vectorCacheGet(inputText);
+			if (cachedContent) {
+				return Promise.resolve({ id: "", content: cachedContent, hasEmbedding: true });
+			}
+
+      const response = await request({ 
+        url: 'http://localhost:8080/search',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({  text: inputText })
+      });
+ 
+      const results: SearchResult[] = JSON.parse(response); 
+      if (!Array.isArray(results))  throw new Error("无效的API响应结构");
+ 
+			const matchResult = results.find(item => {
+				// 远程内容都要缓存
+				this.vectorCache.set(item.content, item);
+				// 只要有一个匹配就返回
+				return item.content === inputText;
+			})
+
+			if (matchResult) {
+				console.info(`ID ${matchResult.id} 内容匹配:\n${matchResult.content}`);
+				return {...matchResult, hasEmbedding: true };
+			} else {
+				console.info("没有找到匹配的内容：", inputText);
+				return {id: '', content: inputText, hasEmbedding: false };
+			}
+ 
+    } catch (error) {
+      new Notice(`API请求失败: ${error instanceof Error ? error.message  : String(error)}`);
+      console.error("API 错误:", error);
+    }
+  }
+
 	async onload() {
 		await this.loadSettings();
 
@@ -40,10 +96,35 @@ export default class MyPlugin extends Plugin {
           item 
             .setTitle("对高亮 Embedding")
             .setIcon("highlighter")
-            .onClick(() => {
+            .onClick(async () => {
               console.log(" 点击了右键菜单按钮", file);
 							const highlights = this.collectHighlights()
-							new Notice(`高亮内容: ${highlights.join(", ")}`);
+							if (highlights.length === 0) {
+								new Notice("没有找到高亮内容");
+								return;
+							}
+							new Notice(`已收集高亮内容: ${highlights.join(", ")}`);
+
+							// 使用 Promise.all 来并行处理每个高亮
+							const reqs = highlights.map((text) => {
+								return this.diffSearchVector(text)
+							});
+							Promise.all(reqs)
+							  .then((results) => {
+								console.info("所有请求结果:", results);
+								// 处理所有结果
+								results.forEach((result) => {
+									if (result && result.hasEmbedding) {
+										new Notice(`${result.content} 已存在无需Embedding`);
+									} else if (result && !result.hasEmbedding) {
+										new Notice(`${result.content} 开始进行Embedding`);
+									}
+								});
+							})
+							.catch((error) => {
+								console.error("处理请求时出错:", error);
+								new Notice(`处理请求时出错: ${error instanceof Error ? error.message : String(error)}`)
+							});
             });
         });
       })
@@ -103,7 +184,7 @@ export default class MyPlugin extends Plugin {
 		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
 		// Using this function will automatically remove the event listener when this plugin is disabled.
 		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
+			// console.log('click', evt);
 		});
 
 		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
