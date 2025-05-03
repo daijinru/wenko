@@ -1,6 +1,0 @@
-docker run -d --name mongo-vector \
-  -p 27017:27017 \
-  -v ~/datas/mongo:/data/db \
-  -e MONGO_INITDB_ROOT_USERNAME=admin \
-  -e MONGO_INITDB_ROOT_PASSWORD=admin123 \
-  mongo:latest
