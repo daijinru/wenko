@@ -33,3 +33,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ highlightId }); // 返回ID供后台跟踪 
   }
 });
+
+let toastTimer: any = null
+chrome.runtime.onMessage.addListener((msg)  => {
+  console.info('contentScript received message:', msg)
+  if (msg.type  === "TOAST") {
+    if (toastTimer) {
+      clearTimeout(toastTimer); // 清除之前的定时器
+    }
+    const existingToast = document.getElementById('wenko-toast');
+    if (existingToast) {
+      existingToast.remove(); // 移除已有的 toast
+    }
+    const toast = document.createElement('div');
+    toast.id  = 'wenko-toast';
+    toast.textContent  = msg.text; 
+    toast.style  = 'position:fixed; top:100px; right: 20px; box-shadow: 10px 10px grey; background:yello; color:#000; padding:15px; z-index:9999';
+    document.body.appendChild(toast); 
+    toastTimer = setTimeout(() => toast.remove(),  msg.duration || 5000); // 
+  }
+  if (msg.type === "LOG") {
+    console.log(msg.text);
+  }
+  if (msg.type === "HideSidePanel") {
+    // 移除高亮
+    const highlightElement = document.getElementById(currentHighlightId);
+    if (highlightElement) {
+      // highlightElement.style.backgroundColor = "transparent"; // 设置为透明
+      // 删除原来添加的 html，恢复此前的内容
+      highlightElement.replaceWith(...highlightElement.childNodes); // 替换为原始内容
+    }
+  }
+});

@@ -34,13 +34,14 @@ export default defineManifest({
   side_panel: {
     default_path: 'sidepanel.html',
   },
+  host_permissions: ['http://*/*', 'https://*/*'],
   web_accessible_resources: [
     {
       resources: ['img/logo-16.png', 'img/logo-32.png', 'img/logo-48.png', 'img/logo-128.png'],
       matches: [],
     },
   ],
-  permissions: ['sidePanel', 'storage', 'contextMenus', 'activeTab', 'scripting'],
+  permissions: ['sidePanel', 'storage', 'contextMenus', 'activeTab', 'tabs', 'scripting'],
   chrome_url_overrides: {
     newtab: 'newtab.html',
   },

@@ -34,9 +34,16 @@ chrome.contextMenus.onClicked.addListener((info,  tab) => {
         chrome.runtime.sendMessage({ 
           action: "updateSidePanel",
           text: selectedText + '_' + returnHighlightId,
-          
         });
       }, 1000)
     }
+  }
+});
+
+chrome.runtime.onMessage.addListener((msg,  sender) => {
+  if (msg.target  === "content-script") {
+    chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+      chrome.tabs.sendMessage(tabs[0].id, msg);
+    });
   }
 });
