@@ -118,7 +118,7 @@ export default class MyPlugin extends Plugin {
       this.app.workspace.on("file-menu",  (menu, file) => {
         menu.addItem((item)  => {
           item 
-            .setTitle("对高亮 Embedding")
+            .setTitle("🍉 对高亮 Embedding")
             .setIcon("highlighter")
             .onClick(async () => {
               console.log(" 点击了右键菜单按钮", file);

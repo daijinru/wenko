@@ -50,6 +50,7 @@ func init() {
 type EmbeddingDoc struct {
 	ID        string    `bson:"_id,omitempty"`
 	Content   string    `bson:"content"`
+	Article   string    `bson:"article"`
 	Vector    []float32 `bson:"vector"`
 	CreatedAt time.Time `bson:"created_at"`
 }
