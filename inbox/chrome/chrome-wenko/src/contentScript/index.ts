@@ -48,9 +48,9 @@ chrome.runtime.onMessage.addListener((msg)  => {
     const toast = document.createElement('div');
     toast.id  = 'wenko-toast';
     toast.textContent  = msg.text; 
-    toast.style  = 'position:fixed; top:100px; right: 20px; box-shadow: 10px 10px grey; background:yello; color:#000; padding:15px; z-index:9999';
+    toast.style  = 'position:fixed; top:100px; right: 20px; box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px; background:yellow; color:#000; padding:15px; z-index:9999';
     document.body.appendChild(toast); 
-    toastTimer = setTimeout(() => toast.remove(),  msg.duration || 5000); // 
+    toastTimer = setTimeout(() => toast.remove(),  msg.duration || 3000); // 
   }
   if (msg.type === "LOG") {
     console.log(msg.text);
