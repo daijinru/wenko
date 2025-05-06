@@ -102,7 +102,7 @@ export const SidePanel = () => {
 
   return (
     <main>
-      <h3>欢迎使用 Wenko</h3>
+      <h3>万物化稿，稿生万物</h3>
       <article>
         <h2>当前选中文本</h2>
         <p style={{
