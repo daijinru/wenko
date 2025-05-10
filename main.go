@@ -25,10 +25,11 @@ import (
 //	  "Collection": "embeddings"
 //	}
 type Config struct {
-	OllamaURL    string `json:"OllamaURL"`
-	MongoURI     string `json:"MongoURI"`
-	DatabaseName string `json:"DatabaseName"`
-	Collection   string `json:"Collection"`
+	OllamaURL        string `json:"OllamaURL"`
+	MongoURI         string `json:"MongoURI"`
+	DatabaseName     string `json:"DatabaseName"`
+	Collection       string `json:"Collection"`
+	OpenRouterApiKey string `json:"OpenRouterApiKey"`
 }
 
 var config Config
@@ -215,6 +216,8 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(returnResults)
 	})
+
+	http.HandleFunc("/chat", Chat)
 
 	// 启动服务
 	fmt.Println("Server running on :8080")
