@@ -125,7 +125,7 @@ ${matchResults.slice(0,5).map((item,index)  =>
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "qwen/qwen3-4b:free",
+          model: "qwen/qwen3-32b:free",
           messages: [
             {
               role: "user",
