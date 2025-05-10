@@ -8,6 +8,7 @@ import './SidePanel.css'
 export const SidePanel = () => {
   const [selectedText, setSelectedText] = useState('')
   const [matchResults, setMatchResults] = useState([])
+  const [interpretation, setInterpretation] = useState<string>('')
   const hightlightId = useRef('')
   const [isLoading, setIsLoading] = useState(true)
   useEffect(() => {
@@ -26,6 +27,8 @@ export const SidePanel = () => {
 
   useEffect(() => {
     if (selectedText) {
+      setMatchResults([])
+      setInterpretation('')
       setIsLoading(true)
       chrome.runtime.sendMessage({
         target: "content-script",
@@ -93,9 +96,7 @@ export const SidePanel = () => {
     }
   }, [selectedText])
 
-  const [interpretation, setInterpretation] = useState<string>('')
-
-const getPrompts = () => {
+  const getPrompts = () => {
   return `
 【智能解析任务】
 基于用户选中的文本片段「${selectedText}」，结合下列${Math.min(matchResults.length,5)} 条上下文线索，进行多维度语义解析。注意：
@@ -107,7 +108,7 @@ const getPrompts = () => {
 ${matchResults.slice(0,5).map((item,index)  => 
   `线索${index+1}: ${item.content}`
 ).join('\n\n')}`;
-}
+  }
   const handleInterpretation = async () => {
     chrome.runtime.sendMessage({
       target: "content-script",
