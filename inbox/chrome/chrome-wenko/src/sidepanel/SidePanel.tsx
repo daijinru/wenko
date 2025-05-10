@@ -168,29 +168,40 @@ ${matchResults.slice(0,5).map((item,index)  =>
           padding: '1rem',
         }}>{selectedText}</p>
       </article>
-      <div style={{
+      { isLoading && <div
+        style={{
+          width: '100%',
+          marginTop: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <div className='loading'></div>
+      </div>
+      }
+      {!isLoading && <div style={{
         paddingTop: '16px',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         gap: '1rem',
+        maxHeight: '200px',
+        overflowY: 'auto',
       }}>
-      {
-        isLoading
-          ? <div className='loading'></div>
-          : <article>
-              <h2>可能存在关联</h2>
-
-              {
-                matchResults.length < 1
-                  ? <p>没有匹配结果</p>
-                  : matchResults.map(item => {
-                      return <p>{item.content}</p>
-                    })
-              }
-            </article>
-      }
+        <article>
+          <h2>可能存在关联</h2>
+          {
+            matchResults.length < 1
+              ? <p>没有匹配结果</p>
+              : matchResults.map(item => {
+                  return <p style={{textAlign: 'left'}}>{item.content}</p>
+                })
+          }
+        </article>
       </div>
+      }
       {
         !isLoading &&
         <div style={{
@@ -203,6 +214,8 @@ ${matchResults.slice(0,5).map((item,index)  =>
             color: '#000',
             padding: '16px',
             backgroundColor: 'yellow',
+            maxHeight: '300px',      // Fixed max height
+            overflowY: 'auto', 
           }}>
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
