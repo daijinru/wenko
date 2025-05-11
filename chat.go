@@ -40,15 +40,30 @@ func Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming 不支持", http.StatusInternalServerError)
 		return
 	}
 
+	data := struct {
+		Content string `json:"content"`
+		Type    string `json:"type"`
+	}{
+		Content: "连接成功，请稍后",
+		Type:    "text",
+	}
+	dataBytes, _ := json.Marshal(data)
+	fmt.Fprintf(w, "id: %d\n", 0)
+	fmt.Fprintf(w, "event: %s\n", "200")
+	fmt.Fprintf(w, "data: %s\n\n", dataBytes)
+	flusher.Flush()
+
 	fmt.Printf("提示词: %v\n", chatReq.Messages)
+
 	requestBody, _ := json.Marshal(map[string]interface{}{
 		"model":    chatReq.Model,
 		"messages": chatReq.Messages,
@@ -67,12 +82,16 @@ func Chat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	eventType := "message"
+	var eventId int64 = 0
+
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if len(line) > 6 && line[:6] == "data: " {
 			data := line[6:]
 			if data == "[DONE]" {
+
 				break
 			}
 			var orResp OpenRouterResponse
@@ -80,7 +99,21 @@ func Chat(w http.ResponseWriter, r *http.Request) {
 				if len(orResp.Choices) > 0 {
 					content := orResp.Choices[0].Delta.Content
 					if content != "" {
-						fmt.Fprintf(w, "%s\n", content)
+
+						eventId++ // 每次发送时递增 ID
+
+						data := struct {
+							Content string `json:"content"`
+							Type    string `json:"type"`
+						}{
+							Content: content,
+							Type:    "text",
+						}
+						dataBytes, _ := json.Marshal(data)
+
+						fmt.Fprintf(w, "id: %d\n", eventId)
+						fmt.Fprintf(w, "event: %s\n", eventType)
+						fmt.Fprintf(w, "data: %s\n\n", dataBytes)
 						flusher.Flush()
 					}
 				}
