@@ -1,14 +1,31 @@
 import { useState, useEffect, useRef } from 'react'
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 
+import { Welcome, Prompts } from '@ant-design/x';
+import { FireOutlined, CoffeeOutlined, SmileOutlined, UserOutlined } from '@ant-design/icons';
+import { Button, Space, Typography } from 'antd'
+
 import './SidePanel.css'
+
+// 随机抽一个 icon
+const getRandomIcon = () => {
+  const random = Math.floor(Math.random() * 3)
+  const icons = {
+    0: <FireOutlined style={{ color: '#F5222D' }} />,
+    1: <SmileOutlined style={{ color: '#FAAD14' }} />,
+    2: <CoffeeOutlined style={{ color: '#964B00' }} />,
+  }
+  return icons[random]
+}
 
 export const SidePanel = () => {
   const [selectedText, setSelectedText] = useState('')
   const [matchResults, setMatchResults] = useState([])
   const [interpretation, setInterpretation] = useState<string>('')
+  const [loadingText, setLoadingText] = useState<string>('')
   const hightlightId = useRef('')
   const [isLoading, setIsLoading] = useState(true)
   useEffect(() => {
@@ -116,58 +133,104 @@ ${matchResults.slice(0,5).map((item,index)  =>
       text: "正在生成AI解读..."
     });
 
+    
     setInterpretation('');
 
-    try {
-      const response = await fetch("http://localhost:8080/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "qwen/qwen3-32b:free",
-          messages: [
-            {
-              role: "user",
-              content: `${getPrompts()}`
-            }
-          ]
-        })
-      });
-
-      if (!response.ok) {
-        setInterpretation("解释过程中出错，请重试。");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
-      let accumulatedContent = "";
-
-      while (!done) {
-        const { value, done: streamDone } = await reader.read();
-        done = streamDone;
-        const chunk = decoder.decode(value, { stream: !done });
-        accumulatedContent += chunk;
-
-        // Update interpretation state incrementally as data streams in
-        setInterpretation(accumulatedContent);
-      }
-    } catch (error) {
-      setInterpretation("解释过程中出错，请重试。");
-    }
+    await fetchEventSource('http://localhost:8080/chat', {
+      method: 'POST',
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "qwen/qwen3-32b:free",
+        messages: [
+          {
+            role: "user",
+            content: `${getPrompts()}`
+          }
+        ]
+      }),
+      onopen(res) {
+        if (res.ok) return Promise.resolve()
+        chrome.runtime.sendMessage({
+          target: "content-script",
+          type: "TOAST",
+          text: "建立会话连接失败",
+        });
+      },
+      onmessage(line) {
+        // chrome.runtime.sendMessage({
+        //   target: "content-script",
+        //   type: "LOG",
+        //   text: line,
+        // });
+        try {
+          const parsed = JSON.parse(line.data)
+          if (parsed?.type === 'statusText') {
+            setLoadingText(parsed?.content)
+          }
+          if (parsed?.content && parsed?.type === 'text') {
+            setInterpretation(prev => prev + parsed.content)
+            setLoadingText('')
+          }
+        } catch (error) {
+          chrome.runtime.sendMessage({
+            target: "content-script",
+            type: "TOAST",
+            text: "JSON.parse 解析数据失败",
+          });
+        }
+      },
+      onerror(err) {
+        chrome.runtime.sendMessage({
+          target: "content-script",
+          type: "TOAST",
+          text: "连接异常",
+        });
+      },
+    })
   }
 
   return (
     <main>
-      <h3>温故而知新</h3>
-      <article>
-        <h2>当前选中文本</h2>
-        <p style={{
-          backgroundColor: 'yellow',
-          padding: '1rem',
-        }}>{selectedText}</p>
-      </article>
+      <Welcome
+        icon="https://mdn.alipayobjects.com/huamei_iwk9zp/afts/img/A*s5sNRo5LjfQAAAAAAAAAAAAADgCCAQ/fmt.webp"
+        title="Wenko，温故知新"
+        description={selectedText}
+        extra={
+          <Space>
+            <Button onClick={handleInterpretation}>AI解读</Button>
+          </Space>
+        }
+      >
+      </Welcome>
+      {
+        !isLoading && (interpretation || loadingText) &&
+        <div style={{
+          marginTop: '16px',
+          padding: '0 16px',
+        }}>
+          <Typography style={{
+          }}>
+            <Typography.Title level={2}>
+              AI解读
+            </Typography.Title>
+            { loadingText &&
+              <Typography.Paragraph>
+                {loadingText}
+              </Typography.Paragraph>
+            }
+            <Typography.Paragraph>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+              >
+                {interpretation}
+              </ReactMarkdown>
+            </Typography.Paragraph>
+          </Typography>
+        </div>
+      }
       { isLoading && <div
         style={{
           width: '100%',
@@ -181,50 +244,33 @@ ${matchResults.slice(0,5).map((item,index)  =>
         <div className='loading'></div>
       </div>
       }
-      {!isLoading && <div style={{
-        paddingTop: '16px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '1rem',
-        maxHeight: '200px',
-        overflowY: 'auto',
-      }}>
-        <article>
-          <h2>可能存在关联</h2>
-          {
-            matchResults.length < 1
-              ? <p>没有匹配结果</p>
-              : matchResults.map(item => {
-                  return <p style={{textAlign: 'left'}}>{item.content}</p>
-                })
-          }
-        </article>
+      {!isLoading && <div
+        style={{
+          maxWidth: '100%',
+          marginTop: '16px',
+          padding: '0 16px',
+        }}
+      >
+        <Prompts
+          title="🤔 你还记得这些线索吗？"
+          items={matchResults.map((item, key) => {
+            return {
+              key: String(key),
+              icon: getRandomIcon(),
+              description: '线索' + key + ': ' + item.content,
+              disabled: false,
+            }
+          })}
+          wrap
+          styles={{
+            item: {
+              flex: 'none',
+              width: 'calc(100% - 8px)',
+            },
+          }}
+        >
+        </Prompts>
       </div>
-      }
-      {
-        !isLoading &&
-        <div style={{
-          paddingTop: '16px',
-        }}>
-          <button onClick={handleInterpretation}>解读以上内容</button>
-          <article style={{
-            marginTop: '16px',
-            textAlign: 'left',
-            color: '#000',
-            padding: '16px',
-            backgroundColor: 'yellow',
-            maxHeight: '300px',      // Fixed max height
-            overflowY: 'auto', 
-          }}>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw]}
-            >
-              {interpretation}
-            </ReactMarkdown>
-          </article>
-        </div>
       }
     </main>
   )

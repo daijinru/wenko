@@ -53,7 +53,8 @@ chrome.runtime.onMessage.addListener((msg)  => {
     toastTimer = setTimeout(() => toast.remove(),  msg.duration || 3000); // 
   }
   if (msg.type === "LOG") {
-    console.log(msg.text);
+    // 添加绿色的log
+    console.info('LOG: ', msg.text);
   }
   if (msg.type === "HideSidePanel") {
     // 移除高亮

@@ -54,7 +54,7 @@ func Chat(w http.ResponseWriter, r *http.Request) {
 		Type    string `json:"type"`
 	}{
 		Content: "连接成功，请稍后",
-		Type:    "text",
+		Type:    "statusText",
 	}
 	dataBytes, _ := json.Marshal(data)
 	fmt.Fprintf(w, "id: %d\n", 0)
