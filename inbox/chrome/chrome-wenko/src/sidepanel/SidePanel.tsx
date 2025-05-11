@@ -6,7 +6,7 @@ import rehypeRaw from 'rehype-raw';
 
 import { Welcome, Prompts } from '@ant-design/x';
 import { FireOutlined, CoffeeOutlined, SmileOutlined, UserOutlined } from '@ant-design/icons';
-import { Button, Space, Typography } from 'antd'
+import { Button, Space, Typography, Spin } from 'antd'
 
 import './SidePanel.css'
 
@@ -212,22 +212,30 @@ ${matchResults.slice(0,5).map((item,index)  =>
         }}>
           <Typography style={{
           }}>
-            <Typography.Title level={2}>
-              AI解读
+            <Typography.Title level={2} mark>
+              AI 解读
             </Typography.Title>
             { loadingText &&
               <Typography.Paragraph>
-                {loadingText}
+                {loadingText} <Spin />
               </Typography.Paragraph>
             }
-            <Typography.Paragraph>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-              >
-                {interpretation}
-              </ReactMarkdown>
-            </Typography.Paragraph>
+            {
+              interpretation &&
+              <Typography.Paragraph style={{
+                backgroundColor: 'rgba(150, 150, 150, 0.1)',
+                border: '1px solid rgba(100, 100, 100, 0.2)',
+                borderRadius: '3px',
+                padding: '0.4em 0.6em',
+              }}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
+                >
+                  {interpretation}
+                </ReactMarkdown>
+              </Typography.Paragraph>
+            }
           </Typography>
         </div>
       }
@@ -257,7 +265,7 @@ ${matchResults.slice(0,5).map((item,index)  =>
             return {
               key: String(key),
               icon: getRandomIcon(),
-              description: '线索' + key + ': ' + item.content,
+              description: '线索' + (key + 1) + ': ' + item.content,
               disabled: false,
             }
           })}
