@@ -1,1 +1,1 @@
-![flowchart](./flowchat.svg)
+![flowchart](./flowchart.svg)
