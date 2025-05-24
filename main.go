@@ -2,22 +2,16 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
-	"time"
-
-	"go.mongodb.org/mongo-driver/bson"
 
 	// "go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // local config.json >>>
@@ -66,15 +60,6 @@ func init() {
 	if err := addEmbeddingCollection(); err != nil {
 		panic(fmt.Sprintf("添加Embedding集合失败: %v", err))
 	}
-}
-
-// 定义数据结构
-type EmbeddingDoc struct {
-	ID        string    `bson:"_id,omitempty"`
-	Content   string    `bson:"content"`
-	Article   string    `bson:"article"`
-	Vector    []float32 `bson:"vector"`
-	CreatedAt time.Time `bson:"created_at"`
 }
 
 // Ollama响应结构
@@ -272,40 +257,71 @@ func generateEmbedding(text string) ([]float32, error) {
 	return response.Embedding, nil
 }
 
+type VectorSearchResponse struct {
+	IDs        [][]string                 `json:"ids"`
+	Embeddings [][]float32                `json:"embeddings"`
+	Documents  [][]interface{}            `json:"documents"`
+	Metadatas  [][]map[string]interface{} `json:"metadatas"`
+	Distances  [][]float32                `json:"distances"`
+	Include    []string                   `json:"include"`
+}
+
+//	type EmbeddingDoc struct {
+//	    ids       string                 `bson:"ids"`
+//	    metadatas map[string]interface{} `bson:"metadatas"`
+//	}
+//
 // 向量相似性检索
-func vectorSearch(queryVector []float32) ([]EmbeddingDoc, error) {
-	// 打印 queryVectr
-	// fmt.Printf("queryVector: %v\n", queryVector)
-	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(config.MongoURI))
+func vectorSearch(queryVector []float32) ([]map[string]interface{}, error) {
+	// url := fmt.Sprintf("%s/tenants/%s/databases/%s/collections/%s/add", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase, CollectionId)
+	// 检索 /api/v2/tenants/{tenant}/databases/{database}/collections/{collection_id}/query post
+	url := fmt.Sprintf("%s/tenants/%s/databases/%s/collections/%s/query", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase, CollectionId)
+
+	payload := struct {
+		QueryEmbeddings [][]float32 `json:"query_embeddings"`
+	}{
+		QueryEmbeddings: [][]float32{queryVector},
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	defer client.Disconnect(context.TODO())
-
-	// 向量近似搜索，提前在 Atlas Search 创建索引 numCandidates 768 默认 cosine
-	pipeline := mongo.Pipeline{
-		{{
-			Key: "$vectorSearch",
-			Value: bson.D{
-				{Key: "queryVector", Value: queryVector},
-				{Key: "path", Value: "vector"},
-				{Key: "numCandidates", Value: 768},
-				{Key: "limit", Value: 5},
-				{Key: "index", Value: "vector_index"},
-			},
-		}},
-	}
-
-	cursor, err := client.Database(config.DatabaseName).Collection(config.Collection).Aggregate(context.TODO(), pipeline)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
+		fmt.Println("Error:", err)
+		return nil, err
+	}
+	// 打印 resp.body 并格式化
+	defer resp.Body.Close()
+	// bodyBytes, err := io.ReadAll(resp.Body)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// fmt.Println("Response Body:", string(bodyBytes))
+	defer resp.Body.Close()
+	var response VectorSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, err
 	}
 
-	var results []EmbeddingDoc
-	if err = cursor.All(context.TODO(), &results); err != nil {
-		return nil, err
+	// 如果需要转换为 EmbeddingDoc 切片，可以手动映射
+	// 保存最终结果，每个查询对应一组匹配项
+	var allResults []map[string]interface{}
+
+	// 外层遍历：每个查询向量（通常是1个）
+	for i := range response.IDs {
+		// 内层遍历：每个匹配项
+		for j := range response.IDs[i] {
+			resultItem := map[string]interface{}{
+				"id":       response.IDs[i][j],
+				"metadata": response.Metadatas[i][j],
+				// 可选：添加距离信息
+				// "distance": response.Distances[i][j],
+			}
+			allResults = append(allResults, resultItem)
+		}
 	}
-	return results, nil
+	return allResults, nil
 }
 
 // HTTP接口
@@ -366,17 +382,17 @@ func main() {
 			return
 		}
 
-		returnResults := make([]map[string]string, len(results))
-		for i, result := range results {
-			returnResults[i] = map[string]string{
-				"id":      result.ID,
-				"content": result.Content,
-			}
-		}
-		fmt.Printf("returnResults: %v\n", returnResults)
+		// returnResults := make([]map[string]string, len(results))
+		// for i, result := range results {
+		// 	returnResults[i] = map[string]string{
+		// 		"id":      result.ids[][],
+		// 		"content": result.Content,
+		// 	}
+		// }
+		fmt.Printf("returnResults: %v\n", results)
 		// 返回相似内容
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(returnResults)
+		json.NewEncoder(w).Encode(results)
 	})
 
 	http.HandleFunc("/chat", Chat)
