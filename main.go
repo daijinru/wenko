@@ -54,15 +54,15 @@ func init() {
 	}
 
 	// 检查租户 addTenant 是否存在
-	fmt.Println("正在添加租户...")
+	fmt.Println("🌍正在添加租户...")
 	if err := addTenants(); err != nil {
 		panic(fmt.Sprintf("添加租户失败: %v", err))
 	}
-	fmt.Println("创建数据库...")
+	fmt.Println("🌍正在创建数据库...")
 	if err := addDatabases(); err != nil {
 		panic(fmt.Sprintf("创建数据库失败: %v", err))
 	}
-	fmt.Println("添加Embedding集合...")
+	fmt.Println("🌍正在添加Embedding集合...")
 	if err := addEmbeddingCollection(); err != nil {
 		panic(fmt.Sprintf("添加Embedding集合失败: %v", err))
 	}
@@ -85,7 +85,6 @@ type OllamaResponse struct {
 func addTenants() error {
 	// 先检查租户是否存在 /api/v2/tenants/{tenant_name} get
 	existURL := fmt.Sprintf("%s/tenants/%s", config.ChromaDBURL, config.ChromDBTenants)
-	fmt.Println("Checking if tenant exists:", existURL)
 	existsResp, err := http.Get(existURL)
 	if err != nil {
 		return fmt.Errorf("failed to check tenant: %v", err)
@@ -165,8 +164,10 @@ func addEmbeddingCollection() error {
 				CollectionId = collection.ID
 			}
 		}
-		fmt.Println("集合已存在")
-		return nil
+		if CollectionId != "" {
+			fmt.Println("Embedding 集合已存在: ", CollectionId)
+			return nil
+		}
 	}
 	// 创建用于 embedding 的集合 /api/v2/tenants/{tenant}/databases/{database}/collections post
 	createURL := fmt.Sprintf("%s/tenants/%s/databases/%s/collections", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase)
@@ -190,7 +191,7 @@ func addEmbeddingCollection() error {
 		return fmt.Errorf("failed to decode response body: %v", err)
 	}
 	CollectionId = respBody.ID
-	fmt.Println("Collection created")
+	fmt.Println("Collection created: ", CollectionId)
 	return nil
 }
 
