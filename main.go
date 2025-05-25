@@ -181,8 +181,7 @@ func addEmbeddingCollection() error {
 }
 
 func addToChromaDB(id string, embedding []float32, content string) (string, error) {
-	// 先查询 collectionId
-
+	// fmt.Println("Adding to ChromaDB...", embedding)
 	// 构造请求体
 	payload := struct {
 		Ids        []string            `json:"ids"`
@@ -199,7 +198,7 @@ func addToChromaDB(id string, embedding []float32, content string) (string, erro
 	body, _ := json.Marshal(payload)
 	// /api/v2/tenants/{tenant}/databases/{database}/collections/{collection_id}/add post
 	url := fmt.Sprintf("%s/tenants/%s/databases/%s/collections/%s/add", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase, CollectionId)
-	fmt.Println("url:", url)
+	// fmt.Println("url:", url)
 	// url := fmt.Sprintf("%s/collections/%s/add", config.ChromaDBURL, collectionName)
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
@@ -217,6 +216,7 @@ func addToChromaDB(id string, embedding []float32, content string) (string, erro
 }
 
 func generateAndStore(text string) (string, error) {
+	fmt.Println("Generating embedding for:", text)
 	// 调用Ollama API
 	resp, err := http.Post(config.OllamaURL, "application/json",
 		bytes.NewBufferString(fmt.Sprintf(`{"model":"nomic-embed-text","prompt":"%s"}`, text)))
@@ -232,7 +232,7 @@ func generateAndStore(text string) (string, error) {
 
 	// id 使用 UUIDv4 生成
 	id := strings.ReplaceAll(uuid.New().String(), "-", "")
-
+	// fmt.Println("Adding to ChromaDB...", response)
 	id, err = addToChromaDB(id, response.Embedding, text)
 	fmt.Println(id, err)
 	if err != nil {
@@ -382,17 +382,17 @@ func main() {
 			return
 		}
 
-		// returnResults := make([]map[string]string, len(results))
-		// for i, result := range results {
-		// 	returnResults[i] = map[string]string{
-		// 		"id":      result.ids[][],
-		// 		"content": result.Content,
-		// 	}
-		// }
-		fmt.Printf("returnResults: %v\n", results)
+		returnResults := make([]map[string]interface{}, len(results))
+		for i, result := range results {
+			returnResults[i] = map[string]interface{}{
+				"id":      result["id"],
+				"content": result["metadata"].(map[string]interface{})["content"],
+			}
+		}
+		// fmt.Printf("returnResults: %v\n", returnResults)
 		// 返回相似内容
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(results)
+		json.NewEncoder(w).Encode(returnResults)
 	})
 
 	http.HandleFunc("/chat", Chat)

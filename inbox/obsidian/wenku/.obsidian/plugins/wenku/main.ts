@@ -43,27 +43,20 @@ export default class MyPlugin extends Plugin {
     return highlights;
   }
 
-  private vectorCache = new Map<string, SearchResult>();
-  private vectorCacheGet(inputText: string): string {
-    if (this.vectorCache.has(inputText)) {
-      return this.vectorCache.get(inputText)!.content;
-    }
-    return "";
-  }
   private async diffSearchVector(inputText: string): Promise<SearchResult | void> {
     try {
       // 检查缓存
-      console.info("正在检查缓存内容:", this.vectorCache);
-      const cachedContent = this.vectorCacheGet(inputText);
-      if (cachedContent) {
-        return Promise.resolve({ id: "", content: cachedContent, hasEmbedding: true });
-      }
+      // console.info("正在检查缓存内容:", this.vectorCache);
+      // const cachedContent = this.vectorCacheGet(inputText);
+      // if (cachedContent) {
+      //   return Promise.resolve({ id: "", content: cachedContent, hasEmbedding: true });
+      // }
 
       const response = await request({ 
         url: 'http://localhost:8080/search',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({  text: inputText })
+        body: JSON.stringify({  text: encodeURIComponent(inputText) })
       });
  
       const results: SearchResult[] = JSON.parse(response); 
@@ -71,13 +64,14 @@ export default class MyPlugin extends Plugin {
  
       const matchResult = results.find(item => {
         // 远程内容都要缓存
-        this.vectorCache.set(item.content, item);
+        // this.vectorCache.set(item.content, item);
         // 只要有一个匹配就返回
+        item.content = decodeURIComponent(item.content);
         return item.content === inputText;
       })
 
       if (matchResult) {
-        console.info(`ID ${matchResult.id} 内容匹配:\n${matchResult.content}`);
+        console.info(`ID ${matchResult.id} 找到匹配内容:\n${matchResult.content}`);
         return {...matchResult, hasEmbedding: true };
       } else {
         console.info("没有找到匹配的内容：", inputText);
@@ -95,9 +89,10 @@ export default class MyPlugin extends Plugin {
         url: 'http://localhost:8080/generate',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({  text }) // 自动序列化text字段 
+        body: JSON.stringify({ text: encodeURIComponent(text) }),
       });
  
+      // console.info('>>> response', response)
       const result: GenerateResult = JSON.parse(response); 
       if (!result.id)  throw new Error("无效的ID响应");
  
@@ -105,8 +100,8 @@ export default class MyPlugin extends Plugin {
       return result.id; 
  
     } catch (error) {
-      const msg = error instanceof Error ? error.message  : '未知错误';
-      new Notice(`生成失败: ${msg}`);
+      // const msg = error instanceof Error ? error.message  : '未知错误';
+      // new Notice(`生成失败: ${msg}`);
       throw error; // 允许上层逻辑捕获处理 
     }
   }
@@ -127,7 +122,7 @@ export default class MyPlugin extends Plugin {
                 new Notice("没有找到高亮内容");
                 return;
               }
-              new Notice(`已收集高亮内容: ${highlights.join(", ")}`);
+              new Notice(`已收集高亮内容: \n\n ${highlights.join("\n\n")}`);
 
               // 使用 Promise.all 来并行处理每个高亮
               const reqs = highlights.map((text) => {
@@ -139,24 +134,25 @@ export default class MyPlugin extends Plugin {
                 // 处理所有结果
                 results.forEach((result) => {
                   if (result && result.hasEmbedding) {
-                    new Notice(`${result.content} 已存在无需Embedding`);
+                    console.info(`${result.content} 已存在无需Embedding`)
+                    // new Notice(`${result.content} 已存在无需Embedding`);
                   } else if (result && !result.hasEmbedding) {
-                    new Notice(`${result.content} 开始进行Embedding`);
+                    new Notice(`${result.content} 开始进行文本向量化`);
                     this.generateVector(result.content)
                       .then((id) => {
-                        this.vectorCache.set(result.content, { id, content: result.content, hasEmbedding: true });
-                        new Notice(`Embedding 完成，ID: ${id}, 内容: ${result.content}`);
+                        // this.vectorCache.set(result.content, { id, content: result.content, hasEmbedding: true });
+                        new Notice(`Embedding 完成: ID: ${id}, 内容: ${result.content}`);
                       })
                       .catch((error) => {
-                        console.error("处理请求时出错:", error);
-                        new Notice(`处理请求时出错: ${error instanceof Error ? error.message : String(error)}`);
+                        console.error("generatorVector error:", error);
+                        new Notice(`generatorVector error: ${error instanceof Error ? error.message : String(error)}`);
                       });
                   }
                 });
               })
               .catch((error) => {
-                console.error("处理请求时出错:", error);
-                new Notice(`处理请求时出错: ${error instanceof Error ? error.message : String(error)}`)
+                console.error("promises for diffSearchVector error:", error);
+                new Notice(`promises for diffSearchVector error:: ${error instanceof Error ? error.message : String(error)}`)
               });
             });
         });
