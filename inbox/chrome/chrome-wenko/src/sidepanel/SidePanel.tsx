@@ -60,11 +60,14 @@ export const SidePanel = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: selectedText,
+          text: encodeURIComponent(selectedText),
         }),
       })
         .then((res) => res.json())
-        .then((data) => {
+        .then(data => {
+          data.forEach(item => {
+            item.content = decodeURIComponent(item.content)
+          })
           chrome.runtime.sendMessage({
             target: "content-script",
             type: "LOG",
@@ -88,7 +91,7 @@ export const SidePanel = () => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              text: selectedText,
+              text: encodeURIComponent(selectedText),
             }),
           })
             .then((res) => res.json())

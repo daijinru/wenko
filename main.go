@@ -279,8 +279,10 @@ func vectorSearch(queryVector []float32) ([]map[string]interface{}, error) {
 
 	payload := struct {
 		QueryEmbeddings [][]float32 `json:"query_embeddings"`
+		NResults        int         `json:"n_results"`
 	}{
 		QueryEmbeddings: [][]float32{queryVector},
+		NResults:        5,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
