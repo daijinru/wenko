@@ -326,6 +326,18 @@ func vectorSearch(queryVector []float32) ([]map[string]interface{}, error) {
 	return allResults, nil
 }
 
+func vectorCompare(text string, id string) (bool, error) {
+	embedding, err := generateEmbedding(text)
+	if err != nil {
+		return false, err
+	}
+	// TODO
+	// 1. query Vector Item via ID
+	// 2. compare -> return
+
+	return true, nil
+}
+
 // HTTP接口
 func main() {
 	http.HandleFunc("/generate", func(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +410,31 @@ func main() {
 	})
 
 	http.HandleFunc("/chat", Chat)
+
+	http.HandleFunc("/compare", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "读取请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		var requestData struct {
+			Text string `json:"text"`
+			ID   string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &requestData); err != nil {
+			http.Error(w, "解析请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		result, err := vectorCompare(requestData.Text, requestData.ID)
+		if err != nil {
+			http.Error(w, "比较失败: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"result": result})
+	})
 
 	// 启动服务
 	fmt.Println("Server running on :8080")
