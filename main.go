@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -183,6 +184,7 @@ func addEmbeddingCollection() error {
 
 func addToChromaDB(id string, embedding []float32, content string) (string, error) {
 	// fmt.Println("Adding to ChromaDB...", embedding)
+
 	// 构造请求体
 	payload := struct {
 		Ids        []string            `json:"ids"`
@@ -192,7 +194,7 @@ func addToChromaDB(id string, embedding []float32, content string) (string, erro
 		Ids:        []string{id},
 		Embeddings: [][]float32{embedding},
 		Metadatas: []map[string]string{
-			{"content": content},
+			{"content": url.QueryEscape(content)},
 		},
 	}
 	// fmt.Println("payload:", payload)
@@ -428,9 +430,16 @@ func main() {
 
 		returnResults := make([]map[string]interface{}, len(results))
 		for i, result := range results {
+			content := result["metadata"].(map[string]interface{})["content"]
+			decoded, err := url.QueryUnescape(content.(string))
+			if err != nil {
+				// http.Error(w, "解码失败: "+err.Error(), http.StatusInternalServerError)
+				fmt.Printf("Base64 解码失败: %v\n", err)
+				decoded = content.(string)
+			}
 			returnResults[i] = map[string]interface{}{
 				"id":      result["id"],
-				"content": result["metadata"].(map[string]interface{})["content"],
+				"content": decoded,
 			}
 		}
 		// fmt.Printf("returnResults: %v\n", returnResults)
