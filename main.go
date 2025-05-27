@@ -1,6 +1,7 @@
 package main
 
 import (
+	"books-vector-api/vector"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -326,16 +327,45 @@ func vectorSearch(queryVector []float32) ([]map[string]interface{}, error) {
 	return allResults, nil
 }
 
+type VectorGetRessponse struct {
+	IDs        []string    `json:"ids"`
+	Embeddings [][]float32 `json:"embeddings"`
+}
+
 func vectorCompare(text string, id string) (bool, error) {
-	embedding, err := generateEmbedding(text)
+	embeddings, err := generateEmbedding(text)
 	if err != nil {
 		return false, err
 	}
-	// TODO
-	// 1. query Vector Item via ID
-	// 2. compare -> return
+	// 通过 id 查询向量 /api/v2/tenants/{tenant}/databases/{database}/collections/{collection_id}/get post
+	url := fmt.Sprintf("%s/tenants/%s/databases/%s/collections/%s/get", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase, CollectionId)
+	payload := struct {
+		IDs     []string `json:"ids"`
+		Include []string `json:"include"`
+	}{
+		IDs:     []string{id},
+		Include: []string{"embeddings"},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return false, err
+	}
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return false, err
+	}
+	// fmt.Println(resp)
+	defer resp.Body.Close()
+	var response VectorGetRessponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return false, err
+	}
+	// fmt.Println("response:", response.Embeddings)
+	compareResults := vector.BatchCompare(embeddings, response.Embeddings[0], 0.8)
+	// 将 compareResults 打印为字符串
+	// fmt.Println("compareResults:", compareResults)
 
-	return true, nil
+	return compareResults, nil
 }
 
 // HTTP接口
