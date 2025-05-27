@@ -9,7 +9,7 @@ $ curl -X POST http://localhost:8080/search -H "Content-Type: application/json" 
 # false
 $ curl -X POST http://localhost:8080/compare -H "Content-Type: application/json" -d '{"text": "Hello World", "id": "95fe212025404260a325e7f30bb25dec"}'
 # true => same words with threshold 0.8
-$ curl -X POST http://localhost:8080/compare -H "Content-Type: application/json" -d '{"text": "Hello World", "id": "ea70c4fedaa14b68922ff9fc7f43ba5e"}'
+$ curl -X POST http://localhost:8080/compare -H "Content-Type: application/json" -d '{"text": "Hello World", "id": "24d4ac4f80454fcc8f41027983231324"}'
 ```
 
 ## Chat Test

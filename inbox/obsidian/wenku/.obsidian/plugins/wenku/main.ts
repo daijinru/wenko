@@ -62,18 +62,44 @@ export default class MyPlugin extends Plugin {
       const results: SearchResult[] = JSON.parse(response); 
       if (!Array.isArray(results))  throw new Error("无效的API响应结构");
  
-      const matchResult = results.find(item => {
-        // 远程内容都要缓存
-        // this.vectorCache.set(item.content, item);
-        // 只要有一个匹配就返回
-        return item.content === inputText;
+      // 请求 /compare 接口传入 inputText 和 results item 的 id，返回 true 或者 false
+      // 如果返回 true 则相似度极高，返回 false 则不相似
+      const promises = results.map(async item => {
+        // const compareText = item.content
+        const id = item.id
+        const res = await request({
+          url: 'http://localhost:8080/compare',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: inputText, id })
+        })
+        // parsed {result: boolean}
+        const parsed = JSON.parse(res)
+        if (parsed.result) {
+          return {
+            ...item,
+            hasEmbedding: true,
+          }
+        } else return {
+          ...item,
+          hasEmbedding: false,
+        }
       })
-
-      if (matchResult) {
-        console.info(`ID ${matchResult.id} 找到匹配内容:\n${matchResult.content}`);
-        return {...matchResult, hasEmbedding: true };
+      const finalResults = await Promise.all(promises)
+        .then(results => results)
+        .catch(error => {
+          new  Notice(`API请求失败: ${error instanceof Error ? error.message  : String(error)}`);
+          return [];
+        })
+      console.info('>>> finalResults', finalResults)
+      // 判断是否作文本向量化的标准：只要存在一个相似的文本
+      const matched = finalResults.find(fr => fr.hasEmbedding)
+      if (matched) {
+        // 无需 embedding
+        console.info(`ID ${matched.id} 找到匹配内容 \n ${matched.content}`);
+        return {...matched, hasEmbedding: true };
       } else {
-        console.info("没有找到匹配的内容：", inputText);
+        console.info("🚀【没有找到匹配的内容】", inputText);
         return {id: '', content: inputText, hasEmbedding: false };
       }
  
@@ -121,7 +147,7 @@ export default class MyPlugin extends Plugin {
                 new Notice("没有找到高亮内容");
                 return;
               }
-              new Notice(`已收集高亮内容: \n\n ${highlights.join("\n\n")}`);
+              new Notice(`🌍正在收集高亮: \n\n ${highlights.join("\n\n").slice(0, 320) + '...'}`);
 
               // 使用 Promise.all 来并行处理每个高亮
               const reqs = highlights.map((text) => {
@@ -133,18 +159,18 @@ export default class MyPlugin extends Plugin {
                 // 处理所有结果
                 results.forEach((result) => {
                   if (result && result.hasEmbedding) {
-                    console.info(`${result.content} 已存在无需Embedding`)
+                    console.info(`🍉 无需 Embedding \n ${result.content}`)
                     // new Notice(`${result.content} 已存在无需Embedding`);
                   } else if (result && !result.hasEmbedding) {
-                    new Notice(`${result.content} 开始进行文本向量化`);
+                    new Notice(`🍉 即将进行文本向量化 \n ${result.content}`);
                     this.generateVector(result.content)
                       .then((id) => {
                         // this.vectorCache.set(result.content, { id, content: result.content, hasEmbedding: true });
-                        new Notice(`Embedding 完成: ID: ${id}, 内容: ${result.content}`);
+                        new Notice(`✅ Embedding 完成 \n ID: ${id} \n 内容: ${result.content}`);
                       })
                       .catch((error) => {
                         console.error("generatorVector error:", error);
-                        new Notice(`generatorVector error: ${error instanceof Error ? error.message : String(error)}`);
+                        new Notice(`❌ generatorVector error: ${error instanceof Error ? error.message : String(error)}`);
                       });
                   }
                 });
