@@ -362,6 +362,41 @@ func vectorCompare(text string, id string) (bool, error) {
 	return compareResults, nil
 }
 
+type DocumentResponse struct {
+	IDs       []string                 `json:"ids"`
+	Metadatas []map[string]interface{} `json:"metadatas"`
+}
+
+func listDocuments(limit int, offset int) (DocumentResponse, error) {
+	// 获取列表 /api/v2/tenants/{tenant}/databases/{database}/collections/{collection_id}/get post
+	url := fmt.Sprintf("%s/tenants/%s/databases/%s/collections/%s/get", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase, CollectionId)
+	// 请求体 limit offset include
+	payload := struct {
+		Limit   int      `json:"limit"`
+		Offset  int      `json:"offset"`
+		Include []string `json:"include"`
+	}{
+		Limit:   limit,
+		Offset:  offset,
+		Include: []string{"metadatas"},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return DocumentResponse{}, err
+	}
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return DocumentResponse{}, err
+	}
+	defer resp.Body.Close()
+	var response DocumentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return DocumentResponse{}, err
+	}
+	return response, nil
+}
+
 // HTTP接口
 func main() {
 	http.HandleFunc("/generate", func(w http.ResponseWriter, r *http.Request) {
@@ -459,6 +494,43 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]bool{"result": result})
+	})
+
+	http.HandleFunc("/documents", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "读取请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		var requestData struct {
+			Limit  int `json:"limit"`
+			Offset int `json:"offset"`
+		}
+		if err := json.Unmarshal(body, &requestData); err != nil {
+			http.Error(w, "解析请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		documents, err := listDocuments(requestData.Limit, requestData.Offset)
+		if err != nil {
+			fmt.Println("获取文档失败:", err)
+			http.Error(w, "获取文档失败", http.StatusInternalServerError)
+			return
+		}
+
+		var allResults []map[string]interface{}
+
+		for i := range documents.IDs {
+			resultItem := map[string]interface{}{
+				"id":       documents.IDs[i],
+				"metadata": documents.Metadatas[i],
+			}
+			allResults = append(allResults, resultItem)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(allResults)
 	})
 
 	// 启动服务

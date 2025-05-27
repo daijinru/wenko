@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import { crx } from '@crxjs/vite-plugin'
 import react from '@vitejs/plugin-react'
+import windi from 'vite-plugin-windicss'
 
 import manifest from './src/manifest'
 
@@ -16,7 +17,11 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    plugins: [crx({ manifest }), react()],
+    plugins: [
+      windi(),
+      crx({ manifest }),
+      react()
+    ],
     legacy: {
       skipWebSocketTokenCheck: true,
     },

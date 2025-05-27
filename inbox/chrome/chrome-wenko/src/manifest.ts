@@ -42,7 +42,7 @@ export default defineManifest({
     },
   ],
   permissions: ['sidePanel', 'storage', 'contextMenus', 'activeTab', 'tabs', 'scripting'],
-  // chrome_url_overrides: {
-  //   newtab: 'newtab.html',
-  // },
+  chrome_url_overrides: {
+    newtab: 'newtab.html',
+  },
 })
