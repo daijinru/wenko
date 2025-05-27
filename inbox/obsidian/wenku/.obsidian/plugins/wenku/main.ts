@@ -56,7 +56,7 @@ export default class MyPlugin extends Plugin {
         url: 'http://localhost:8080/search',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({  text: encodeURIComponent(inputText) })
+        body: JSON.stringify({  text: inputText })
       });
  
       const results: SearchResult[] = JSON.parse(response); 
@@ -66,7 +66,6 @@ export default class MyPlugin extends Plugin {
         // 远程内容都要缓存
         // this.vectorCache.set(item.content, item);
         // 只要有一个匹配就返回
-        item.content = decodeURIComponent(item.content);
         return item.content === inputText;
       })
 
@@ -89,7 +88,7 @@ export default class MyPlugin extends Plugin {
         url: 'http://localhost:8080/generate',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: encodeURIComponent(text) }),
+        body: JSON.stringify({ text }),
       });
  
       // console.info('>>> response', response)

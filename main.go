@@ -194,7 +194,7 @@ func addToChromaDB(id string, embedding []float32, content string) (string, erro
 		Ids:        []string{id},
 		Embeddings: [][]float32{embedding},
 		Metadatas: []map[string]string{
-			{"content": url.QueryEscape(content)},
+			{"content": content},
 		},
 	}
 	// fmt.Println("payload:", payload)
@@ -219,24 +219,15 @@ func addToChromaDB(id string, embedding []float32, content string) (string, erro
 }
 
 func generateAndStore(text string) (string, error) {
-	fmt.Println("Generating embedding for:", text)
-	// 调用Ollama API
-	resp, err := http.Post(config.OllamaURL, "application/json",
-		bytes.NewBufferString(fmt.Sprintf(`{"model":"nomic-embed-text","prompt":"%s"}`, text)))
+	embedding, err := generateEmbedding(text)
 	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var response OllamaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return "", err
 	}
 
 	// id 使用 UUIDv4 生成
 	id := strings.ReplaceAll(uuid.New().String(), "-", "")
 	// fmt.Println("Adding to ChromaDB...", response)
-	id, err = addToChromaDB(id, response.Embedding, text)
+	id, err = addToChromaDB(id, embedding, text)
 	fmt.Println(id, err)
 	if err != nil {
 		return "failed to add to chromadb:", err
@@ -247,7 +238,7 @@ func generateAndStore(text string) (string, error) {
 // 独立向量生成函数（复用存储逻辑中的核心部分）
 func generateEmbedding(text string) ([]float32, error) {
 	resp, err := http.Post(config.OllamaURL, "application/json",
-		bytes.NewBufferString(fmt.Sprintf(`{"model":"nomic-embed-text","prompt":"%s"}`, text)))
+		bytes.NewBufferString(fmt.Sprintf(`{"model":"nomic-embed-text","prompt":"%s"}`, url.QueryEscape(text))))
 	if err != nil {
 		return nil, err
 	}
@@ -431,15 +422,9 @@ func main() {
 		returnResults := make([]map[string]interface{}, len(results))
 		for i, result := range results {
 			content := result["metadata"].(map[string]interface{})["content"]
-			decoded, err := url.QueryUnescape(content.(string))
-			if err != nil {
-				// http.Error(w, "解码失败: "+err.Error(), http.StatusInternalServerError)
-				fmt.Printf("Base64 解码失败: %v\n", err)
-				decoded = content.(string)
-			}
 			returnResults[i] = map[string]interface{}{
 				"id":      result["id"],
-				"content": decoded,
+				"content": content,
 			}
 		}
 		// fmt.Printf("returnResults: %v\n", returnResults)

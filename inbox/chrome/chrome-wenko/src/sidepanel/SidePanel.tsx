@@ -60,7 +60,7 @@ export const SidePanel = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: encodeURIComponent(selectedText),
+          text: selectedText,
         }),
       })
         .then((res) => res.json())
@@ -91,7 +91,7 @@ export const SidePanel = () => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              text: encodeURIComponent(selectedText),
+              text: selectedText,
             }),
           })
             .then((res) => res.json())
