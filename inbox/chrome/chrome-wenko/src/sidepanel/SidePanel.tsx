@@ -64,7 +64,7 @@ export const SidePanel = () => {
         }),
       })
         .then((res) => res.json())
-        .then(data => {
+        .then(async data => {
           data.forEach(item => {
             item.content = decodeURIComponent(item.content)
           })
@@ -75,9 +75,36 @@ export const SidePanel = () => {
           })
           setMatchResults(data)
           setIsLoading(false)
-          // data 是一个数组 [{id, content}]，有可能空，遍历，如果content与selectedText一致，则调用生成向量接口
-          const matchResult = data.find(item => item.content === selectedText)
-          if (matchResult && matchResult.content) return
+
+          const promises = data.map(async item => {
+            chrome.runtime.sendMessage({
+              target: "content-script",
+              type: "LOG",
+              text: JSON.stringify('正在比对: ' + item.id + ' content: ' + selectedText),
+            })
+            const res = await fetch('http://localhost:8080/compare', {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                text: selectedText,
+                id: item.id
+              }),
+            })
+            const parsed = await res.json()
+            return parsed.result
+          })
+          const finalRes = await Promise.all(promises)
+          chrome.runtime.sendMessage({
+            target: "content-script",
+            type: "LOG",
+            text: '✅ 比对结果: ' + JSON.stringify(finalRes),
+          })
+          const matched = finalRes.some(fr => fr)
+          if (matched) return
+          // const matchResult = data.find(item => item.content === selectedText)
+          // if (matchResult && matchResult.content) return
           chrome.runtime.sendMessage({
             target: "content-script",
             type: "TOAST",
@@ -125,7 +152,7 @@ export const SidePanel = () => {
 3. 区分文本的字面逻辑与潜在表达张力 
  
 【上下文线索】
-${matchResults.slice(0,5).map((item,index)  => 
+${matchResults.map((item,index)  => 
   `线索${index+1}: ${item.content}`
 ).join('\n\n')}`;
   }

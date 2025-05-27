@@ -326,6 +326,7 @@ type VectorGetRessponse struct {
 }
 
 func vectorCompare(text string, id string) (bool, error) {
+	fmt.Println("vectorCompare...", text, id)
 	embeddings, err := generateEmbedding(text)
 	if err != nil {
 		return false, err
@@ -353,8 +354,8 @@ func vectorCompare(text string, id string) (bool, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return false, err
 	}
-	// fmt.Println("response:", response.Embeddings)
-	compareResults := vector.BatchCompare(embeddings, response.Embeddings[0], 0.8)
+	// fmt.Println("response:", response.Embeddings[0])
+	compareResults := vector.BatchCompare(embeddings, response.Embeddings[0], 0.99)
 	// 将 compareResults 打印为字符串
 	// fmt.Println("compareResults:", compareResults)
 

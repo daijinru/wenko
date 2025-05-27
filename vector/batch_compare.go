@@ -40,21 +40,6 @@ func BatchCompare(target []float32, vector []float32, threshold float32) bool {
 
 	sim := cosineSimilarity(targetNorm, vecNorm)
 	return sim >= threshold
-	// results := make([]bool, len(vectors))
-
-	// var wg sync.WaitGroup
-	// wg.Add(len(vectors))
-
-	// for i, vec := range vectors {
-	// 	go func(idx int, v []float32) {
-	// 		defer wg.Done()
-	// 		vecNorm := normalize(v)
-	// 		sim := cosineSimilarity(targetNorm, vecNorm)
-	// 		results[idx] = sim >= threshold
-	// 	}(i, vec)
-	// }
-	// wg.Wait()
-	// return results
 }
 
 // 对 BatchCompare 结果聚合计算（多数投票法）

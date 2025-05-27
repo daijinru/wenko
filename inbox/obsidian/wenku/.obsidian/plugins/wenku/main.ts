@@ -96,7 +96,7 @@ export default class MyPlugin extends Plugin {
       const matched = finalResults.find(fr => fr.hasEmbedding)
       if (matched) {
         // 无需 embedding
-        console.info(`ID ${matched.id} 找到匹配内容 \n ${matched.content}`);
+        console.info(`🍌 ID ${matched.id} 找到匹配内容 \n ${matched.content}`);
         return {...matched, hasEmbedding: true };
       } else {
         console.info("🚀【没有找到匹配的内容】", inputText);
