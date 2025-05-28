@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Card, Button, notification } from 'antd'
 import { DoubleRightOutlined } from '@ant-design/icons'
+import Editor from './editor'
 
 export const NewTab = () => {
+  const [editor, setEditor] = useState(true)
   const [documents, setDocuments] = useState([])
   useEffect(() => {
     // fetch http://localhost:8080/documents
@@ -56,28 +58,36 @@ export const NewTab = () => {
   }
 
   return (
-    <section>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-6 lg:p-8">
-        <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 md:gap-6 space-y-4 md:space-y-6">
-          {
-            documents.map(doc => {
-              return (
-                <Card
-                  size='small'
-                  key={doc.id}
-                  className="break-inside-avoid mb-4 md:mb-6 shadow-sm hover:shadow-md transition-shadow duration-300 bg-white/80 backdrop-blur-sm border-slate-200/50"
-                  extra={<Button onClick={() => getRelations(doc.metadata?.content)} icon={<DoubleRightOutlined />} type="text"></Button>}
-                >
-                  <div className="p-4 md:p-6">
-                    <p className="text-12 overflow-hidden text-slate-700 leading-relaxed">{doc.metadata?.content}</p>
-                  </div>
-                </Card>
-              )
-            })
-          }
-        </div>
-      </div>
-    </section>
+    <>
+      <section>
+      {
+        editor
+          ? <Editor />
+          : <section>
+              <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-6 lg:p-8">
+                <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 md:gap-6 space-y-4 md:space-y-6">
+                  {
+                    documents.map(doc => {
+                      return (
+                        <Card
+                          size='small'
+                          key={doc.id}
+                          className="break-inside-avoid mb-4 md:mb-6 shadow-sm hover:shadow-md transition-shadow duration-300 bg-white/80 backdrop-blur-sm border-slate-200/50"
+                          extra={<Button onClick={() => getRelations(doc.metadata?.content)} icon={<DoubleRightOutlined />} type="text"></Button>}
+                        >
+                          <div className="p-4 md:p-6">
+                            <p className="text-12 overflow-hidden text-slate-700 leading-relaxed">{doc.metadata?.content}</p>
+                          </div>
+                        </Card>
+                      )
+                    })
+                  }
+                </div>
+              </div>
+            </section>
+      }
+      </section>
+    </>
   )
 }
 
