@@ -26,10 +26,8 @@ import (
 //	}
 type Config struct {
 	OllamaURL        string `json:"OllamaURL"`
-	MongoURI         string `json:"MongoURI"`
-	DatabaseName     string `json:"DatabaseName"`
-	Collection       string `json:"Collection"`
 	OpenRouterApiKey string `json:"OpenRouterApiKey"`
+	Collection       string `json:"Collection"`
 	ChromaDBURL      string `json:"ChromaDBURL"`
 	ChromDBTenants   string `json:"ChromDBTenants"`
 	ChromaDBDatabase string `json:"ChromaDBDatabase"`
