@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react'
-import { Card, Button, notification } from 'antd'
-import { DoubleRightOutlined } from '@ant-design/icons'
+import { Card, Button, notification, Space, Tooltip, Divider } from 'antd'
+import { BulbTwoTone, DeleteTwoTone } from '@ant-design/icons'
 import Editor from './editor'
 
 export const NewTab = () => {
-  const [editor, setEditor] = useState(true)
+  const [editor, setEditor] = useState(false)
   const [documents, setDocuments] = useState([])
+
+
   useEffect(() => {
+    reload()
+  }, [])
+
+  const reload = () => {
     // fetch http://localhost:8080/documents
     fetch("http://localhost:8080/documents", {
       method: "POST",
@@ -27,10 +33,10 @@ export const NewTab = () => {
             doc.metadata.content = decodeURIComponent(doc.metadata?.content)
           })
         }
+        docs = docs.sort(() => Math.random() - 0.5)
         setDocuments(docs)
       })
-  }, [])
-
+  }
   const getRelations = (text) => {
     fetch("http://localhost:8080/search", {
       method: "POST",
@@ -52,9 +58,31 @@ export const NewTab = () => {
         if (!doc.metadata) doc.metadata = {}
         doc.metadata.content = doc.content
       })
+      // 随机处理 docs
+      docs = docs.sort(() => Math.random() - 0.5)
       console.info('>< 线索:', docs)
       setDocuments(docs)
     })
+  }
+
+  const deleteRecord = async (id: string) => {
+    const r = window.confirm('确认删除吗？')
+    if (!r) return
+    fetch("http://localhost:8080/delete?id=" + id, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+      .then(res => res.json())
+      .then(id => {
+        if (id) {
+          reload()
+        } else {
+          console.warn('删除失败', id)
+          alert('删除失败')
+        }
+      })
   }
 
   return (
@@ -73,7 +101,16 @@ export const NewTab = () => {
                           size='small'
                           key={doc.id}
                           className="break-inside-avoid mb-4 md:mb-6 shadow-sm hover:shadow-md transition-shadow duration-300 bg-white/80 backdrop-blur-sm border-slate-200/50"
-                          extra={<Button onClick={() => getRelations(doc.metadata?.content)} icon={<DoubleRightOutlined />} type="text"></Button>}
+                          extra={
+                            <Space size="small">
+                              <Tooltip title="删除">
+                                <Button onClick={() => deleteRecord(doc.id)} icon={<DeleteTwoTone twoToneColor={"#eb2f96"} />} type="text"></Button>
+                              </Tooltip>
+                              <Tooltip title="线索">
+                                <Button onClick={() => getRelations(doc.metadata?.content)} icon={<BulbTwoTone />} type="text"></Button>
+                              </Tooltip>
+                            </Space>
+                          }
                         >
                           <div className="p-4 md:p-6">
                             <p className="text-12 overflow-hidden text-slate-700 leading-relaxed">{doc.metadata?.content}</p>

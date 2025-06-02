@@ -249,6 +249,30 @@ func generateEmbedding(text string) ([]float32, error) {
 	return response.Embedding, nil
 }
 
+// 删除记录
+func deleteRecord(recordID string) (string, error) {
+	// /api/v2/tenants/{tenant}/databases/{database}/collections/{collection_id}/delete post
+	url := fmt.Sprintf("%s/tenants/%s/databases/%s/collections/%s/delete", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase, CollectionId)
+	payload := struct {
+		IDs []string `json:"ids"`
+	}{
+		IDs: []string{recordID},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP request failed with status code %d", resp.StatusCode)
+	}
+	return recordID, nil
+}
+
 type VectorSearchResponse struct {
 	IDs        [][]string                 `json:"ids"`
 	Embeddings [][]float32                `json:"embeddings"`
@@ -292,7 +316,6 @@ func vectorSearch(queryVector []float32) ([]map[string]interface{}, error) {
 	// 	return nil, err
 	// }
 	// fmt.Println("Response Body:", string(bodyBytes))
-	defer resp.Body.Close()
 	var response VectorSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, err
@@ -529,6 +552,20 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(allResults)
+	})
+
+	http.HandleFunc("/delete", func(w http.ResponseWriter, r *http.Request) {
+		// 从 query 参数取出 id
+		id := r.URL.Query().Get("id")
+		fmt.Println("删除记录", id)
+		recordID, err := deleteRecord(id)
+		if err != nil {
+			http.Error(w, "删除失败", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// 返回 { id } 结构体
+		json.NewEncoder(w).Encode(map[string]string{"id": recordID})
 	})
 
 	// 启动服务
