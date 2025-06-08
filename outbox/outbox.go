@@ -79,7 +79,7 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	PrintOut("200", string(dataBytes))
 
 	modelRequestBody, _ := json.Marshal(map[string]interface{}{
-		"model": "qwen/qwen3-32b:fre",
+		"model": "qwen/qwen3-32b:free",
 		// 创建 system 和 user 角色的消息
 		"messages": []map[string]string{
 			{
