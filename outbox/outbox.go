@@ -3,6 +3,7 @@ package outbox
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +12,7 @@ import (
 )
 
 var (
-	// globalSession  *Session
+	globalSession  *Session
 	FlusherWriter  http.Flusher
 	ResponseWriter http.ResponseWriter
 
@@ -19,6 +20,10 @@ var (
 
 	OpenRouterApiKey string
 )
+
+func InitGlobalSession() {
+	globalSession = NewSession()
+}
 
 func InitApiKey(apiKey string) {
 	OpenRouterApiKey = apiKey
@@ -30,8 +35,36 @@ type OutMessage struct {
 	ActionID string `json:"actionID"`
 }
 
-func Init() {
-	// globalSession = NewSession()
+func GenerateUUID() string {
+	u := make([]byte, 16)
+	_, err := rand.Read(u)
+	if err != nil {
+		return ""
+	}
+	// 设置版本 (4) 和变体 (RFC4122)
+	u[6] = (u[6] & 0x0f) | 0x40
+	u[8] = (u[8] & 0x3f) | 0x80
+
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		u[0:4],
+		u[4:6],
+		u[6:8],
+		u[8:10],
+		u[10:16])
+}
+
+func waitUntil(timeout time.Duration, codition func() bool) {
+	start := time.Now()
+	for {
+		fmt.Println("等待中...")
+		if codition() {
+			return
+		}
+		if time.Since(start) > timeout {
+			return
+		}
+		time.Sleep(1000 * time.Millisecond)
+	}
 }
 
 func PrintOut(eventType string, data string) {
@@ -43,6 +76,7 @@ func PrintOut(eventType string, data string) {
 }
 
 func NewTask(w http.ResponseWriter, r *http.Request) {
+
 	fmt.Println("创建新任务...")
 	id = 0 // 重置 id
 	// 从 body 中读取请求体
@@ -69,7 +103,6 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Streaming 不支持", http.StatusInternalServerError)
 	}
 
-	// 创建一个 session
 	data := OutMessage{
 		Type:     "text",
 		Payload:  "连接成功，请稍后",
@@ -78,6 +111,37 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	dataBytes, _ := json.Marshal(data)
 	PrintOut("200", string(dataBytes))
 
+	maxOuterLoop := 5 // 外层最大循环次数
+	currentLoop := 0  // 当前循环计数器（可被重置）
+	taskDone := false
+
+	for {
+		if currentLoop >= maxOuterLoop {
+			data := OutMessage{
+				Type:     "text",
+				Payload:  "任务中断",
+				ActionID: "",
+			}
+			dataBytes, _ := json.Marshal(data)
+			PrintOut("200", string(dataBytes))
+			break
+		}
+		if taskDone {
+			data := OutMessage{
+				Type:     "text",
+				Payload:  "任务完成",
+				ActionID: "",
+			}
+			dataBytes, _ := json.Marshal(data)
+			PrintOut("200", string(dataBytes))
+			break
+		}
+		recursivePlanningTask(ChatRequest.Text)
+		currentLoop++
+	}
+}
+
+func recursivePlanningTask(text string) {
 	modelRequestBody, _ := json.Marshal(map[string]interface{}{
 		"model": "qwen/qwen3-32b:free",
 		// 创建 system 和 user 角色的消息
@@ -88,12 +152,12 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 			},
 			{
 				"role":    "user",
-				"content": ChatRequest.Text,
+				"content": text,
 			},
 		},
-		"stream": true,
+		// "stream": true,
 	})
-	// 请求 openrouter 并传入 InteractivePlanningSystemPrompt
+	// Planning Task: 请求 openrouter 并传入 InteractivePlanningSystemPrompt
 	// 将返回的内容写入会话
 	req, _ := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewBuffer(modelRequestBody))
 	req.Header.Set("Authorization", "Bearer "+OpenRouterApiKey)
@@ -104,7 +168,7 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		http.Error(w, "调用大模型失败: "+err.Error(), http.StatusInternalServerError)
+		http.Error(ResponseWriter, "调用大模型失败: "+err.Error(), http.StatusInternalServerError)
 	}
 	defer resp.Body.Close()
 
@@ -120,57 +184,88 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 		dataBytes, _ := json.Marshal(data)
 		PrintOut("200", string(dataBytes))
 	}
+
+	// 添加一个 ask 消息
+	actionID := GenerateUUID()
+	askMessage := MessageType{
+		Type: "ask",
+		Payload: PayloadType{
+			Content: "请问你有什么问题吗？",
+			Meta: map[string]interface{}{
+				"answer": false,
+				"reason": "",
+			},
+		},
+		ActionID: actionID,
+	}
+
+	//  发送 askMessage
+	data := OutMessage{
+		Type:     "ask",
+		Payload:  askMessage.Payload.Content,
+		ActionID: actionID,
+	}
+	dataBytes, _ := json.Marshal(data)
+	PrintOut("200", string(dataBytes))
+	globalSession.AddEntry("ask", askMessage)
+
+	lastEntry := MessageType{}
+	waitUntil(60*time.Second, func() bool {
+		entries, exists := globalSession.GetEntries("ask")
+		if exists {
+			// 取出最后一条数据
+			lastEntry = entries[len(entries)-1]
+			// actionID 必须对上
+			if actionID != lastEntry.ActionID {
+				return false
+			}
+			// 取出 Payload 中的 Meta 中的 answer，如果是 false，返回 false，否则返回 true
+			if lastEntry.Payload.Meta["answer"] == false {
+				// if lastEntry.Payload.Meta["answer"] == "" {
+				return false
+			} else {
+				return true
+			}
+		}
+		return false
+	})
+	// 如果 lastEntry.Payload.Meta["answer"] 为 true，但是 reason 为空，则停止循环，否则继续循环
+	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
+		return
+	} else {
+		text := lastEntry.Payload.Meta["reason"].(string)
+		recursivePlanningTask(text)
+	}
 }
 
-func Loop() {
-	maxOuterLoop := 5        // 外层最大循环次数
-	currentLoop := 0         // 当前循环计数器（可被重置）
-	abortSignal := false     // 主动中断信号
-	pauseByExternal := false // 外部传入的暂停信号
-	pauseByInternal := false // 内部主动暂停信号
-
-	for currentLoop < maxOuterLoop {
-		if abortSignal {
-			fmt.Println("外层循环被中断")
-			break
-		}
-
-		fmt.Printf("外层循环第 %d 次开始\n", currentLoop)
-
-		// 内层循环（模拟与大模型交互）
-		for {
-			// 判断是否进入暂停状态
-			if pauseByExternal || pauseByInternal {
-				fmt.Println("内层循环已暂停...")
-				time.Sleep(1 * time.Second) // 模拟等待恢复
-				continue
-			}
-
-			// 模拟大模型交互逻辑
-			fmt.Println("处理与大模型的交互...")
-
-			// 模拟内部主动触发一次暂停
-			if currentLoop == 2 {
-				pauseByInternal = true
-			}
-
-			// 示例：当执行到第3次时，重置循环计数器
-			if currentLoop == 2 {
-				fmt.Println("检测到特定条件，重置循环计数器...")
-				currentLoop = 0
-				fmt.Printf("当前循环次数已被重置为：%d\n", currentLoop)
-			}
-
-			// 模拟短暂延迟后继续执行
-			time.Sleep(500 * time.Millisecond)
-
-			// 结束内层循环测试（模拟完成当前任务）
-			if !pauseByExternal && !pauseByInternal && currentLoop == 4 {
-				fmt.Println("内层循环结束")
-				break
-			}
-		}
-
-		currentLoop++ // 正常递增
+func PlanningTaskAnswer(w http.ResponseWriter, r *http.Request) {
+	// 从 body 中读取请求体
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "读取请求体失败", http.StatusBadRequest)
 	}
+	// 解析请求体，取出 text
+	var ChatRequest struct {
+		Text     string `json:"text"`
+		ActionID string `json:"actionID"`
+	}
+	if err := json.Unmarshal(body, &ChatRequest); err != nil {
+		http.Error(w, "解析请求体失败", http.StatusBadRequest)
+	}
+
+	entries, _ := globalSession.GetEntries("ask")
+	lastEntry := entries[len(entries)-1]
+
+	askMessage := MessageType{
+		Type: "ask",
+		Payload: PayloadType{
+			Content: lastEntry.Payload.Content,
+			Meta: map[string]interface{}{
+				"answer": true,
+				"reason": ChatRequest.Text,
+			},
+		},
+		ActionID: ChatRequest.ActionID,
+	}
+	globalSession.AddEntry("ask", askMessage)
 }

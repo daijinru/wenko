@@ -49,6 +49,7 @@ func init() {
 	}
 
 	outbox.InitApiKey(config.OpenRouterApiKey)
+	outbox.InitGlobalSession()
 
 	// 检查租户 addTenant 是否存在
 	fmt.Println("🌍正在添加租户...")
@@ -573,6 +574,8 @@ func main() {
 
 	// 创建一个 task 接口, post，使用 NewTask 方法
 	http.HandleFunc("/task", outbox.NewTask)
+	// 用户回答 PlanningTask answer
+	http.HandleFunc("/planning/answer", outbox.PlanningTaskAnswer)
 
 	// 启动服务
 	fmt.Println("✅ 启动服务成功 -- Server running on :8080")
