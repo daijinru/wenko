@@ -157,7 +157,7 @@ func recursivePlanningTask(text string) bool {
 				"content": text,
 			},
 		},
-		// "stream": true,
+		"stream": true,
 	})
 	// Planning Task: 请求 openrouter 并传入 InteractivePlanningSystemPrompt
 	// 将返回的内容写入会话
@@ -178,17 +178,27 @@ func recursivePlanningTask(text string) bool {
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
-		data := OutMessage{
-			Type:     "text",
-			Payload:  line,
-			ActionID: "",
+		if len(line) > 6 && line[:6] == "data: " {
+			data := line[6:]
+			if data == "[DONE]" {
+				break
+			}
+			var orResp OpenRouterResponse
+			if err := json.Unmarshal([]byte(data), &orResp); err == nil {
+				if len(orResp.Choices) > 0 {
+					content := orResp.Choices[0].Delta.Content
+					if content != "" {
+						data := OutMessage{
+							Type:     "text",
+							Payload:  content,
+							ActionID: "",
+						}
+						dataBytes, _ := json.Marshal(data)
+						PrintOut("200", string(dataBytes))
+					}
+				}
+			}
 		}
-		dataBytes, _ := json.Marshal(data)
-		PrintOut("200", string(dataBytes))
-		// 			}
-		// 		}
-		// 	}
-		// }
 	}
 
 	// 添加一个 ask 消息
@@ -205,10 +215,12 @@ func recursivePlanningTask(text string) bool {
 		ActionID: actionID,
 	}
 
-	//  发送 askMessage
+	// 发送 askMessage
+	// 序列化 askMessage
+	payloadMessage, _ := json.Marshal(askMessage)
 	data := OutMessage{
 		Type:     "ask",
-		Payload:  askMessage.Payload.Content,
+		Payload:  string(payloadMessage),
 		ActionID: actionID,
 	}
 	dataBytes, _ := json.Marshal(data)
