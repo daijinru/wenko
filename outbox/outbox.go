@@ -75,6 +75,11 @@ func PrintOut(eventType string, data string) {
 	id++
 }
 
+type StopReason struct {
+	Type    string `json:"type"`
+	Payload string `json:"payload"`
+}
+
 func NewTask(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("创建新任务...")
@@ -111,25 +116,14 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	dataBytes, _ := json.Marshal(data)
 	PrintOut("200", string(dataBytes))
 
-	maxOuterLoop := 5 // 外层最大循环次数
+	maxOuterLoop := 3 // 外层最大循环次数
 	currentLoop := 0  // 当前循环计数器（可被重置）
-	taskDone := false
 
 	for {
 		if currentLoop >= maxOuterLoop {
 			data := OutMessage{
 				Type:     "text",
-				Payload:  "任务中断",
-				ActionID: "",
-			}
-			dataBytes, _ := json.Marshal(data)
-			PrintOut("200", string(dataBytes))
-			break
-		}
-		if taskDone {
-			data := OutMessage{
-				Type:     "text",
-				Payload:  "任务完成",
+				Payload:  "任务中断: 最大循环数",
 				ActionID: "",
 			}
 			dataBytes, _ := json.Marshal(data)
@@ -141,7 +135,15 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func recursivePlanningTask(text string) {
+type OpenRouterResponse struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+	} `json:"choices"`
+}
+
+func recursivePlanningTask(text string) bool {
 	modelRequestBody, _ := json.Marshal(map[string]interface{}{
 		"model": "qwen/qwen3-32b:free",
 		// 创建 system 和 user 角色的消息
@@ -183,6 +185,10 @@ func recursivePlanningTask(text string) {
 		}
 		dataBytes, _ := json.Marshal(data)
 		PrintOut("200", string(dataBytes))
+		// 			}
+		// 		}
+		// 	}
+		// }
 	}
 
 	// 添加一个 ask 消息
@@ -210,7 +216,7 @@ func recursivePlanningTask(text string) {
 	globalSession.AddEntry("ask", askMessage)
 
 	lastEntry := MessageType{}
-	waitUntil(60*time.Second, func() bool {
+	waitUntil(180*time.Second, func() bool {
 		entries, exists := globalSession.GetEntries("ask")
 		if exists {
 			// 取出最后一条数据
@@ -224,21 +230,62 @@ func recursivePlanningTask(text string) {
 				// if lastEntry.Payload.Meta["answer"] == "" {
 				return false
 			} else {
+				// 只有满足 answer 为 true 才能返回 true
 				return true
 			}
 		}
 		return false
 	})
-	// 如果 lastEntry.Payload.Meta["answer"] 为 true，但是 reason 为空，则停止循环，否则继续循环
+	// TODO 如果 lastEntry.Payload.Meta["answer"] 为 true，但是 reason 为空，则停止循环，否则继续循环
 	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
-		return
+		return true
 	} else {
 		text := lastEntry.Payload.Meta["reason"].(string)
-		recursivePlanningTask(text)
+		return recursivePlanningTask(text)
 	}
 }
 
 func PlanningTaskAnswer(w http.ResponseWriter, r *http.Request) {
+	// 从 body 中读取请求体
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "读取请求体失败", http.StatusBadRequest)
+		return
+	}
+	// 解析请求体，取出 text
+	var ChatRequest struct {
+		Text     string `json:"text"`
+		ActionID string `json:"actionID"`
+	}
+	if err := json.Unmarshal(body, &ChatRequest); err != nil {
+		http.Error(w, "解析请求体失败", http.StatusBadRequest)
+		return
+	}
+
+	entries, _ := globalSession.GetEntries("ask")
+	// fmt.Println("entries: ", entries)
+	if (entries == nil) || (len(entries) == 0) {
+		http.Error(w, "没有找到相应的 ask 消息", http.StatusBadRequest)
+	} else {
+		lastEntry := entries[len(entries)-1]
+
+		askMessage := MessageType{
+			Type: "ask",
+			Payload: PayloadType{
+				Content: lastEntry.Payload.Content,
+				Meta: map[string]interface{}{
+					"answer": true,
+					"reason": ChatRequest.Text,
+				},
+			},
+			ActionID: ChatRequest.ActionID,
+		}
+		globalSession.AddEntry("ask", askMessage)
+	}
+}
+
+// 客户端发起中断信号
+func InterruptTask(w http.ResponseWriter, r *http.Request) {
 	// 从 body 中读取请求体
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -262,7 +309,7 @@ func PlanningTaskAnswer(w http.ResponseWriter, r *http.Request) {
 			Content: lastEntry.Payload.Content,
 			Meta: map[string]interface{}{
 				"answer": true,
-				"reason": ChatRequest.Text,
+				"reason": "",
 			},
 		},
 		ActionID: ChatRequest.ActionID,
