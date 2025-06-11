@@ -119,7 +119,11 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	maxOuterLoop := 3 // 外层最大循环次数
 	currentLoop := 0  // 当前循环计数器（可被重置）
 
+	taskDone := false
+
 	for {
+		fmt.Println("当前循环次数: ", currentLoop)
+
 		if currentLoop >= maxOuterLoop {
 			data := OutMessage{
 				Type:     "text",
@@ -130,7 +134,23 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 			PrintOut("200", string(dataBytes))
 			break
 		}
-		recursivePlanningTask(ChatRequest.Text)
+
+		if taskDone {
+			data := OutMessage{
+				Type:     "text",
+				Payload:  "任务完成",
+				ActionID: "",
+			}
+			dataBytes, _ := json.Marshal(data)
+			PrintOut("200", string(dataBytes))
+			break
+		}
+
+		planningIsEnd := recursivePlanningTask(ChatRequest.Text)
+		// 如果 planningIsEnd 为 true，则退出循环
+		if planningIsEnd {
+			taskDone = true
+		}
 		currentLoop++
 	}
 }
@@ -249,6 +269,7 @@ func recursivePlanningTask(text string) bool {
 		return false
 	})
 	// TODO 如果 lastEntry.Payload.Meta["answer"] 为 true，但是 reason 为空，则停止循环，否则继续循环
+	fmt.Println("lastEntry: ", lastEntry, lastEntry.Payload.Meta["answer"], lastEntry.Payload.Meta["reason"])
 	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
 		return true
 	} else {
