@@ -1,14 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, Button, notification, Space, Tooltip, Flex } from 'antd'
 import { Sender, Bubble } from '@ant-design/x'
 import { BulbTwoTone, DeleteTwoTone, UserOutlined } from '@ant-design/icons'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
+import { isObject, last } from 'lodash-es'
 import Editor from './editor'
+import Prompts from './Prompts'
 import './NewTab.css'
 
 // 一个使用 uuid 生成 msg_id 的函数
 const generateMsgId = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
@@ -19,9 +24,15 @@ export const NewTab = () => {
   const [documents, setDocuments] = useState([])
   const [userValue, setUserValue] = useState('')
   const [messages, setMessages] = useState([] as any[])
+  const inputRef = useRef<any>(null)
+  const [isFocus, setIsFocus] = useState(false)
 
   useEffect(() => {
     reload()
+
+    window['_NewTab'] = {
+      messages,
+    }
   }, [])
 
   const reload = () => {
@@ -59,22 +70,22 @@ export const NewTab = () => {
         text,
       }),
     })
-    .then(res => res.json())
-    .then(docs => {
-      if (!Array.isArray(docs)) {
-        notification.warning({message: '没有找到匹配的线索'})
-        return
-      }
-      docs.forEach(doc => {
-        doc.content = decodeURIComponent(doc.content)
-        if (!doc.metadata) doc.metadata = {}
-        doc.metadata.content = doc.content
+      .then(res => res.json())
+      .then(docs => {
+        if (!Array.isArray(docs)) {
+          notification.warning({ message: '没有找到匹配的线索' })
+          return
+        }
+        docs.forEach(doc => {
+          doc.content = decodeURIComponent(doc.content)
+          if (!doc.metadata) doc.metadata = {}
+          doc.metadata.content = doc.content
+        })
+        // 随机处理 docs
+        docs = docs.sort(() => Math.random() - 0.5)
+        console.info('>< 线索:', docs)
+        setDocuments(docs)
       })
-      // 随机处理 docs
-      docs = docs.sort(() => Math.random() - 0.5)
-      console.info('>< 线索:', docs)
-      setDocuments(docs)
-    })
   }
   const deleteRecord = async (id: string) => {
     const r = window.confirm('确认删除吗？')
@@ -138,8 +149,8 @@ export const NewTab = () => {
         ]
       }),
       onopen(res) {
-        if (res.ok) return Promise.resolve()
         if (!currentMsgId) currentMsgId = generateMsgId()
+        if (res.ok) return Promise.resolve()
       },
       onmessage(line) {
         // chrome.runtime.sendMessage({
@@ -185,13 +196,134 @@ export const NewTab = () => {
     })
   }
 
+  type PayloadMessageType = {
+    type: string
+    payload: {
+      content: string
+      meta: {
+        id: string
+        [key: string]: any
+      }
+    }
+  }
+  // const onNewMessage = (payload: PayloadMessage) => {
+  //   if (payload.Type === 'text') {
+  //     const newMessage = {
+  //       id: payload.Meta.id,
+  //       type: 'text',
+  //       role: 'assistant',
+  //       content: payload.Content,
+  //     }
+  //     setMessages(prev => [...prev, newMessage])
+  //   }
+  // }
+  const onNewTask = async text => {
+    await fetchEventSource('http://localhost:8080/task', {
+      method: 'POST',
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        text,
+      }),
+      onopen(res) {
+        if (res.ok) return Promise.resolve()
+      },
+      onmessage(line) {
+        try {
+          const parsed = JSON.parse(line.data)
+          if (parsed?.type === 'statusText') {
+            // setLoadingText(parsed?.content)
+          }
+          // console.info('>< parsed:', parsed)
+          const payload: PayloadMessageType = JSON.parse(parsed?.payload)
+          if (parsed?.type === 'text' && isObject(payload)) {
+            if (payload?.type === 'text') {
+              const newMessage = {
+                id: payload.payload.meta.id,
+                type: 'text',
+                role: 'assistant',
+                content: payload.payload.content || '',
+              }
+              setMessages(prev => {
+                const lastMessage = prev.findLast(msg => msg.id === payload.payload.meta.id)
+                if (!lastMessage) return [...prev, newMessage]
+                const updatedMessage = { ...lastMessage, content: lastMessage.content + newMessage.content }
+                return [...prev.slice(0, -1), updatedMessage]
+              })
+
+            } else if (payload?.type === 'ask') {
+              const newMessage = {
+                id: payload.payload.meta.id,
+                type: 'ask',
+                role: 'assistant',
+                content: payload.payload.content || '',
+              }
+              setMessages(prev => {
+                const lastMessage = prev.findLast(msg => msg.id === payload.payload.meta.id)
+                if (!lastMessage) return [...prev, newMessage]
+                const updatedMessage = { ...lastMessage, content: lastMessage.content + newMessage.content }
+                return [...prev.slice(0, -1), updatedMessage]
+              })
+            }
+          }
+        } catch (error) {
+          console.error(error)
+        }
+      },
+      onerror(err) {
+        console.error(err)
+      },
+    })
+  }
+
+  const onCancelTask = () => {
+
+  }
+  function renderAssistantMessage(message) {
+    if (message.type === 'text') {
+      return (
+        <Bubble
+          key={message.id}
+          placement='start'
+          avatar={{ icon: <UserOutlined />, style: fooAvatar }}
+          content={
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
+            >
+              {message.content}
+            </ReactMarkdown>
+          }
+        />
+      )
+    } else if (message.type === 'ask') {
+      return (
+        <Bubble
+          key={message.id}
+          placement='start'
+          avatar={{ icon: <UserOutlined />, style: fooAvatar }}
+          content={<>
+            <Card title={message.content} variant='borderless'>
+              <Space>
+                <Button type="text" disabled>执行</Button>
+                <Button type='text' color='danger'>取消</Button>
+              </Space>
+            </Card>
+          </>}
+        />
+      )
+    }
+    return <></>
+  }
+
   return (
     <>
       <section>
-      {
-        editor
-          ? <Editor />
-          : <section>
+        {
+          editor
+            ? <Editor />
+            : <section>
               <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-6 lg:p-8">
                 <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 md:gap-6 space-y-4 md:space-y-6">
                   {
@@ -222,48 +354,52 @@ export const NewTab = () => {
                 </div>
               </div>
             </section>
-      }
+        }
       </section>
       <section>
         <div className='w-480px fixed bottom-32px right-32px'>
           {
-            messages.length > 0 &&
-            <div
-              className='mb-16px bg-[rgba(255,255,255,0.9)] rounded-12px overflow-y-scroll scrollbar-hide px-16px py-16px'
-              style={{
-                maxHeight: 'calc(100vh - 200px)',
-                boxShadow: 'rgba(14, 63, 126, 0.06) 0px 0px 0px 1px, rgba(42, 51, 70, 0.03) 0px 1px 1px -0.5px, rgba(42, 51, 70, 0.04) 0px 2px 2px -1px, rgba(42, 51, 70, 0.04) 0px 3px 3px -1.5px, rgba(42, 51, 70, 0.03) 0px 5px 5px -2.5px, rgba(42, 51, 70, 0.03) 0px 10px 10px -5px, rgba(42, 51, 70, 0.03) 0px 24px 24px -8px'
-              }}             
-            >
-              <Flex gap="middle" vertical>
-                {
-                  messages.map(message => {
-                    return (
-                      <>
-                        {
-                          isAssistant(message) &&
-                            <Bubble
-                              key={message.id}
-                              placement='start'
-                              avatar={{ icon: <UserOutlined />, style: fooAvatar }}
-                              content={message.content}
-                            />
-                        }
-                        {
-                          isUser(message) &&
+            messages.length > 0 ?
+              <div
+                className='mb-16px bg-[rgba(255,255,255,0.9)] rounded-12px overflow-y-scroll scrollbar-hide px-16px py-16px'
+                style={{
+                  maxHeight: 'calc(100vh - 200px)',
+                  boxShadow: 'rgba(14, 63, 126, 0.06) 0px 0px 0px 1px, rgba(42, 51, 70, 0.03) 0px 1px 1px -0.5px, rgba(42, 51, 70, 0.04) 0px 2px 2px -1px, rgba(42, 51, 70, 0.04) 0px 3px 3px -1.5px, rgba(42, 51, 70, 0.03) 0px 5px 5px -2.5px, rgba(42, 51, 70, 0.03) 0px 10px 10px -5px, rgba(42, 51, 70, 0.03) 0px 24px 24px -8px'
+                }}
+              >
+                <Flex gap="middle" vertical>
+                  {
+                    messages.map(message => {
+                      return (
+                        <>
+                          {
+                            isAssistant(message) && renderAssistantMessage(message)
+                          }
+                          {
+                            isUser(message) &&
                             <Bubble
                               key={message.id}
                               placement='end'
                               avatar={{ icon: <UserOutlined />, style: barAvatar }}
                               content={message.content}
                             />
-                        }
-                      </>
-                    )
-                  })
-                }
-              </Flex>
-            </div>
+                          }
+                        </>
+                      )
+                    })
+                  }
+                </Flex>
+              </div>
+              : isFocus ?
+                <div
+                  className='mb-16px bg-[rgba(255,255,255,0.9)] rounded-12px p-16px'
+                  style={{
+                    boxShadow: 'rgba(14, 63, 126, 0.06) 0px 0px 0px 1px, rgba(42, 51, 70, 0.03) 0px 1px 1px -0.5px, rgba(42, 51, 70, 0.04) 0px 2px 2px -1px, rgba(42, 51, 70, 0.04) 0px 3px 3px -1.5px, rgba(42, 51, 70, 0.03) 0px 5px 5px -2.5px, rgba(42, 51, 70, 0.03) 0px 10px 10px -5px, rgba(42, 51, 70, 0.03) 0px 24px 24px -8px'
+                  }}
+                >
+                  <Prompts onSend={onNewTask} />
+                </div>
+                : null
           }
           <div
             className='bg-white rounded-12px'
@@ -272,6 +408,7 @@ export const NewTab = () => {
             }}
           >
             <Sender
+              ref={inputRef}
               value={userValue}
               onChange={setUserValue}
               submitType="shiftEnter"
@@ -279,6 +416,12 @@ export const NewTab = () => {
               onSubmit={text => {
                 onUserSubmit(text)
                 // message.success('Send message successfully!');
+              }}
+              onFocus={() => setIsFocus(true)}
+              onBlur={() => {
+                setTimeout(() => {
+                  setIsFocus(false)
+                }, 100)
               }}
             />
           </div>

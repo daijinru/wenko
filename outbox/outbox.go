@@ -80,6 +80,13 @@ type StopReason struct {
 	Payload string `json:"payload"`
 }
 
+var (
+	maxOuterLoop     = 3 // 外层最大循环次数
+	maxInnerLoop     = 5 // 内层最大循环次数
+	currentLoop      = 0 // 当前循环计数器（可被重置）
+	currentInnerLoop = 0 // 当前内层循环计数器（可被重置）
+)
+
 func NewTask(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("创建新任务...")
@@ -108,18 +115,19 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Streaming 不支持", http.StatusInternalServerError)
 	}
 
-	data := OutMessage{
-		Type:     "text",
-		Payload:  "连接成功，请稍后",
-		ActionID: "",
-	}
-	dataBytes, _ := json.Marshal(data)
-	PrintOut("200", string(dataBytes))
-
-	maxOuterLoop := 3 // 外层最大循环次数
-	currentLoop := 0  // 当前循环计数器（可被重置）
+	// data := OutMessage{
+	// 	Type:     "text",
+	// 	Payload:  "连接成功，请稍后",
+	// 	ActionID: "",
+	// }
+	// dataBytes, _ := json.Marshal(data)
+	// PrintOut("200", string(dataBytes))
 
 	taskDone := false
+
+	// !重置内外循环计数器
+	currentLoop = 0
+	currentInnerLoop = 0
 
 	for {
 		fmt.Println("当前循环次数: ", currentLoop)
@@ -145,7 +153,7 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 			PrintOut("200", string(dataBytes))
 			break
 		}
-
+		// 执行用于任务计划的递归函数
 		planningIsEnd := recursivePlanningTask(ChatRequest.Text)
 		// 如果 planningIsEnd 为 true，则退出循环
 		if planningIsEnd {
@@ -164,6 +172,11 @@ type OpenRouterResponse struct {
 }
 
 func recursivePlanningTask(text string) bool {
+	// 限制内层循环
+	if currentInnerLoop >= maxInnerLoop {
+		return true
+	}
+
 	modelRequestBody, _ := json.Marshal(map[string]interface{}{
 		"model": "qwen/qwen3-32b:free",
 		// 创建 system 和 user 角色的消息
@@ -194,6 +207,8 @@ func recursivePlanningTask(text string) bool {
 	}
 	defer resp.Body.Close()
 
+	// 为本次大模型交互创建一个唯一ID
+	textMessageID := GenerateUUID()
 	// 流式返回
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -207,10 +222,20 @@ func recursivePlanningTask(text string) bool {
 			if err := json.Unmarshal([]byte(data), &orResp); err == nil {
 				if len(orResp.Choices) > 0 {
 					content := orResp.Choices[0].Delta.Content
+					textMessage := MessageType{
+						Type: "text",
+						Payload: PayloadType{
+							Content: content,
+							Meta: map[string]interface{}{
+								"id": textMessageID,
+							},
+						},
+					}
+					payloadMessage, _ := json.Marshal(textMessage)
 					if content != "" {
 						data := OutMessage{
 							Type:     "text",
-							Payload:  content,
+							Payload:  string(payloadMessage),
 							ActionID: "",
 						}
 						dataBytes, _ := json.Marshal(data)
@@ -222,6 +247,7 @@ func recursivePlanningTask(text string) bool {
 	}
 
 	// 添加一个 ask 消息
+	askMessageID := GenerateUUID()
 	actionID := GenerateUUID()
 	askMessage := MessageType{
 		Type: "ask",
@@ -230,16 +256,14 @@ func recursivePlanningTask(text string) bool {
 			Meta: map[string]interface{}{
 				"answer": false,
 				"reason": "",
+				"id":     askMessageID,
 			},
 		},
 		ActionID: actionID,
 	}
-
-	// 发送 askMessage
-	// 序列化 askMessage
 	payloadMessage, _ := json.Marshal(askMessage)
 	data := OutMessage{
-		Type:     "ask",
+		Type:     "text",
 		Payload:  string(payloadMessage),
 		ActionID: actionID,
 	}
@@ -268,12 +292,14 @@ func recursivePlanningTask(text string) bool {
 		}
 		return false
 	})
+
 	// TODO 如果 lastEntry.Payload.Meta["answer"] 为 true，但是 reason 为空，则停止循环，否则继续循环
 	fmt.Println("lastEntry: ", lastEntry, lastEntry.Payload.Meta["answer"], lastEntry.Payload.Meta["reason"])
 	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
 		return true
 	} else {
 		text := lastEntry.Payload.Meta["reason"].(string)
+		currentInnerLoop++
 		return recursivePlanningTask(text)
 	}
 }
