@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+const (
+	SIGNAL_STOP = "stop"
+)
+
 var (
 	globalSession  *Session
 	FlusherWriter  http.Flusher
@@ -57,13 +61,14 @@ func waitUntil(timeout time.Duration, codition func() bool) {
 	start := time.Now()
 	for {
 		fmt.Println("等待中...")
-		if codition() {
+		out := codition()
+		if out {
 			return
 		}
 		if time.Since(start) > timeout {
 			return
 		}
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(2000 * time.Millisecond)
 	}
 }
 
@@ -124,6 +129,7 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	// PrintOut("200", string(dataBytes))
 
 	taskDone := false
+	taskDoneMessage := ""
 
 	// !重置内外循环计数器
 	currentLoop = 0
@@ -132,9 +138,20 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	for {
 		fmt.Println("当前循环次数: ", currentLoop)
 
+		if ok := CheckInterrupt(); ok {
+			data := OutMessage{
+				Type:     "statusText",
+				Payload:  "任务中断: 用户中断",
+				ActionID: "",
+			}
+			dataBytes, _ := json.Marshal(data)
+			PrintOut("200", string(dataBytes))
+			break
+		}
+
 		if currentLoop >= maxOuterLoop {
 			data := OutMessage{
-				Type:     "text",
+				Type:     "statusText",
 				Payload:  "任务中断: 最大循环数",
 				ActionID: "",
 			}
@@ -145,8 +162,8 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 
 		if taskDone {
 			data := OutMessage{
-				Type:     "text",
-				Payload:  "任务完成",
+				Type:     "statusText",
+				Payload:  taskDoneMessage,
 				ActionID: "",
 			}
 			dataBytes, _ := json.Marshal(data)
@@ -154,10 +171,12 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		// 执行用于任务计划的递归函数
-		planningIsEnd := recursivePlanningTask(ChatRequest.Text)
+		planningTaskCompletion := recursivePlanningTask(ChatRequest.Text)
+		fmt.Println("planningIsEnd: ", planningTaskCompletion)
 		// 如果 planningIsEnd 为 true，则退出循环
-		if planningIsEnd {
+		if planningTaskCompletion.Done {
 			taskDone = true
+			taskDoneMessage = planningTaskCompletion.Text
 		}
 		currentLoop++
 	}
@@ -171,10 +190,25 @@ type OpenRouterResponse struct {
 	} `json:"choices"`
 }
 
-func recursivePlanningTask(text string) bool {
+type RecursiveTaskCompletion struct {
+	Text string `json:"text"`
+	Done bool   `json:"done"`
+}
+
+func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	// 限制内层循环
 	if currentInnerLoop >= maxInnerLoop {
-		return true
+		return RecursiveTaskCompletion{
+			Text: "任务中断: 最大内层循环数",
+			Done: true,
+		}
+	}
+
+	if ok := CheckInterrupt(); ok {
+		return RecursiveTaskCompletion{
+			Text: "任务中断: 用户中断",
+			Done: true,
+		}
 	}
 
 	modelRequestBody, _ := json.Marshal(map[string]interface{}{
@@ -247,7 +281,7 @@ func recursivePlanningTask(text string) bool {
 	}
 
 	// 添加一个 ask 消息
-	askMessageID := GenerateUUID()
+	// askMessageID := GenerateUUID()
 	actionID := GenerateUUID()
 	askMessage := MessageType{
 		Type: "ask",
@@ -256,7 +290,7 @@ func recursivePlanningTask(text string) bool {
 			Meta: map[string]interface{}{
 				"answer": false,
 				"reason": "",
-				"id":     askMessageID,
+				"id":     actionID,
 			},
 		},
 		ActionID: actionID,
@@ -272,36 +306,45 @@ func recursivePlanningTask(text string) bool {
 	globalSession.AddEntry("ask", askMessage)
 
 	lastEntry := MessageType{}
-	waitUntil(180*time.Second, func() bool {
+	waitUntil(60*time.Second, func() bool {
 		entries, exists := globalSession.GetEntries("ask")
-		if exists {
-			// 取出最后一条数据
-			lastEntry = entries[len(entries)-1]
-			// actionID 必须对上
-			if actionID != lastEntry.ActionID {
+		if !exists || len(entries) == 0 {
+			return false
+		}
+
+		for i := len(entries) - 1; i >= 0; i-- {
+			if entries[i].ActionID == actionID {
+				entry := entries[i]
+				fmt.Println("exact entry", entry)
+				// 仅当 answer 为 true 时才返回 true
+				if answer, ok := entry.Payload.Meta["answer"].(bool); ok && answer {
+					lastEntry = entry
+					return true
+				}
 				return false
-			}
-			// 取出 Payload 中的 Meta 中的 answer，如果是 false，返回 false，否则返回 true
-			if lastEntry.Payload.Meta["answer"] == false {
-				// if lastEntry.Payload.Meta["answer"] == "" {
-				return false
-			} else {
-				// 只有满足 answer 为 true 才能返回 true
-				return true
 			}
 		}
+
 		return false
 	})
 
-	// TODO 如果 lastEntry.Payload.Meta["answer"] 为 true，但是 reason 为空，则停止循环，否则继续循环
-	fmt.Println("lastEntry: ", lastEntry, lastEntry.Payload.Meta["answer"], lastEntry.Payload.Meta["reason"])
-	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
-		return true
-	} else {
-		text := lastEntry.Payload.Meta["reason"].(string)
-		currentInnerLoop++
-		return recursivePlanningTask(text)
+	// 如果 lastEntry.Type 为空说明超时
+	if lastEntry.Type == "" {
+		return RecursiveTaskCompletion{
+			Text: "回答超时",
+			Done: true,
+		}
 	}
+	// 如果 answer 为 true 且 reason 为空，说明用户同意，可继续
+	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
+		return RecursiveTaskCompletion{
+			Text: "用户取消",
+			Done: true,
+		}
+	}
+	reason := lastEntry.Payload.Meta["reason"].(string)
+	currentInnerLoop++
+	return recursivePlanningTask(reason)
 }
 
 func PlanningTaskAnswer(w http.ResponseWriter, r *http.Request) {
@@ -345,33 +388,29 @@ func PlanningTaskAnswer(w http.ResponseWriter, r *http.Request) {
 
 // 客户端发起中断信号
 func InterruptTask(w http.ResponseWriter, r *http.Request) {
-	// 从 body 中读取请求体
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "读取请求体失败", http.StatusBadRequest)
-	}
-	// 解析请求体，取出 text
-	var ChatRequest struct {
-		Text     string `json:"text"`
-		ActionID string `json:"actionID"`
-	}
-	if err := json.Unmarshal(body, &ChatRequest); err != nil {
-		http.Error(w, "解析请求体失败", http.StatusBadRequest)
-	}
-
-	entries, _ := globalSession.GetEntries("ask")
-	lastEntry := entries[len(entries)-1]
-
 	askMessage := MessageType{
-		Type: "ask",
+		Type: "signal",
 		Payload: PayloadType{
-			Content: lastEntry.Payload.Content,
+			Content: "",
 			Meta: map[string]interface{}{
-				"answer": true,
-				"reason": "",
+				"action": SIGNAL_STOP,
 			},
 		},
-		ActionID: ChatRequest.ActionID,
+		ActionID: "",
 	}
 	globalSession.AddEntry("ask", askMessage)
+}
+
+// 执行后从最新一条信息检查 signal 类型的消息，如果有则中断
+func CheckInterrupt() bool {
+	entries, _ := globalSession.GetEntries("ask")
+	if (entries == nil) || (len(entries) == 0) {
+		return false
+	} else {
+		lastEntry := entries[len(entries)-1]
+		if lastEntry.Payload.Meta["action"] == SIGNAL_STOP {
+			return true
+		}
+	}
+	return false
 }

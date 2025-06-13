@@ -576,6 +576,8 @@ func main() {
 	http.HandleFunc("/task", outbox.NewTask)
 	// 用户回答 PlanningTask answer
 	http.HandleFunc("/planning/task/answer", outbox.PlanningTaskAnswer)
+	// 用户中断 PlanningTask
+	http.HandleFunc("/planning/task/interrupt", outbox.InterruptTask)
 
 	// 启动服务
 	fmt.Println("✅ 启动服务成功 -- Server running on :8080")

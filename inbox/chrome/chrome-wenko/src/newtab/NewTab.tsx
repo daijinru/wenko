@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Card, Button, notification, Space, Tooltip, Flex } from 'antd'
+import { Card, Button, notification, Space, Tooltip, Flex, Result } from 'antd'
 import { Sender, Bubble } from '@ant-design/x'
-import { BulbTwoTone, DeleteTwoTone, UserOutlined } from '@ant-design/icons'
+import { BulbTwoTone, DeleteTwoTone, UserOutlined, NotificationOutlined } from '@ant-design/icons'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -26,6 +26,7 @@ export const NewTab = () => {
   const [messages, setMessages] = useState([] as any[])
   const inputRef = useRef<any>(null)
   const [isFocus, setIsFocus] = useState(false)
+  const [isTaskMode, setIsTaskMode] = useState(false)
 
   useEffect(() => {
     reload()
@@ -120,6 +121,10 @@ export const NewTab = () => {
   };
   const isUser = message => message.role === 'user'
   const isAssistant = message => message.role === 'assistant'
+  const isAnswer = () => {
+    const lastMessage = last(messages)
+    return lastMessage?.type === 'ask'
+  }
   const onUserSubmit = content => {
     const newMessage = {
       type: 'text',
@@ -129,6 +134,26 @@ export const NewTab = () => {
     }
     setMessages(prev => [...prev, newMessage])
     setUserValue('')
+
+    console.info('>< isTaskMode:', isTaskMode, isAnswer())
+    if (isTaskMode) {
+      if (isAnswer()) {
+        fetch("http://localhost:8080/planning/task/answer", {
+          method: 'POST',
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: content,
+            actionID: last(messages)?.id,
+          }),
+        })
+      } else {
+        onNewTask(content)
+      }
+      return
+    }
+    // 普通对话
     newChat(content)
   }
 
@@ -206,6 +231,11 @@ export const NewTab = () => {
       }
     }
   }
+  type DataMessageType = {
+    type: string
+    payload: string
+    actionID: string
+  }
   // const onNewMessage = (payload: PayloadMessage) => {
   //   if (payload.Type === 'text') {
   //     const newMessage = {
@@ -218,6 +248,7 @@ export const NewTab = () => {
   //   }
   // }
   const onNewTask = async text => {
+    setIsTaskMode(true)
     await fetchEventSource('http://localhost:8080/task', {
       method: 'POST',
       headers: {
@@ -231,11 +262,21 @@ export const NewTab = () => {
       },
       onmessage(line) {
         try {
-          const parsed = JSON.parse(line.data)
+          const parsed: DataMessageType = JSON.parse(line.data)
+
+          // 状态文本处理
           if (parsed?.type === 'statusText') {
-            // setLoadingText(parsed?.content)
+            const newMessage = {
+              id: generateMsgId(),
+              type: 'statusText',
+              role: 'assistant',
+              content: parsed?.payload,
+            }
+            setMessages(prev => [...prev, newMessage])
           }
           // console.info('>< parsed:', parsed)
+
+          // 正文处理
           const payload: PayloadMessageType = JSON.parse(parsed?.payload)
           if (parsed?.type === 'text' && isObject(payload)) {
             if (payload?.type === 'text') {
@@ -254,7 +295,7 @@ export const NewTab = () => {
 
             } else if (payload?.type === 'ask') {
               const newMessage = {
-                id: payload.payload.meta.id,
+                id: parsed.actionID,
                 type: 'ask',
                 role: 'assistant',
                 content: payload.payload.content || '',
@@ -281,6 +322,21 @@ export const NewTab = () => {
 
   }
   function renderAssistantMessage(message) {
+    if (message.type === 'statusText') {
+      return (
+        <Bubble
+          key={message.id}
+          placement='start'
+          avatar={{ icon: <UserOutlined />, style: hideAvatar }}
+          content={
+            <Result
+              icon={<NotificationOutlined />}
+              title={message.content}
+            />
+          }
+        />
+      )
+    }
     if (message.type === 'text') {
       return (
         <Bubble
@@ -304,10 +360,10 @@ export const NewTab = () => {
           placement='start'
           avatar={{ icon: <UserOutlined />, style: fooAvatar }}
           content={<>
-            <Card title={message.content} variant='borderless'>
+            <Card title={message.content} variant='borderless' size='small'>
               <Space>
-                <Button type="text" disabled>执行</Button>
-                <Button type='text' color='danger'>取消</Button>
+                <Button type='text' disabled size='small'>请直接回复，或者取消</Button>
+                <Button type='text' color='danger' size='small'>取消</Button>
               </Space>
             </Card>
           </>}

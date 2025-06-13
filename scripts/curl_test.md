@@ -16,7 +16,7 @@ $ curl -X POST http://localhost:8080/compare -H "Content-Type: application/json"
 # 测试用户回答
 # 如果 text 是空的，即用户认可
 % curl -X POST http://localhost:8080/planning/task/answer -H "Content-Type: application/json" -d '{"text": "继续解释不同颜色光的散射", "actionId": "5cbdb867-2aeb-4e8d-9271-15d6058aec23"}'
-% curl -X POST http://localhost:8080/planning/task/answer -H "Content-Type: application/json" -d '{"text": "", "actionId": "5cbdb867-2aeb-4e8d-9271-15d6058aec23"}'
+% curl -X POST http://localhost:8080/planning/task/answer -H "Content-Type: application/json" -d '{"text": "", "actionId": "0ef22694-1f70-447a-be86-17c1044e939e"}'
 ```
 
 ## List Documents
