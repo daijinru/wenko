@@ -33,3 +33,11 @@ func (s *Session) GetEntries(sessionID string) ([]MessageType, bool) {
 func (s *Session) DeleteEntries(sessionID string) {
 	delete(s.sessionIDMap, sessionID)
 }
+
+// 删除最后一条信息
+func (s *Session) DeleteLastEntry(sessionID string) {
+	entries, exists := s.sessionIDMap[sessionID]
+	if exists && len(entries) > 0 {
+		s.sessionIDMap[sessionID] = entries[:len(entries)-1]
+	}
+}

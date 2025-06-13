@@ -27,6 +27,7 @@ export const NewTab = () => {
   const inputRef = useRef<any>(null)
   const [isFocus, setIsFocus] = useState(false)
   const [isTaskMode, setIsTaskMode] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     reload()
@@ -159,6 +160,7 @@ export const NewTab = () => {
 
   let currentMsgId = ''
   const newChat = async text => {
+    setIsLoading(true)
     await fetchEventSource('http://localhost:8080/chat', {
       method: 'POST',
       headers: {
@@ -214,6 +216,9 @@ export const NewTab = () => {
           currentMsgId = ''
         }
       },
+      onclose() {
+        setIsLoading(false)
+      },
       onerror(err) {
         console.error(err)
         currentMsgId = ''
@@ -248,7 +253,16 @@ export const NewTab = () => {
   //   }
   // }
   const onNewTask = async text => {
+    const userTaskMessage = {
+      id: generateMsgId(),
+      type: 'text',
+      role: 'user',
+      content: text,
+    }
+    setMessages(prev => [...prev, userTaskMessage])
+    
     setIsTaskMode(true)
+    setIsLoading(true)
     await fetchEventSource('http://localhost:8080/task', {
       method: 'POST',
       headers: {
@@ -312,6 +326,9 @@ export const NewTab = () => {
           console.error(error)
         }
       },
+      onclose() {
+        setIsLoading(false)
+      },
       onerror(err) {
         console.error(err)
       },
@@ -319,7 +336,17 @@ export const NewTab = () => {
   }
 
   const onCancelTask = () => {
-
+    fetch("http://localhost:8080/planning/task/interrupt", {
+      method: 'POST',
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+      .then(res => res.json())
+      .then(res => {
+        setIsLoading(false)
+        setIsTaskMode(false)
+      })
   }
   function renderAssistantMessage(message) {
     if (message.type === 'statusText') {
@@ -363,7 +390,7 @@ export const NewTab = () => {
             <Card title={message.content} variant='borderless' size='small'>
               <Space>
                 <Button type='text' disabled size='small'>请直接回复，或者取消</Button>
-                <Button type='text' color='danger' size='small'>取消</Button>
+                <Button type='text' color='danger' size='small' onClick={onCancelTask}>取消</Button>
               </Space>
             </Card>
           </>}
@@ -467,12 +494,14 @@ export const NewTab = () => {
               ref={inputRef}
               value={userValue}
               onChange={setUserValue}
+              loading={isLoading}
               submitType="shiftEnter"
               placeholder="Press Shift + Enter to send message"
               onSubmit={text => {
                 onUserSubmit(text)
                 // message.success('Send message successfully!');
               }}
+              onCancel={onCancelTask}
               onFocus={() => setIsFocus(true)}
               onBlur={() => {
                 setTimeout(() => {

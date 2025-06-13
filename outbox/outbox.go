@@ -87,7 +87,7 @@ type StopReason struct {
 
 var (
 	maxOuterLoop     = 3 // 外层最大循环次数
-	maxInnerLoop     = 5 // 内层最大循环次数
+	maxInnerLoop     = 2 // 内层最大循环次数
 	currentLoop      = 0 // 当前循环计数器（可被重置）
 	currentInnerLoop = 0 // 当前内层循环计数器（可被重置）
 )
@@ -246,6 +246,13 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	// 流式返回
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
+		if ok := CheckInterrupt(); ok {
+			return RecursiveTaskCompletion{
+				Text: "任务中断: 用户中断",
+				Done: true,
+			}
+		}
+
 		line := scanner.Text()
 		if len(line) > 6 && line[:6] == "data: " {
 			data := line[6:]
@@ -307,6 +314,10 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 
 	lastEntry := MessageType{}
 	waitUntil(60*time.Second, func() bool {
+		if ok := CheckInterrupt(); ok {
+			return true
+		}
+
 		entries, exists := globalSession.GetEntries("ask")
 		if !exists || len(entries) == 0 {
 			return false
@@ -399,6 +410,15 @@ func InterruptTask(w http.ResponseWriter, r *http.Request) {
 		ActionID: "",
 	}
 	globalSession.AddEntry("ask", askMessage)
+	// 返回 200
+	w.WriteHeader(http.StatusOK)
+	// 返回 json
+	w.Header().Set("Content-Type", "application/json")
+	response := map[string]string{
+		"message": "中断信号已发送",
+		"status":  "200",
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 // 执行后从最新一条信息检查 signal 类型的消息，如果有则中断
@@ -406,9 +426,13 @@ func CheckInterrupt() bool {
 	entries, _ := globalSession.GetEntries("ask")
 	if (entries == nil) || (len(entries) == 0) {
 		return false
-	} else {
-		lastEntry := entries[len(entries)-1]
-		if lastEntry.Payload.Meta["action"] == SIGNAL_STOP {
+	}
+
+	lastEntry := entries[len(entries)-1]
+	if lastEntry.Type == "signal" {
+		if action, ok := lastEntry.Payload.Meta["action"].(string); ok && action == SIGNAL_STOP {
+			// 删除该消息
+			globalSession.DeleteLastEntry("ask")
 			return true
 		}
 	}
