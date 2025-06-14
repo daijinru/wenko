@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -22,15 +23,17 @@ var (
 
 	id int = 0 // 初始化 0
 
-	OpenRouterApiKey string
+	OpenRouterApiKey    string
+	OpenRouterModelName string
 )
 
 func InitGlobalSession() {
 	globalSession = NewSession()
 }
 
-func InitApiKey(apiKey string) {
+func InitApiKey(apiKey string, modelName string) {
 	OpenRouterApiKey = apiKey
+	OpenRouterModelName = modelName
 }
 
 type OutMessage struct {
@@ -128,8 +131,9 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	// dataBytes, _ := json.Marshal(data)
 	// PrintOut("200", string(dataBytes))
 
-	taskDone := false
-	taskDoneMessage := ""
+	// taskDone := false
+	breakDone := false
+	doneMessage := ""
 
 	// !重置内外循环计数器
 	currentLoop = 0
@@ -160,23 +164,28 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if taskDone {
+		if breakDone {
 			data := OutMessage{
 				Type:     "statusText",
-				Payload:  taskDoneMessage,
+				Payload:  doneMessage,
 				ActionID: "",
 			}
 			dataBytes, _ := json.Marshal(data)
 			PrintOut("200", string(dataBytes))
 			break
 		}
+
 		// 执行用于任务计划的递归函数
 		planningTaskCompletion := recursivePlanningTask(ChatRequest.Text)
 		fmt.Println("planningIsEnd: ", planningTaskCompletion)
 		// 如果 planningIsEnd 为 true，则退出循环
+		if planningTaskCompletion.Break {
+			breakDone = true
+			doneMessage = planningTaskCompletion.Text
+		}
 		if planningTaskCompletion.Done {
-			taskDone = true
-			taskDoneMessage = planningTaskCompletion.Text
+			breakDone = true
+			doneMessage = planningTaskCompletion.Text
 		}
 		currentLoop++
 	}
@@ -185,47 +194,63 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 type OpenRouterResponse struct {
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Function struct {
+					Arguments string `json:"arguments"`
+					Name      string `json:"name"`
+				} `json:"function"`
+			} `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
 }
 
 type RecursiveTaskCompletion struct {
-	Text string `json:"text"`
-	Done bool   `json:"done"`
+	Text  string `json:"text"`
+	Done  bool   `json:"done"`
+	Break bool   `json:"break"`
 }
 
 func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	// 限制内层循环
 	if currentInnerLoop >= maxInnerLoop {
 		return RecursiveTaskCompletion{
-			Text: "任务中断: 最大内层循环数",
-			Done: true,
+			Text:  "任务中断: 最大内层循环数",
+			Break: true,
 		}
 	}
 
 	if ok := CheckInterrupt(); ok {
 		return RecursiveTaskCompletion{
-			Text: "任务中断: 用户中断",
-			Done: true,
+			Text:  "任务中断: 用户中断",
+			Break: true,
 		}
 	}
 
-	modelRequestBody, _ := json.Marshal(map[string]interface{}{
-		"model": "qwen/qwen3-32b:free",
+	modelRequestBody, err := json.Marshal(map[string]interface{}{
+		"model": OpenRouterModelName,
 		// 创建 system 和 user 角色的消息
 		"messages": []map[string]string{
-			{
-				"role":    "system",
-				"content": InteractivePlanningSystemPrompt,
-			},
+			// {
+			// 	"role":    "system",
+			// 	"content": InteractivePlanningSystemPrompt,
+			// },
 			{
 				"role":    "user",
 				"content": text,
 			},
 		},
 		"stream": true,
+		// 需大模型支持 tool call
+		"tools": Tool_Use_Case_Prompt["tools"],
 	})
+	if err != nil {
+		fmt.Println("创建请求体失败: ", err)
+		return RecursiveTaskCompletion{
+			Text:  "创建请求体失败: " + err.Error(),
+			Break: true,
+		}
+	}
 	// Planning Task: 请求 openrouter 并传入 InteractivePlanningSystemPrompt
 	// 将返回的内容写入会话
 	req, _ := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewBuffer(modelRequestBody))
@@ -237,23 +262,33 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		http.Error(ResponseWriter, "调用大模型失败: "+err.Error(), http.StatusInternalServerError)
+		// http.Error(ResponseWriter, "调用大模型失败: "+err.Error(), http.StatusInternalServerError)
+		return RecursiveTaskCompletion{
+			Text:  "调用大模型失败: " + err.Error(),
+			Break: true,
+		}
 	}
 	defer resp.Body.Close()
 
-	// 为本次大模型交互创建一个唯一ID
+	// 存储工具调用信息的变量
+	toolCallDetected := false
+	var toolCallArguments strings.Builder
+
+	// 为本次消息创建一个唯一ID
 	textMessageID := GenerateUUID()
 	// 流式返回
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
-		if ok := CheckInterrupt(); ok {
-			return RecursiveTaskCompletion{
-				Text: "任务中断: 用户中断",
-				Done: true,
-			}
-		}
+		// 在流式输出找到中断信号
+		// if ok := CheckInterrupt(); ok {
+		// 	return RecursiveTaskCompletion{
+		// 		Text: "任务中断: 用户中断",
+		// 		Break: true,
+		// 	}
+		// }
 
 		line := scanner.Text()
+		fmt.Println("line: ", line)
 		if len(line) > 6 && line[:6] == "data: " {
 			data := line[6:]
 			if data == "[DONE]" {
@@ -263,37 +298,61 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 			if err := json.Unmarshal([]byte(data), &orResp); err == nil {
 				if len(orResp.Choices) > 0 {
 					content := orResp.Choices[0].Delta.Content
-					textMessage := MessageType{
-						Type: "text",
-						Payload: PayloadType{
-							Content: content,
-							Meta: map[string]interface{}{
-								"id": textMessageID,
-							},
-						},
-					}
-					payloadMessage, _ := json.Marshal(textMessage)
 					if content != "" {
+						payload := MessageType{
+							Type: "text",
+							Payload: PayloadType{
+								Content: content,
+								Meta: map[string]interface{}{
+									"id": textMessageID,
+								},
+							},
+						}
+						payloadStr, _ := json.Marshal(payload)
 						data := OutMessage{
 							Type:     "text",
-							Payload:  string(payloadMessage),
+							Payload:  string(payloadStr),
 							ActionID: "",
 						}
 						dataBytes, _ := json.Marshal(data)
 						PrintOut("200", string(dataBytes))
+					}
+					fmt.Println("检测到工具调用", orResp.Choices[0].Delta.ToolCalls[0])
+					// 累加工具调用参数
+					if len(orResp.Choices[0].Delta.ToolCalls) > 0 {
+						fmt.Println("检测到工具调用", orResp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
+						toolCallDetected = true
+						toolCallArguments.WriteString(orResp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 					}
 				}
 			}
 		}
 	}
 
+	if !toolCallDetected {
+		return RecursiveTaskCompletion{
+			Text: "没有检测到工具调用 --> 对话结束",
+			Done: true,
+		}
+	}
+
+	var toolArgs struct {
+		Question string `json:"question"`
+	}
+	if err := json.Unmarshal([]byte(toolCallArguments.String()), &toolArgs); err != nil {
+		return RecursiveTaskCompletion{
+			Text:  "解析工具参数失败: " + err.Error(),
+			Break: true,
+		}
+	}
+
+	// 将工具调用参数写入会话
 	// 添加一个 ask 消息
-	// askMessageID := GenerateUUID()
 	actionID := GenerateUUID()
-	askMessage := MessageType{
+	payload := MessageType{
 		Type: "ask",
 		Payload: PayloadType{
-			Content: "请问你有什么问题吗？",
+			Content: toolArgs.Question,
 			Meta: map[string]interface{}{
 				"answer": false,
 				"reason": "",
@@ -302,15 +361,15 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 		},
 		ActionID: actionID,
 	}
-	payloadMessage, _ := json.Marshal(askMessage)
+	payloadStr, _ := json.Marshal(payload)
 	data := OutMessage{
 		Type:     "text",
-		Payload:  string(payloadMessage),
+		Payload:  string(payloadStr),
 		ActionID: actionID,
 	}
 	dataBytes, _ := json.Marshal(data)
 	PrintOut("200", string(dataBytes))
-	globalSession.AddEntry("ask", askMessage)
+	globalSession.AddEntry("ask", payload)
 
 	lastEntry := MessageType{}
 	waitUntil(60*time.Second, func() bool {
@@ -326,7 +385,7 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 		for i := len(entries) - 1; i >= 0; i-- {
 			if entries[i].ActionID == actionID {
 				entry := entries[i]
-				fmt.Println("exact entry", entry)
+				fmt.Println("waiting entry: ", entry.ActionID)
 				// 仅当 answer 为 true 时才返回 true
 				if answer, ok := entry.Payload.Meta["answer"].(bool); ok && answer {
 					lastEntry = entry
@@ -342,15 +401,15 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	// 如果 lastEntry.Type 为空说明超时
 	if lastEntry.Type == "" {
 		return RecursiveTaskCompletion{
-			Text: "回答超时",
-			Done: true,
+			Text:  "回答超时",
+			Break: true,
 		}
 	}
 	// 如果 answer 为 true 且 reason 为空，说明用户同意，可继续
 	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
 		return RecursiveTaskCompletion{
-			Text: "用户取消",
-			Done: true,
+			Text:  "用户取消",
+			Break: true,
 		}
 	}
 	reason := lastEntry.Payload.Meta["reason"].(string)

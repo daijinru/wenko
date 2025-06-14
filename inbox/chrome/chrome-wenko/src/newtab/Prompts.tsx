@@ -8,7 +8,7 @@ const App = ({onSend}) => {
     {
       key: '6',
       icon: <CoffeeOutlined style={{ color: '#964B00' }} />,
-      description: '收集《基地》系列的著名台词',
+      description: '查询电影',
       disabled: false,
     },
     {

@@ -30,3 +30,25 @@ const InteractivePlanningSystemPrompt = `你是一个 AI 规划助手，通过�
 **状态:** [例如：初步分析 | 正在修订第 X 步 | 探索分支 A | 提出计划假设 | 等待用户反馈]
 
 **下一步行动:** [例如：继续下一步思考 | 请求用户提供更多信息 | 请用户确认修订 | 建议采纳计划分支 A]`
+
+var Tool_Use_Case_Prompt = map[string]interface{}{
+	"tools": []map[string]interface{}{
+		{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        "ask_user",
+				"description": "当你需要从用户那里获取额外信息、澄清问题或寻求指导时，使用此工具向用户提问。",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"question": map[string]interface{}{
+							"type":        "string",
+							"description": "你想问用户的问题",
+						},
+					},
+					"required": []string{"question"},
+				},
+			},
+		},
+	},
+}

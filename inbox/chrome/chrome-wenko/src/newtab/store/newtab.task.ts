@@ -37,6 +37,7 @@ export type Message = {
 class PlanningTaskStore {
   isFocus: boolean = false
   isTaskMode: boolean = false
+  isWaitForAnswer: boolean = false
   isLoading: boolean = false
 
   messages: Message[] = []
@@ -44,12 +45,6 @@ class PlanningTaskStore {
   userValue:string = ''
   setUserValue(value: string) {
     this.userValue = value
-  }
-  /** 等待回答状态 */
-  get isWaitForAnswer(): boolean {
-    console.info('>< isWaitForAnswer:', last(this.messages))
-    const lastMessage = last(this.messages)
-    return lastMessage?.action === 'ask'
   }
   /** 获取最新问题的actionID */
   get answerActionID(): string {
@@ -73,8 +68,9 @@ class PlanningTaskStore {
       this.messages.push(userTaskMessage)
       this.isTaskMode = true
       this.isLoading = true
+      this.userValue = ''
     })
-    
+
     await fetchEventSource('http://localhost:8080/task', {
       method: 'POST',
       headers: {
@@ -152,6 +148,7 @@ class PlanningTaskStore {
           this.messages.push(newMessage)
           // 遇到 ask 类型问题，停止 loading
           this.isLoading = false
+          this.isWaitForAnswer = true
         })
       }
     }
@@ -209,6 +206,12 @@ class PlanningTaskStore {
             text: content,
             actionID: this.answerActionID
           }),
+        })
+          .then(res => res.json())
+          .then(res => {
+            runInAction(() => {
+              this.isWaitForAnswer = false
+            })
         })
       } else {
       }

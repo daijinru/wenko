@@ -28,6 +28,7 @@ import (
 type Config struct {
 	OllamaURL        string `json:"OllamaURL"`
 	OpenRouterApiKey string `json:"OpenRouterApiKey"`
+	ModelName        string `json:"ModelName"`
 	Collection       string `json:"Collection"`
 	ChromaDBURL      string `json:"ChromaDBURL"`
 	ChromDBTenants   string `json:"ChromDBTenants"`
@@ -48,7 +49,7 @@ func init() {
 		panic(fmt.Sprintf("解析配置文件失败: %v", err))
 	}
 
-	outbox.InitApiKey(config.OpenRouterApiKey)
+	outbox.InitApiKey(config.OpenRouterApiKey, config.ModelName)
 	outbox.InitGlobalSession()
 
 	// 检查租户 addTenant 是否存在

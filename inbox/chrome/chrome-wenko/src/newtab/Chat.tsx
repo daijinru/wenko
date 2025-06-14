@@ -6,6 +6,7 @@ import { UserOutlined, NotificationOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
+import { last } from "lodash-es"
 
 import taskStore from "./store/newtab.task"
 import Prompts from "./Prompts"
@@ -112,7 +113,7 @@ const Chat = () => {
               }
             </Flex>
           </div>
-          : !taskStore.isWaitForAnswer && taskStore.messages.length < 1 ?
+          : taskStore.messages.length < 1 ?
             <div
               className='mb-16px bg-[rgba(255,255,255,0.9)] rounded-12px p-16px'
               style={{
@@ -133,7 +134,7 @@ const Chat = () => {
           ref={inputRef}
           disabled={!taskStore.isWaitForAnswer}
           value={taskStore.userValue}
-          onChange={taskStore.setUserValue}
+          onChange={value => taskStore.setUserValue(value)}
           loading={taskStore.isLoading}
           submitType="shiftEnter"
           placeholder="Press Shift + Enter to send message"
