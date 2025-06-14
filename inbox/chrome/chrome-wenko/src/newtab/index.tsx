@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { NewTab } from './NewTab'
+import NewTab from './NewTab'
 import './index.css'
 
 import 'virtual:windi.css'
