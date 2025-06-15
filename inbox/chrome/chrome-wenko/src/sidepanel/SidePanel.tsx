@@ -4,22 +4,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 
-import { Welcome, Prompts } from '@ant-design/x';
-import { FireOutlined, CoffeeOutlined, SmileOutlined, UserOutlined } from '@ant-design/icons';
-import { Button, Space, Typography, Spin } from 'antd'
+import { Welcome } from '@ant-design/x';
+import { CoffeeOutlined, SmileOutlined } from '@ant-design/icons';
+import { Button, Space, Typography, Spin, Card, } from 'antd'
 
 import './SidePanel.css'
-
-// 随机抽一个 icon
-const getRandomIcon = () => {
-  const random = Math.floor(Math.random() * 3)
-  const icons = {
-    0: <FireOutlined style={{ color: '#F5222D' }} />,
-    1: <SmileOutlined style={{ color: '#FAAD14' }} />,
-    2: <CoffeeOutlined style={{ color: '#964B00' }} />,
-  }
-  return icons[random]
-}
 
 export const SidePanel = () => {
   const [selectedText, setSelectedText] = useState('')
@@ -224,6 +213,9 @@ ${matchResults.map((item,index)  =>
   return (
     <main>
       <Welcome
+        style={{
+          backgroundColor: 'rgb(255, 255, 255)',
+        }}
         icon="https://mdn.alipayobjects.com/huamei_iwk9zp/afts/img/A*s5sNRo5LjfQAAAAAAAAAAAAADgCCAQ/fmt.webp"
         title="Wenko，温故知新"
         description={selectedText}
@@ -238,12 +230,11 @@ ${matchResults.map((item,index)  =>
         !isLoading && (interpretation || loadingText) &&
         <div style={{
           marginTop: '16px',
-          padding: '0 16px',
+          // padding: '0 16px',
         }}>
-          <Typography style={{
-          }}>
+          <Typography style={{marginBottom: '16px'}}>
             <Typography.Title level={2} mark>
-              AI 解读
+              <SmileOutlined /> AI 解读
             </Typography.Title>
             { loadingText &&
               <Typography.Paragraph>
@@ -253,10 +244,12 @@ ${matchResults.map((item,index)  =>
             {
               interpretation &&
               <Typography.Paragraph style={{
-                backgroundColor: 'rgba(150, 150, 150, 0.1)',
+                backgroundColor: 'rgba(255, 255, 255, 1)',
                 border: '1px solid rgba(100, 100, 100, 0.2)',
-                borderRadius: '3px',
+                borderRadius: '6px',
                 padding: '0.4em 0.6em',
+                marginTop: '16px',
+                marginBottom: '16px',
               }}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
@@ -285,29 +278,28 @@ ${matchResults.map((item,index)  =>
       {!isLoading && <div
         style={{
           maxWidth: '100%',
-          marginTop: '16px',
-          padding: '0 16px',
+          marginTop: '32px',
         }}
       >
-        <Prompts
-          title="🤔 你还记得这些线索吗？"
-          items={matchResults.map((item, key) => {
-            return {
-              key: String(key),
-              icon: getRandomIcon(),
-              description: '线索' + (key + 1) + ': ' + item.content,
-              disabled: false,
-            }
-          })}
-          wrap
-          styles={{
-            item: {
-              flex: 'none',
-              width: 'calc(100% - 8px)',
-            },
-          }}
-        >
-        </Prompts>
+        <Typography>
+          <Typography.Title level={2} mark>
+            <CoffeeOutlined /> 相关线索
+          </Typography.Title>
+        </Typography>
+        {
+          matchResults.map((item, key) => {
+            return (
+              <Card
+                style={{
+                  marginBottom: '12px',
+                }}
+                size='small'
+              >
+                <p><strong>线索{key + 1}</strong>: {item.content}</p>
+              </Card>
+            )
+          })
+        }
       </div>
       }
     </main>

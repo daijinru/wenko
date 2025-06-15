@@ -24,7 +24,7 @@ const Documents = () => {
   }, [])
 
   return (
-    <div className="!pb-400px min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-6 lg:p-8">
+    <div className="!pb-400px min-h-screen bg-[#3a7bba] p-4 md:p-6 lg:p-8">
       <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 md:gap-6 space-y-4 md:space-y-6">
         {
           documentStore.documents.map(doc => {
@@ -32,7 +32,7 @@ const Documents = () => {
               <Card
                 size='small'
                 key={doc.id}
-                className="break-inside-avoid mb-4 md:mb-6 shadow-sm hover:shadow-md transition-shadow duration-300 bg-white/80 backdrop-blur-sm border-slate-200/50"
+                className="break-inside-avoid mb-4 md:mb-6 border-slate-200/50"
                 extra={
                   <Space size="small">
                     <Tooltip title="删除">
