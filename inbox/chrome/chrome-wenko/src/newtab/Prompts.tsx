@@ -8,7 +8,7 @@ const App = ({onSend}) => {
     {
       key: '6',
       icon: <CoffeeOutlined style={{ color: '#964B00' }} />,
-      description: '查询电影',
+      description: '执行远程任务',
       disabled: false,
     },
     {

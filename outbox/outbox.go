@@ -23,17 +23,19 @@ var (
 
 	id int = 0 // 初始化 0
 
-	OpenRouterApiKey    string
-	OpenRouterModelName string
+	ModelProviderURI    string
+	ModelProviderModel  string
+	ModelProviderAPIKey string
 )
 
 func InitGlobalSession() {
 	globalSession = NewSession()
 }
 
-func InitApiKey(apiKey string, modelName string) {
-	OpenRouterApiKey = apiKey
-	OpenRouterModelName = modelName
+func InitModelProvider(providerURI string, providerModel string, providerAPIKey string) {
+	ModelProviderURI = providerURI
+	ModelProviderModel = providerModel
+	ModelProviderAPIKey = providerAPIKey
 }
 
 type OutMessage struct {
@@ -191,7 +193,7 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type OpenRouterResponse struct {
+type ProviderStreamResponse struct {
 	Choices []struct {
 		Delta struct {
 			Content   string `json:"content"`
@@ -228,21 +230,23 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	}
 
 	modelRequestBody, err := json.Marshal(map[string]interface{}{
-		"model": OpenRouterModelName,
+		"model": ModelProviderModel,
 		// 创建 system 和 user 角色的消息
 		"messages": []map[string]string{
-			// {
-			// 	"role":    "system",
-			// 	"content": InteractivePlanningSystemPrompt,
-			// },
+			{
+				"role":    "system",
+				"content": InteractivePlanningSystemPrompt,
+			},
 			{
 				"role":    "user",
 				"content": text,
 			},
 		},
-		"stream": true,
+		"stream":      true,
+		"temperature": 0,
 		// 需大模型支持 tool call
-		"tools": Tool_Use_Case_Prompt["tools"],
+		"tools":       Tool_Use_Case_Prompt["tools"],
+		"tool_choice": Tool_Use_Case_Prompt["tool_choice"],
 	})
 	if err != nil {
 		fmt.Println("创建请求体失败: ", err)
@@ -251,10 +255,11 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 			Break: true,
 		}
 	}
+	fmt.Println("🌍 大模型请求体: ", string(modelRequestBody), "\n\n", "大模型请求地址: ", ModelProviderURI, "\n\n", "")
 	// Planning Task: 请求 openrouter 并传入 InteractivePlanningSystemPrompt
 	// 将返回的内容写入会话
-	req, _ := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewBuffer(modelRequestBody))
-	req.Header.Set("Authorization", "Bearer "+OpenRouterApiKey)
+	req, _ := http.NewRequest("POST", ModelProviderURI, bytes.NewBuffer(modelRequestBody))
+	req.Header.Set("Authorization", "Bearer "+ModelProviderAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	// 发送请求
@@ -288,17 +293,17 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 		// }
 
 		line := scanner.Text()
-		fmt.Println("line: ", line)
+		// fmt.Println("line: ", line)
 		if len(line) > 6 && line[:6] == "data: " {
 			data := line[6:]
 			if data == "[DONE]" {
 				break
 			}
-			var orResp OpenRouterResponse
+			var orResp ProviderStreamResponse
 			if err := json.Unmarshal([]byte(data), &orResp); err == nil {
 				if len(orResp.Choices) > 0 {
 					content := orResp.Choices[0].Delta.Content
-					if content != "" {
+					if content != "" && content != "\n" {
 						payload := MessageType{
 							Type: "text",
 							Payload: PayloadType{
@@ -317,10 +322,10 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 						dataBytes, _ := json.Marshal(data)
 						PrintOut("200", string(dataBytes))
 					}
-					fmt.Println("检测到工具调用", orResp.Choices[0].Delta.ToolCalls[0])
+					// fmt.Println("><检测工具调用", orResp.Choices[0].Delta.ToolCalls)
 					// 累加工具调用参数
 					if len(orResp.Choices[0].Delta.ToolCalls) > 0 {
-						fmt.Println("检测到工具调用", orResp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
+						fmt.Println("><检测到工具调用", orResp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 						toolCallDetected = true
 						toolCallArguments.WriteString(orResp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 					}

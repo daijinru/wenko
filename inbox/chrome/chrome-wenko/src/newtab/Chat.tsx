@@ -29,7 +29,7 @@ function renderAssistantMessage(message) {
   if (message.type === 'statusText') {
     return (
       <Bubble
-        key={message.id}
+        key={message.content}
         placement='start'
         avatar={{ icon: <UserOutlined />, style: hideAvatar }}
         content={
@@ -42,39 +42,43 @@ function renderAssistantMessage(message) {
     )
   }
   if (message.type === 'text') {
-    return (
-      <Bubble
-        key={message.id}
-        placement='start'
-        avatar={{ icon: <UserOutlined />, style: fooAvatar }}
-        content={
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw]}
-          >
-            {message.content}
-          </ReactMarkdown>
-        }
-      />
-    )
-  } else if (message.type === 'ask') {
-    return (
-      <Bubble
-        key={message.id}
-        placement='start'
-        avatar={{ icon: <UserOutlined />, style: fooAvatar }}
-        content={<>
-          <Card title={message.content} variant='borderless' size='small'>
-            <Space>
-              <Button type='text' disabled size='small'>请直接回复，或者取消</Button>
-              <Button type='text' color='danger' size='small' onClick={taskStore.onCancelTask}>取消</Button>
-            </Space>
-          </Card>
-        </>}
-      />
-    )
+    if (!message.action) {
+      return (
+        <Bubble
+          key={message.content}
+          placement='start'
+          avatar={{ icon: <UserOutlined />, style: fooAvatar }}
+          content={
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
+            >
+              {message.content}
+            </ReactMarkdown>
+          }
+        />
+      )
+    } else if (message.action === 'ask') {
+      return (
+        <Bubble
+          key={message.content}
+          placement='start'
+          avatar={{ icon: <UserOutlined />, style: fooAvatar }}
+          content={<>
+            <Card title={message.content} variant='borderless' size='small'>
+              <Space>
+                <Button type='text' disabled size='small'>请直接回复，或者取消</Button>
+                <Button type='text' color='danger' size='small' onClick={taskStore.onCancelTask}>取消</Button>
+              </Space>
+            </Card>
+          </>}
+        />
+      )
+    }
   }
-  return <></>
+  return <>
+    <Bubble key={'xx-xx'} placement="start" content="nothing else" />
+  </>
 }
 
 const Chat = () => {

@@ -71,7 +71,7 @@ func Chat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	req, _ := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewBuffer(requestBody))
-	req.Header.Set("Authorization", "Bearer "+config.OpenRouterApiKey)
+	req.Header.Set("Authorization", "Bearer "+config.ModelProviderAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}

@@ -26,9 +26,12 @@ import (
 //	  "Collection": "embeddings"
 //	}
 type Config struct {
-	OllamaURL        string `json:"OllamaURL"`
-	OpenRouterApiKey string `json:"OpenRouterApiKey"`
-	ModelName        string `json:"ModelName"`
+	OllamaURL string `json:"OllamaURL"`
+
+	ModelProviderURI    string `json:"ModelProviderURI"`
+	ModelProviderModel  string `json:"ModelProviderModel"`
+	ModelProviderAPIKey string `json:"ModelProviderAPIKey"`
+
 	Collection       string `json:"Collection"`
 	ChromaDBURL      string `json:"ChromaDBURL"`
 	ChromDBTenants   string `json:"ChromDBTenants"`
@@ -49,7 +52,7 @@ func init() {
 		panic(fmt.Sprintf("解析配置文件失败: %v", err))
 	}
 
-	outbox.InitApiKey(config.OpenRouterApiKey, config.ModelName)
+	outbox.InitModelProvider(config.ModelProviderURI, config.ModelProviderModel, config.ModelProviderAPIKey)
 	outbox.InitGlobalSession()
 
 	// 检查租户 addTenant 是否存在
