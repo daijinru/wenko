@@ -377,7 +377,7 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	globalSession.AddEntry("ask", payload)
 
 	lastEntry := MessageType{}
-	waitUntil(60*time.Second, func() bool {
+	waitUntil(30*time.Second, func() bool {
 		if ok := CheckInterrupt(); ok {
 			return true
 		}

@@ -31,7 +31,7 @@ export type Message = {
   type: string
   role: string
   content: string
-  action?: 'ask' | 'answer'
+  action?: string
 }
 
 class PlanningTaskStore {
@@ -142,7 +142,7 @@ class PlanningTaskStore {
           type: 'text',
           role: 'assistant',
           content: payload.payload.content || '',
-          aciton: 'ask',
+          action: 'ask',
         }
         runInAction(() => {
           this.messages.push(newMessage)
