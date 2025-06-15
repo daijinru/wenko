@@ -91,7 +91,7 @@ type StopReason struct {
 }
 
 var (
-	maxOuterLoop     = 3 // 外层最大循环次数
+	maxOuterLoop     = 2 // 外层最大循环次数
 	maxInnerLoop     = 2 // 内层最大循环次数
 	currentLoop      = 0 // 当前循环计数器（可被重置）
 	currentInnerLoop = 0 // 当前内层循环计数器（可被重置）
@@ -137,8 +137,10 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 	breakDone := false
 	doneMessage := ""
 
-	// !重置内外循环计数器
+	// 外层循环计数器用于控制整个任务的循环次数
 	currentLoop = 0
+	// 内层循环计数器用于控制 recursivePlanningTask 方法内的不稳定情况：
+	// 例如：模型没有调用工具，再次重试，并限制其重试次数
 	currentInnerLoop = 0
 
 	for {
@@ -185,10 +187,6 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 			breakDone = true
 			doneMessage = planningTaskCompletion.Text
 		}
-		if planningTaskCompletion.Done {
-			breakDone = true
-			doneMessage = planningTaskCompletion.Text
-		}
 		currentLoop++
 	}
 }
@@ -221,6 +219,8 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 			Break: true,
 		}
 	}
+	// 递增内循环技术器
+	currentInnerLoop++
 
 	if ok := CheckInterrupt(); ok {
 		return RecursiveTaskCompletion{
@@ -335,10 +335,14 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	}
 
 	if !toolCallDetected {
-		return RecursiveTaskCompletion{
-			Text: "没有检测到工具调用 --> 对话结束",
-			Done: true,
+		fmt.Println("没有检测到工具调用！")
+		if currentInnerLoop >= maxInnerLoop {
+			return RecursiveTaskCompletion{
+				Text:  ">_>模型笨，始终不会调用，对话结束",
+				Break: true,
+			}
 		}
+		return recursivePlanningTask("你没有使用工具调用，请务必使用工具调用，重新回答" + "用户的问题：" + text)
 	}
 
 	var toolArgs struct {
@@ -418,7 +422,8 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 		}
 	}
 	reason := lastEntry.Payload.Meta["reason"].(string)
-	currentInnerLoop++
+	// 是因为用户回答了问题，所以重置内层循环计数器
+	currentInnerLoop = 0
 	return recursivePlanningTask(reason)
 }
 
