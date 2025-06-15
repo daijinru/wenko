@@ -65,12 +65,12 @@ func Chat(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("提示词: %v\n", chatReq.Messages)
 
 	requestBody, _ := json.Marshal(map[string]interface{}{
-		"model":    chatReq.Model,
+		"model":    config.ModelProviderModel,
 		"messages": chatReq.Messages,
 		"stream":   true,
 	})
 
-	req, _ := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewBuffer(requestBody))
+	req, _ := http.NewRequest("POST", config.ModelProviderURI, bytes.NewBuffer(requestBody))
 	req.Header.Set("Authorization", "Bearer "+config.ModelProviderAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 

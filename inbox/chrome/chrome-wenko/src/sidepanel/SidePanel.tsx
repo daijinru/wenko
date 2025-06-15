@@ -172,7 +172,7 @@ ${matchResults.map((item,index)  =>
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "qwen/qwen3-32b:free",
+        model: "qwen/qwen3-32b:free", // 已废弃
         messages: [
           {
             role: "user",
