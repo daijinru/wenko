@@ -26,7 +26,7 @@ class DocumentStore {
         if (Array.isArray(docs)) {
           docs.forEach(doc => {
             if (!doc.metadata || !doc.metadata.content) return
-            doc.metadata.content = decodeURIComponent(doc.metadata?.content)
+            // doc.metadata.content = decodeURIComponent(doc.metadata?.content)
           })
         }
         docs = docs.sort(() => Math.random() - 0.5)

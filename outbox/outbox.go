@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"books-vector-api/log"
 	"bufio"
 	"bytes"
 	"crypto/rand"
@@ -17,7 +18,7 @@ const (
 )
 
 var (
-	globalSession  *Session
+	globalSession  *Session // 使用指针是为了共享同一个Session实例，避免复制
 	FlusherWriter  http.Flusher
 	ResponseWriter http.ResponseWriter
 
@@ -26,9 +27,12 @@ var (
 	ModelProviderURI    string
 	ModelProviderModel  string
 	ModelProviderAPIKey string
+
+	Logger *log.DailyLogger
 )
 
-func InitGlobalSession() {
+func Init(logger *log.DailyLogger) {
+	Logger = logger
 	globalSession = NewSession()
 }
 
@@ -293,7 +297,7 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 		// }
 
 		line := scanner.Text()
-		// fmt.Println("line: ", line)
+		fmt.Println("line: ", line)
 		if len(line) > 6 && line[:6] == "data: " {
 			data := line[6:]
 			if data == "[DONE]" {
@@ -409,6 +413,7 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 
 	// 如果 lastEntry.Type 为空说明超时
 	if lastEntry.Type == "" {
+		Logger.Info("回答超时 lastEntry: " + fmt.Sprintf("%v", lastEntry))
 		return RecursiveTaskCompletion{
 			Text:  "回答超时",
 			Break: true,

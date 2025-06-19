@@ -5,7 +5,7 @@ import (
 )
 
 // L2 归一
-func normalize(vec []float32) []float32 {
+func Normalize(vec []float32) []float32 {
 	sum := float32(0.0)
 	for _, v := range vec {
 		sum += v * v
@@ -35,10 +35,10 @@ func cosineSimilarity(a, b []float32) float32 {
 
 // 相似度（阈值）计算
 func BatchCompare(target []float32, vector []float32, threshold float32) bool {
-	targetNorm := normalize(target)
-	vecNorm := normalize(vector)
+	// targetNorm := Normalize(target)
+	// vecNorm := Normalize(vector)
 
-	sim := cosineSimilarity(targetNorm, vecNorm)
+	sim := cosineSimilarity(target, vector)
 	return sim >= threshold
 }
 

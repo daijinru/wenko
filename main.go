@@ -1,6 +1,7 @@
 package main
 
 import (
+	"books-vector-api/log"
 	"books-vector-api/outbox"
 	"books-vector-api/vector"
 	"bytes"
@@ -39,8 +40,12 @@ type Config struct {
 }
 
 var config Config
+var Logger *log.DailyLogger
 
 func init() {
+	// 使用相对路径
+	Logger = log.New("./logs")
+
 	file, err := os.Open("config.json")
 	if err != nil {
 		panic(fmt.Sprintf("无法打开配置文件: %v", err))
@@ -53,7 +58,7 @@ func init() {
 	}
 
 	outbox.InitModelProvider(config.ModelProviderURI, config.ModelProviderModel, config.ModelProviderAPIKey)
-	outbox.InitGlobalSession()
+	outbox.Init(Logger)
 
 	// 检查租户 addTenant 是否存在
 	fmt.Println("🌍正在添加租户...")
@@ -165,9 +170,13 @@ func addEmbeddingCollection() error {
 	// 创建用于 embedding 的集合 /api/v2/tenants/{tenant}/databases/{database}/collections post
 	createURL := fmt.Sprintf("%s/tenants/%s/databases/%s/collections", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase)
 	payload := struct {
-		Name string `json:"name"`
+		Name      string            `json:"name"`
+		Metadatas map[string]string `json:"metadatas"`
 	}{
 		Name: config.Collection,
+		Metadatas: map[string]string{
+			"hnsw:space": "ip", // "cosine" "12" "ip"
+		},
 	}
 	body, _ := json.Marshal(payload)
 	resp, err := http.Post(createURL, "application/json", bytes.NewBuffer(body))
@@ -241,7 +250,7 @@ func generateAndStore(text string) (string, error) {
 	return id, nil
 }
 
-// 独立向量生成函数（复用存储逻辑中的核心部分）
+// 独立向量生成函数（复用存储逻辑中的核心部分） -> L2
 func generateEmbedding(text string) ([]float32, error) {
 	resp, err := http.Post(config.OllamaURL, "application/json",
 		bytes.NewBufferString(fmt.Sprintf(`{"model":"nomic-embed-text","prompt":"%s"}`, url.QueryEscape(text))))
@@ -254,7 +263,9 @@ func generateEmbedding(text string) ([]float32, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, err
 	}
-	return response.Embedding, nil
+
+	L2 := vector.Normalize(response.Embedding)
+	return L2, nil
 }
 
 // 删除记录
