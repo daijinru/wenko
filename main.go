@@ -594,6 +594,25 @@ func main() {
 	// 用户中断 PlanningTask
 	http.HandleFunc("/planning/task/interrupt", outbox.InterruptTask)
 
+	// 导出所有文本数据
+	http.HandleFunc("/export", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		fmt.Println("Received request to export all data.")
+		err := exportAllData()
+		if err != nil {
+			fmt.Printf("Error during data export: %v\n", err)
+			http.Error(w, fmt.Sprintf("Failed to export data: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "Data exported successfully to export_YYYYMMDD.md"})
+	})
+
 	// 启动服务
 	fmt.Println("✅ 启动服务成功 -- Server running on :8080")
 	http.ListenAndServe(":8080", nil)

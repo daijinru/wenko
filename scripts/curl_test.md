@@ -52,6 +52,9 @@ curl https://openrouter.ai/api/v1/chat/completions \
 ## List Documents
 ```bash
 $ curl -X POST http://localhost:8080/documents -H "Content-Type: application/json" -d '{"limit": 100, "offset": 0 }'
+
+# 导出所有文本数据到项目根目录
+curl -X POST http://localhost:8080/export
 ```
 
 ## Chat Test
