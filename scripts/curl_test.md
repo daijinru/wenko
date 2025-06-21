@@ -55,6 +55,9 @@ $ curl -X POST http://localhost:8080/documents -H "Content-Type: application/jso
 
 # 导出所有文本数据到项目根目录
 curl -X POST http://localhost:8080/export
+
+# 导入文本数据
+curl -X POST -H "Content-Type: application/json" -d '{"filename": "export_20250621.md"}' http://localhost:8080/import
 ```
 
 ## Chat Test

@@ -613,6 +613,43 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"message": "Data exported successfully to export_YYYYMMDD.md"})
 	})
 
+	http.HandleFunc("/import", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "读取请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		var requestData struct {
+			Filename string `json:"filename"`
+		}
+		if err := json.Unmarshal(body, &requestData); err != nil {
+			http.Error(w, "解析请求体失败", http.StatusBadRequest)
+			return
+		}
+
+		if requestData.Filename == "" {
+			http.Error(w, "文件名不能为空", http.StatusBadRequest)
+			return
+		}
+
+		fmt.Printf("收到导入文件请求: %s\n", requestData.Filename)
+		err = importData(requestData.Filename) // 调用新的导入函数
+		if err != nil {
+			fmt.Printf("数据导入失败: %v\n", err)
+			http.Error(w, fmt.Sprintf("数据导入失败: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("数据已成功从 %s 导入并添加标记。", requestData.Filename)})
+	})
+
 	// 启动服务
 	fmt.Println("✅ 启动服务成功 -- Server running on :8080")
 	http.ListenAndServe(":8080", nil)
