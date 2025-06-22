@@ -1,9 +1,11 @@
 import { useRef, useEffect } from "react"
-import { Card, Space, Button, Tooltip } from "antd"
+import { Card, Space, Button, Tooltip, Typography } from "antd"
 import { observer } from "mobx-react-lite"
 import { BulbTwoTone, DeleteTwoTone } from '@ant-design/icons'
 
 import documentStore from "./store/newtab.document"
+
+const { Text, Link } = Typography
 
 const Documents = () => {
 
@@ -45,7 +47,19 @@ const Documents = () => {
                 }
               >
                 <div className="p-4 md:p-6">
-                  <p className="text-12 overflow-hidden text-slate-700 leading-relaxed">{doc.metadata?.content}</p>
+                  <p className="text-12 overflow-hidden text-slate-700 leading-relaxed">
+                    <Space direction="vertical" size="small">
+                    {
+                      // 将 doc.metadata?.content 按 $-$ 分割，换行显示
+                      doc.metadata?.content.split('$-$').map((item, index) => {
+                        if (index == 0) return <Text>{item}</Text>
+                        if (index == 1) return <Text keyboard>{item}</Text>
+                        if (index == 2) return <Link href={item} target="_blank">{item}</Link>
+                        if (index === 3) return <Text italic type="secondary">{item}</Text>
+                      })
+                    }
+                    </Space>
+                  </p>
                 </div>
               </Card>
             )
