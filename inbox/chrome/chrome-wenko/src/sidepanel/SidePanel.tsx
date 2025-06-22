@@ -9,6 +9,8 @@ import { CoffeeOutlined, SmileOutlined } from '@ant-design/icons';
 import { Button, Space, Typography, Spin, Card, } from 'antd'
 import { pick } from 'lodash-es';
 
+const { Text, Link } = Typography
+
 import './SidePanel.css'
 
 /**
@@ -88,9 +90,9 @@ export const SidePanel = () => {
       })
         .then((res) => res.json())
         .then(async data => {
-          data.forEach(item => {
-            item.content = decodeURIComponent(item.content)
-          })
+          // data.forEach(item => {
+          //   item.content = decodeURIComponent(item.content)
+          // })
           chrome.runtime.sendMessage({
             target: "content-script",
             type: "LOG",
@@ -337,7 +339,21 @@ ${matchResults.map((item,index)  =>
                 }}
                 size='small'
               >
-                <p><strong>线索{key + 1}</strong>: {item.content}</p>
+                <p>
+                  <strong>线索{key + 1}</strong>: 
+                  {/* {item.content} */}
+                  <Space direction="vertical" size="small">
+                  {
+                    // 将 doc.metadata?.content 按 $-$ 分割，换行显示
+                    item.content.split('$-$').map((item, index) => {
+                      if (index == 0) return <Text>{item}</Text>
+                      if (index == 1) return <Text keyboard>{item}</Text>
+                      if (index == 2) return <Link href={item} target="_blank">{item}</Link>
+                      if (index === 3) return <Text italic type="secondary">{item}</Text>
+                    })
+                  }
+                  </Space>
+                </p>
               </Card>
             )
           })
