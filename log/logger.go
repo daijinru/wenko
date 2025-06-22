@@ -27,7 +27,7 @@ func getCurrentDate() string {
 func (l *DailyLogger) getLogFile(logType string) string {
 	currentDate := getCurrentDate()
 	filename := currentDate
-	if logType == "error" {
+	if logType == "ERROR" {
 		filename += ".error.log"
 	} else {
 		filename += ".log"

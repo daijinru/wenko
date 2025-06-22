@@ -32,6 +32,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     sendResponse({ highlightId }); // 返回ID供后台跟踪 
   }
+
+  // 这里添加对 getPageInfo 的处理
+  if (request.action  === "getPageInfo") {
+    sendResponse({
+      url: window.location.href,
+      title: document.title,
+      body: document.body.innerText ?? '',
+    });
+  }
 });
 
 let toastTimer: any = null

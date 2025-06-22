@@ -31,9 +31,18 @@ chrome.contextMenus.onClicked.addListener((info,  tab) => {
       // @ts-ignore 
       chrome.sidePanel.open({  windowId: tab.windowId  });
       setTimeout(() => {
-        chrome.runtime.sendMessage({ 
-          action: "updateSidePanel",
-          text: selectedText + '_' + returnHighlightId,
+        // 这里的 background script 环境中没有 document 对象，
+        // 需要通过发送消息向 content script 获取页面信息。
+        // 例子：先给 content script 发消息请求页面数据，然后在回调中发送 runtime 消息更新侧边面板。
+
+        chrome.tabs.sendMessage(tab.id!, { action: "getPageInfo" }, (pageInfo) => {
+          chrome.runtime.sendMessage({ 
+            action: "updateSidePanel",
+            text: selectedText + '_' + returnHighlightId,
+            url: pageInfo.url,
+            title: pageInfo.title,
+            body: pageInfo.body.slice(0, 200),
+          });
         });
       }, 1000)
     }

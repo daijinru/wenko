@@ -7,11 +7,27 @@ import rehypeRaw from 'rehype-raw';
 import { Welcome } from '@ant-design/x';
 import { CoffeeOutlined, SmileOutlined } from '@ant-design/icons';
 import { Button, Space, Typography, Spin, Card, } from 'antd'
+import { pick } from 'lodash-es';
 
 import './SidePanel.css'
 
+/**
+ * 带权重的文本结构体
+ * ```javascript
+ * { Text: selectedText, Weight: 0.6 },                       // 高亮文本为核心，权重最高
+ * { Text: document.title, Weight: 0.15 },                   // 网页标题，体现页面主题
+ * { Text: location.href, Weight: 0.15 },                    // URL，提供上下文来源
+ * { Text: document.body.innerText.slice(0, 500), Weight: 0.1 }, // 网页正文首500字符，提供部分上下文
+ * ```
+ */
+type WeightedText = {
+	Text: string
+	Weight: number
+}
+
 export const SidePanel = () => {
   const [selectedText, setSelectedText] = useState('')
+  const refTexts = useRef<Record<string, string>>([])
   const [matchResults, setMatchResults] = useState([])
   const [interpretation, setInterpretation] = useState<string>('')
   const [loadingText, setLoadingText] = useState<string>('')
@@ -24,7 +40,12 @@ export const SidePanel = () => {
       if (request.action  === "updateSidePanel") {
         const text = request.text.split('_')[0]; // 仅获取文本部分
         setSelectedText(text);
-
+        refTexts.current = {...pick(request, ['url', 'title', 'body']), ...{text}};
+        chrome.runtime.sendMessage({
+          target: "content-script",
+          type: "LOG",
+          text: JSON.stringify(refTexts.current),
+        })
         const id = request.text.split('_')[1]
         hightlightId.current = id; // 更新高亮ID
       }
@@ -42,14 +63,27 @@ export const SidePanel = () => {
         text: `已选中，正在搜索关联文本，请稍等...`,
         duration: 2000,
       });
+
       // 请求 http://localhost:8080/search 接口，请求体 text
+      // 设置带权重的文本结构体
+      const weightedTexts: WeightedText[] = [
+        { Text: refTexts.current.text, Weight: 0.6 },
+        { Text: refTexts.current.title, Weight: 0.15 },
+        { Text: refTexts.current.url, Weight: 0.15 },
+        { Text: refTexts.current.body, Weight: 0.1 },
+      ]
+      chrome.runtime.sendMessage({
+        target: "content-script",
+        type: "LOG",
+        text: '权重文本：' + JSON.stringify(weightedTexts),
+      })
       fetch("http://localhost:8080/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: selectedText,
+          texts: weightedTexts,
         }),
       })
         .then((res) => res.json())
@@ -77,7 +111,7 @@ export const SidePanel = () => {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                text: selectedText,
+                texts: weightedTexts,
                 id: item.id
               }),
             })
@@ -107,7 +141,7 @@ export const SidePanel = () => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              text: selectedText,
+              texts: weightedTexts,
             }),
           })
             .then((res) => res.json())
@@ -120,6 +154,14 @@ export const SidePanel = () => {
                   duration: 2000,
                 });
               }
+            })
+            .catch(err => {
+              chrome.runtime.sendMessage({
+                target: "content-script",
+                type: "TOAST",
+                text: `生成向量失败，${err}`,
+                duration: 2000,
+              });
             })
         })
       setTimeout(() => {

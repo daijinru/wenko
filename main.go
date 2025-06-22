@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 
@@ -197,9 +196,13 @@ func addEmbeddingCollection() error {
 	return nil
 }
 
-func addToChromaDB(id string, embedding []float32, content string) (string, error) {
+func addToChromaDB(id string, embedding []float32, texts []WeightedText) (string, error) {
 	// fmt.Println("Adding to ChromaDB...", embedding)
-
+	// 将 texts 转换为字符串，形式：text1-weight1\ntext2-weight2\ntext3-weight3
+	var content string
+	for _, text := range texts {
+		content += fmt.Sprintf("%s-%f\n", text.Text, text.Weight)
+	}
 	// 构造请求体
 	payload := struct {
 		Ids        []string            `json:"ids"`
@@ -233,8 +236,8 @@ func addToChromaDB(id string, embedding []float32, content string) (string, erro
 	return "", fmt.Errorf("failed to add to chromadb: %s", string(bodyBytes))
 }
 
-func generateAndStore(text string) (string, error) {
-	embedding, err := generateEmbedding(text)
+func generateAndStore(texts []WeightedText) (string, error) {
+	embedding, err := generateWeightedEmbedding(texts)
 	if err != nil {
 		return "", err
 	}
@@ -242,30 +245,12 @@ func generateAndStore(text string) (string, error) {
 	// id 使用 UUIDv4 生成
 	id := strings.ReplaceAll(uuid.New().String(), "-", "")
 	// fmt.Println("Adding to ChromaDB...", response)
-	id, err = addToChromaDB(id, embedding, text)
+	id, err = addToChromaDB(id, embedding, texts)
 	fmt.Println(id, err)
 	if err != nil {
 		return "failed to add to chromadb:", err
 	}
 	return id, nil
-}
-
-// 独立向量生成函数（复用存储逻辑中的核心部分） -> L2
-func generateEmbedding(text string) ([]float32, error) {
-	resp, err := http.Post(config.OllamaURL, "application/json",
-		bytes.NewBufferString(fmt.Sprintf(`{"model":"nomic-embed-text","prompt":"%s"}`, url.QueryEscape(text))))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var response OllamaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, err
-	}
-
-	L2 := vector.Normalize(response.Embedding)
-	return L2, nil
 }
 
 // 删除记录
@@ -311,7 +296,7 @@ func vectorSearch(queryVector []float32) ([]map[string]interface{}, error) {
 	// url := fmt.Sprintf("%s/tenants/%s/databases/%s/collections/%s/add", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase, CollectionId)
 	// 检索 /api/v2/tenants/{tenant}/databases/{database}/collections/{collection_id}/query post
 	url := fmt.Sprintf("%s/tenants/%s/databases/%s/collections/%s/query", config.ChromaDBURL, config.ChromDBTenants, config.ChromaDBDatabase, CollectionId)
-
+	Logger.Info("向量检索: " + url)
 	payload := struct {
 		QueryEmbeddings [][]float32 `json:"query_embeddings"`
 		NResults        int         `json:"n_results"`
@@ -343,7 +328,7 @@ func vectorSearch(queryVector []float32) ([]map[string]interface{}, error) {
 	// 如果需要转换为 EmbeddingDoc 切片，可以手动映射
 	// 保存最终结果，每个查询对应一组匹配项
 	var allResults []map[string]interface{}
-
+	Logger.Info("向量检索结果: " + fmt.Sprintf("%v", response.IDs))
 	// 外层遍历：每个查询向量（通常是1个）
 	for i := range response.IDs {
 		// 内层遍历：每个匹配项
@@ -365,9 +350,9 @@ type VectorGetRessponse struct {
 	Embeddings [][]float32 `json:"embeddings"`
 }
 
-func vectorCompare(text string, id string) (bool, error) {
-	fmt.Println("vectorCompare...", text, id)
-	embeddings, err := generateEmbedding(text)
+func vectorCompare(texts []WeightedText, id string) (bool, error) {
+	// fmt.Println("vectorCompare...", text, id)
+	embeddings, err := generateWeightedEmbedding(texts)
 	if err != nil {
 		return false, err
 	}
@@ -447,14 +432,21 @@ func main() {
 		}
 
 		var requestData struct {
-			Text string `json:"text"`
+			Texts []struct {
+				Text   string  `json:"text"`
+				Weight float32 `json:"weight"`
+			} `json:"texts"`
 		}
 		if err := json.Unmarshal(body, &requestData); err != nil {
 			http.Error(w, "解析请求体失败", http.StatusBadRequest)
 			return
 		}
-
-		id, err := generateAndStore(requestData.Text)
+		weightedTexts := make([]WeightedText, len(requestData.Texts))
+		for i, text := range requestData.Texts {
+			weightedTexts[i] = WeightedText{Text: text.Text, Weight: text.Weight}
+		}
+		Logger.Info("正在存储: " + weightedTexts[0].Text)
+		id, err := generateAndStore(weightedTexts)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -471,22 +463,29 @@ func main() {
 		}
 
 		var requestData struct {
-			Text string `json:"text"`
+			Texts []struct {
+				Text   string  `json:"text"`
+				Weight float32 `json:"weight"`
+			} `json:"texts"`
 		}
 		if err := json.Unmarshal(body, &requestData); err != nil {
 			http.Error(w, "解析请求体失败", http.StatusBadRequest)
 			return
 		}
-
-		text := requestData.Text
-		fmt.Printf("search text: %s\n", text)
+		// 将 requestData.Texts 转换为 WeightedText 切片
+		weightedTexts := make([]WeightedText, len(requestData.Texts))
+		for i, text := range requestData.Texts {
+			weightedTexts[i] = WeightedText{Text: text.Text, Weight: text.Weight}
+		}
 		// 生成文本向量
-		vector, err := generateEmbedding(text)
+		Logger.Info("生成文本向量: " + weightedTexts[0].Text)
+		vector, err := generateWeightedEmbedding(weightedTexts)
 		if err != nil {
+			Logger.Error("生成向量失败: " + err.Error())
 			http.Error(w, "生成向量失败: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
+		Logger.Info("生成向量成功: " + weightedTexts[0].Text)
 		// 执行向量检索
 		results, err := vectorSearch(vector)
 		// fmt.Printf("results: %v\n", results)
@@ -519,15 +518,22 @@ func main() {
 		}
 
 		var requestData struct {
-			Text string `json:"text"`
-			ID   string `json:"id"`
+			Texts []struct {
+				Text   string  `json:"text"`
+				Weight float32 `json:"weight"`
+			} `json:"texts"`
+			ID string `json:"id"`
 		}
 		if err := json.Unmarshal(body, &requestData); err != nil {
 			http.Error(w, "解析请求体失败", http.StatusBadRequest)
 			return
 		}
-
-		result, err := vectorCompare(requestData.Text, requestData.ID)
+		weightedTexts := make([]WeightedText, len(requestData.Texts))
+		for i, text := range requestData.Texts {
+			weightedTexts[i] = WeightedText{Text: text.Text, Weight: text.Weight}
+		}
+		result, err := vectorCompare(weightedTexts, requestData.ID)
+		Logger.Info("比较结果: " + fmt.Sprintf("%v", result))
 		if err != nil {
 			http.Error(w, "比较失败: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -613,42 +619,42 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"message": "Data exported successfully to export_YYYYMMDD.md"})
 	})
 
-	http.HandleFunc("/import", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	// http.HandleFunc("/import", func(w http.ResponseWriter, r *http.Request) {
+	// 	if r.Method != http.MethodPost {
+	// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// 		return
+	// 	}
 
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "读取请求体失败", http.StatusBadRequest)
-			return
-		}
+	// 	body, err := io.ReadAll(r.Body)
+	// 	if err != nil {
+	// 		http.Error(w, "读取请求体失败", http.StatusBadRequest)
+	// 		return
+	// 	}
 
-		var requestData struct {
-			Filename string `json:"filename"`
-		}
-		if err := json.Unmarshal(body, &requestData); err != nil {
-			http.Error(w, "解析请求体失败", http.StatusBadRequest)
-			return
-		}
+	// 	var requestData struct {
+	// 		Filename string `json:"filename"`
+	// 	}
+	// 	if err := json.Unmarshal(body, &requestData); err != nil {
+	// 		http.Error(w, "解析请求体失败", http.StatusBadRequest)
+	// 		return
+	// 	}
 
-		if requestData.Filename == "" {
-			http.Error(w, "文件名不能为空", http.StatusBadRequest)
-			return
-		}
+	// 	if requestData.Filename == "" {
+	// 		http.Error(w, "文件名不能为空", http.StatusBadRequest)
+	// 		return
+	// 	}
 
-		fmt.Printf("收到导入文件请求: %s\n", requestData.Filename)
-		err = importData(requestData.Filename) // 调用新的导入函数
-		if err != nil {
-			fmt.Printf("数据导入失败: %v\n", err)
-			http.Error(w, fmt.Sprintf("数据导入失败: %v", err), http.StatusInternalServerError)
-			return
-		}
+	// 	fmt.Printf("收到导入文件请求: %s\n", requestData.Filename)
+	// 	err = importData(requestData.Filename) // 调用新的导入函数
+	// 	if err != nil {
+	// 		fmt.Printf("数据导入失败: %v\n", err)
+	// 		http.Error(w, fmt.Sprintf("数据导入失败: %v", err), http.StatusInternalServerError)
+	// 		return
+	// 	}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("数据已成功从 %s 导入并添加标记。", requestData.Filename)})
-	})
+	// 	w.Header().Set("Content-Type", "application/json")
+	// 	json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("数据已成功从 %s 导入并添加标记。", requestData.Filename)})
+	// })
 
 	// 启动服务
 	fmt.Println("✅ 启动服务成功 -- Server running on :8080")
