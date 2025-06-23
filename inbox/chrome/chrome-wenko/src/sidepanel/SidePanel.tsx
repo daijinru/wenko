@@ -46,7 +46,7 @@ export const SidePanel = () => {
         chrome.runtime.sendMessage({
           target: "content-script",
           type: "LOG",
-          text: JSON.stringify(refTexts.current),
+          text: '收到监听信息：' + JSON.stringify(refTexts.current),
         })
         const id = request.text.split('_')[1]
         hightlightId.current = id; // 更新高亮ID
@@ -77,7 +77,7 @@ export const SidePanel = () => {
       chrome.runtime.sendMessage({
         target: "content-script",
         type: "LOG",
-        text: '权重文本：' + JSON.stringify(weightedTexts),
+        text: '获得权重文本：' + JSON.stringify(weightedTexts),
       })
       fetch("http://localhost:8080/search", {
         method: "POST",
@@ -93,20 +93,20 @@ export const SidePanel = () => {
           // data.forEach(item => {
           //   item.content = decodeURIComponent(item.content)
           // })
-          chrome.runtime.sendMessage({
-            target: "content-script",
-            type: "LOG",
-            text: JSON.stringify(data),
-          })
+          // chrome.runtime.sendMessage({
+          //   target: "content-script",
+          //   type: "LOG",
+          //   text: JSON.stringify(data),
+          // })
           setMatchResults(data)
           setIsLoading(false)
 
           const promises = data.map(async item => {
-            chrome.runtime.sendMessage({
-              target: "content-script",
-              type: "LOG",
-              text: JSON.stringify('正在比对: ' + item.id + ' content: ' + selectedText),
-            })
+            // chrome.runtime.sendMessage({
+            //   target: "content-script",
+            //   type: "LOG",
+            //   text: JSON.stringify('🚗 正在比对: ' + item.id + ' content: ' + selectedText),
+            // })
             const res = await fetch('http://localhost:8080/compare', {
               method: "POST",
               headers: {

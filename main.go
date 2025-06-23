@@ -201,7 +201,7 @@ func addToChromaDB(id string, embedding []float32, texts []WeightedText) (string
 	// 将 texts 转换为字符串，形式：text1-weight1\ntext2-weight2\ntext3-weight3
 	var content string
 	for _, text := range texts {
-		content += fmt.Sprintf("%s-%f$-$", text.Text, text.Weight)
+		content += fmt.Sprintf("%s-(weight-assign:%f)-$-$", text.Text, text.Weight)
 	}
 	// 构造请求体
 	payload := struct {
@@ -470,6 +470,10 @@ func main() {
 		}
 		if err := json.Unmarshal(body, &requestData); err != nil {
 			http.Error(w, "解析请求体失败", http.StatusBadRequest)
+			return
+		}
+		if requestData.Texts == nil {
+			http.Error(w, "Texts should non empty", http.StatusBadRequest)
 			return
 		}
 		// 将 requestData.Texts 转换为 WeightedText 切片
