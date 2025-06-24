@@ -1,15 +1,24 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
+// 用空行（两个连续换行符）来分隔段落，导出时替换为 "\n\n"
+// 避免使用特殊标记，保持文本自然，也利于后续处理和阅读
+func processContentForCSV(s string) (string, int) {
+	count := strings.Count(s, "$-$")
+	return s, count
+}
+
 func exportAllData() error {
-	today := time.Now().Format("20060102") // YYYYMMDD format
-	filename := fmt.Sprintf("export_%s.md", today)
+	today := time.Now().Format("20060102")          // YYYYMMDD format
+	filename := fmt.Sprintf("export_%s.csv", today) // Change to .csv
 
 	exportPath := filepath.Join(".", filename)
 
@@ -19,8 +28,14 @@ func exportAllData() error {
 	}
 	defer file.Close()
 
+	// Add a CSV writer
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
 	const limit = 100
 	offset := 0
+	maxColumns := 0
+	var allProcessedContent [][]string // To store all processed content rows
 
 	fmt.Printf("Starting data export to %s...\n", exportPath)
 
@@ -37,10 +52,13 @@ func exportAllData() error {
 		for _, metadata := range documents.Metadatas {
 			if content, ok := metadata["content"]; ok {
 				if contentStr, isString := content.(string); isString {
-					_, err := file.WriteString(contentStr + "\n")
-					if err != nil {
-						return fmt.Errorf("failed to write content to file: %w", err)
+					processedContent, count := processContentForCSV(contentStr)
+					if count > maxColumns {
+						maxColumns = count
 					}
+					// Split the processed content by comma to get individual fields
+					fields := strings.Split(processedContent, "$-$")
+					allProcessedContent = append(allProcessedContent, fields)
 				} else {
 					fmt.Printf("Warning: 'content' in metadata is not a string, skipping: %v\n", content)
 				}
@@ -53,6 +71,31 @@ func exportAllData() error {
 
 		if len(documents.IDs) < limit {
 			break
+		}
+	}
+
+	// Write header row
+	if maxColumns > 0 {
+		header := make([]string, maxColumns+1) // +1 for the first column (index 0)
+		for i := 0; i <= maxColumns; i++ {
+			header[i] = fmt.Sprintf("%d", i+1)
+		}
+		err := writer.Write(header)
+		if err != nil {
+			return fmt.Errorf("failed to write CSV header: %w", err)
+		}
+	}
+
+	// Write all processed content
+	for _, row := range allProcessedContent {
+		// Ensure all rows have the same number of columns as maxColumns + 1
+		// Pad with empty strings if necessary
+		for len(row) <= maxColumns {
+			row = append(row, "")
+		}
+		err := writer.Write(row)
+		if err != nil {
+			return fmt.Errorf("failed to write CSV row: %w", err)
 		}
 	}
 
