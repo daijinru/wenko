@@ -385,8 +385,10 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	globalSession.AddEntry("ask", payload)
 
 	lastEntry := MessageType{}
+	stopReason := ""
 	waitUntil(30*time.Second, func() bool {
 		if ok := CheckInterrupt(); ok {
+			stopReason = "用户中断对话"
 			return true
 		}
 
@@ -413,21 +415,28 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 
 	// 如果 lastEntry.Type 为空说明超时
 	if lastEntry.Type == "" {
-		Logger.Info("回答超时 lastEntry: " + fmt.Sprintf("%v", lastEntry))
+		if stopReason == "" {
+			stopReason = "回答超时"
+		}
+		Logger.Info("waitUntil 函数超时" + fmt.Sprintf("%v", stopReason))
 		return RecursiveTaskCompletion{
-			Text:  "回答超时",
+			Text:  stopReason,
 			Break: true,
 		}
 	}
-	// 如果 answer 为 true 且 reason 为空，说明用户同意，可继续
+	// 如果 answer 为 true 但是 reason 为空，说明用户取消了对话
 	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
+		stopReason = "用户取消对话"
+		Logger.Info("用户取消对话: [Meta] " + fmt.Sprintf("%v", lastEntry.Payload.Meta))
 		return RecursiveTaskCompletion{
-			Text:  "用户取消",
+			Text:  stopReason,
 			Break: true,
 		}
 	}
+	// 只有回答了问题，才会继续循环
+	Logger.Info("用户回答了问题: [Meta] " + fmt.Sprintf("%v", lastEntry.Payload.Meta))
 	reason := lastEntry.Payload.Meta["reason"].(string)
-	// 是因为用户回答了问题，所以重置内层循环计数器
+	// 因为用户回答了问题，所以重置内层循环计数器
 	currentInnerLoop = 0
 	return recursivePlanningTask(reason)
 }
@@ -498,16 +507,17 @@ func InterruptTask(w http.ResponseWriter, r *http.Request) {
 // 执行后从最新一条信息检查 signal 类型的消息，如果有则中断
 func CheckInterrupt() bool {
 	entries, _ := globalSession.GetEntries("ask")
-	if (entries == nil) || (len(entries) == 0) {
+
+	if entries == nil {
 		return false
 	}
 
-	lastEntry := entries[len(entries)-1]
-	if lastEntry.Type == "signal" {
-		if action, ok := lastEntry.Payload.Meta["action"].(string); ok && action == SIGNAL_STOP {
-			// 删除该消息
-			globalSession.DeleteLastEntry("ask")
-			return true
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		if entry.Type == "signal" {
+			if action, ok := entry.Payload.Meta["action"].(string); ok && action == SIGNAL_STOP {
+				return true
+			}
 		}
 	}
 	return false
