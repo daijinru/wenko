@@ -146,7 +146,7 @@ const Chat = () => {
           submitType="shiftEnter"
           placeholder="Press Shift + Enter to send message"
           onSubmit={text => {
-            taskStore.onNewTask(text)
+            taskStore.onAnswer(text)
           }}
           onCancel={taskStore.onCancelTask}
         />

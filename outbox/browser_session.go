@@ -34,6 +34,15 @@ func (s *Session) DeleteEntries(sessionID string) {
 	delete(s.sessionIDMap, sessionID)
 }
 
+// UpdateEntry
+func (s *Session) UpdateEntry(sessionID string, index int, entry MessageType) bool {
+	if entries, exists := s.sessionIDMap[sessionID]; exists && index >= 0 && index < len(entries) {
+		entries[index] = entry
+		return true
+	}
+	return false
+}
+
 // 删除最后一条信息
 func (s *Session) DeleteLastEntry(sessionID string) {
 	entries, exists := s.sessionIDMap[sessionID]

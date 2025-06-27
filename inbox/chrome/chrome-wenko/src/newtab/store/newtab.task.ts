@@ -49,7 +49,11 @@ class PlanningTaskStore {
   /** 获取最新问题的actionID */
   get answerActionID(): string {
     const lastMessage = last(this.messages)
-    return lastMessage.action === 'ask' && lastMessage.id
+    // 最后一条消息必定是 ask 类型，如果不是，可能逻辑问题
+    if (lastMessage?.action === 'ask') {
+      return lastMessage.id
+    }
+    return ''
   }
 
   constructor() {
@@ -185,7 +189,7 @@ class PlanningTaskStore {
   }
 
   /** 用户输入模式：仅支持任务模式-等待回答状态，不支持无明确目标的自由交流 */
-  onUserSumit = (content: string) => {
+  onAnswer = (content: string) => {
     const newMessage = {
       type: 'text',
       role: 'user',

@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	SIGNAL_TYPE = "signal"
 	SIGNAL_STOP = "stop"
 )
 
@@ -386,7 +387,7 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 
 	lastEntry := MessageType{}
 	stopReason := ""
-	waitUntil(30*time.Second, func() bool {
+	waitUntil(60*time.Second, func() bool {
 		if ok := CheckInterrupt(); ok {
 			stopReason = "用户中断对话"
 			return true
@@ -454,36 +455,33 @@ func PlanningTaskAnswer(w http.ResponseWriter, r *http.Request) {
 		ActionID string `json:"actionID"`
 	}
 	if err := json.Unmarshal(body, &ChatRequest); err != nil {
-		http.Error(w, "解析请求体失败", http.StatusBadRequest)
+		http.Error(w, "解析请求体失败: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
+	Logger.Info("用户回答了问题: " + ChatRequest.Text + " [ActionID] " + ChatRequest.ActionID)
 	entries, _ := globalSession.GetEntries("ask")
-	// fmt.Println("entries: ", entries)
-	if (entries == nil) || (len(entries) == 0) {
-		http.Error(w, "没有找到相应的 ask 消息", http.StatusBadRequest)
+	// 打印所有 entries
+	fmt.Println("entries: ", entries)
+	if entries == nil {
+		http.Error(w, "没有找到 ask 消息集合", http.StatusBadRequest)
 	} else {
-		lastEntry := entries[len(entries)-1]
+		lastEntry := &entries[len(entries)-1]
 
-		askMessage := MessageType{
-			Type: "ask",
-			Payload: PayloadType{
-				Content: lastEntry.Payload.Content,
-				Meta: map[string]interface{}{
-					"answer": true,
-					"reason": ChatRequest.Text,
-				},
-			},
-			ActionID: ChatRequest.ActionID,
+		lastEntry.Payload.Meta["answer"] = true
+		lastEntry.Payload.Meta["reason"] = ChatRequest.Text
+		lastEntry.ActionID = ChatRequest.ActionID
+
+		r := globalSession.UpdateEntry("ask", len(entries)-1, *lastEntry)
+		if !r {
+			Logger.Warn("<PlanningTaskAnswer>: 修改 lastEntry 失败")
 		}
-		globalSession.AddEntry("ask", askMessage)
 	}
 }
 
 // 客户端发起中断信号
 func InterruptTask(w http.ResponseWriter, r *http.Request) {
 	askMessage := MessageType{
-		Type: "signal",
+		Type: SIGNAL_TYPE,
 		Payload: PayloadType{
 			Content: "",
 			Meta: map[string]interface{}{
@@ -498,7 +496,7 @@ func InterruptTask(w http.ResponseWriter, r *http.Request) {
 	// 返回 json
 	w.Header().Set("Content-Type", "application/json")
 	response := map[string]string{
-		"message": "中断信号已发送",
+		"message": "已收到中断信号",
 		"status":  "200",
 	}
 	json.NewEncoder(w).Encode(response)
@@ -514,7 +512,7 @@ func CheckInterrupt() bool {
 
 	for i := len(entries) - 1; i >= 0; i-- {
 		entry := entries[i]
-		if entry.Type == "signal" {
+		if entry.Type == SIGNAL_TYPE {
 			if action, ok := entry.Payload.Meta["action"].(string); ok && action == SIGNAL_STOP {
 				return true
 			}
