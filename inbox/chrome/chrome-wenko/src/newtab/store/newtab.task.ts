@@ -46,15 +46,6 @@ class PlanningTaskStore {
   setUserValue(value: string) {
     this.userValue = value
   }
-  /** 获取最新问题的actionID */
-  get answerActionID(): string {
-    const lastMessage = last(this.messages)
-    // 最后一条消息必定是 ask 类型，如果不是，可能逻辑问题
-    if (lastMessage?.action === 'ask') {
-      return lastMessage.id
-    }
-    return ''
-  }
 
   constructor() {
     makeAutoObservable(this)
@@ -148,8 +139,8 @@ class PlanningTaskStore {
           content: payload.payload.content || '',
           action: 'ask',
         }
+        this.appendMessage(newMessage)
         runInAction(() => {
-          this.messages.push(newMessage)
           // 遇到 ask 类型问题，停止 loading
           this.isLoading = false
           this.isWaitForAnswer = true
@@ -188,6 +179,19 @@ class PlanningTaskStore {
       })
   }
 
+  /** 获取最新问题的actionID */
+  getAnswerActionID(): string {
+    let askMessage = last(this.messages)
+    // 遍历 messages，找到最后一个 action 为 ask 的消息
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].action === 'ask') {
+        askMessage = this.messages[i]
+        return askMessage.id
+      }
+    }
+    console.info('<getAnswerActionID> possibly error happen: ', askMessage, this.messages)
+    return ''
+  }
   /** 用户输入模式：仅支持任务模式-等待回答状态，不支持无明确目标的自由交流 */
   onAnswer = (content: string) => {
     const newMessage = {
@@ -208,7 +212,7 @@ class PlanningTaskStore {
           },
           body: JSON.stringify({
             text: content,
-            actionID: this.answerActionID
+            actionID: this.getAnswerActionID(),
           }),
         })
           .then(res => res.json())

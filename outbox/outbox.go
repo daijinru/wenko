@@ -385,7 +385,11 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	PrintOut("200", string(dataBytes))
 	globalSession.AddEntry("ask", payload)
 
+	// 用户答复，初始化为空对象
+	// 在 waitUntil 如果命中用户回复，覆写下述对象
+	// 何谓命中？即 ask 消息的 meta.answer 为 true，且 actionId 相同
 	lastEntry := MessageType{}
+
 	stopReason := ""
 	waitUntil(60*time.Second, func() bool {
 		if ok := CheckInterrupt(); ok {
@@ -401,7 +405,7 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 		for i := len(entries) - 1; i >= 0; i-- {
 			if entries[i].ActionID == actionID {
 				entry := entries[i]
-				fmt.Println("waiting entry: ", entry.ActionID)
+				Logger.Info("<waitUntil> 命中用户回复: " + fmt.Sprintf("%v", entry))
 				// 仅当 answer 为 true 时才返回 true
 				if answer, ok := entry.Payload.Meta["answer"].(bool); ok && answer {
 					lastEntry = entry
@@ -472,9 +476,19 @@ func PlanningTaskAnswer(w http.ResponseWriter, r *http.Request) {
 		lastEntry.ActionID = ChatRequest.ActionID
 
 		r := globalSession.UpdateEntry("ask", len(entries)-1, *lastEntry)
+		message := fmt.Sprintf("<PlanningTaskAnswer>: 修改 lastEntry 成功: %v", lastEntry)
 		if !r {
-			Logger.Warn("<PlanningTaskAnswer>: 修改 lastEntry 失败")
+			message = "<PlanningTaskAnswer>: 修改 lastEntry 失败"
+			Logger.Warn(message)
 		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]string{
+			"message": message,
+			"status":  "200",
+		}
+		json.NewEncoder(w).Encode(response)
 	}
 }
 
