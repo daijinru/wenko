@@ -2,7 +2,7 @@ console.log('background is running')
 
 chrome.contextMenus.create({
   id: "highlightAndOpenPanel",
-  title: "高亮选中文本并打开Wenko",  // 菜单显示名称 
+  title: "^_^Open Wenko",  // 菜单显示名称 
   contexts: ["selection"]  // 仅在用户选中文本时显示 
 });
 
@@ -26,17 +26,17 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 // 自动注入示例（可选），监听所有http(s)网页加载完毕自动注入
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url?.startsWith('http')) {
-    chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['inject/inject.js'],
-    }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('自动注入inject.js失败:', chrome.runtime.lastError.message)
-      } else {
-        console.log('自动注入inject.js成功')
-      }
-    })
-  }
-});
+// chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+//   if (changeInfo.status === 'complete' && tab.url?.startsWith('http')) {
+//     chrome.scripting.executeScript({
+//       target: { tabId },
+//       files: ['inject/inject.js'],
+//     }, () => {
+//       if (chrome.runtime.lastError) {
+//         console.error('自动注入inject.js失败:', chrome.runtime.lastError.message)
+//       } else {
+//         console.log('自动注入inject.js成功')
+//       }
+//     })
+//   }
+// });

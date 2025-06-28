@@ -25,11 +25,6 @@ export default defineManifest({
     service_worker: 'src/background/index.ts',
     type: 'module',
   },
-  // 旧 content_scripts 注释或删除，改用后台注入
-  // content_scripts: [],
-  // side_panel: {
-  //   default_path: 'sidepanel.html',
-  // },
   host_permissions: ['http://*/*', 'https://*/*'],
   web_accessible_resources: [
     {
