@@ -8,6 +8,9 @@ import manifest from './src/manifest'
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   return {
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(mode),
+    },
     build: {
       emptyOutDir: true,
       outDir: 'build',

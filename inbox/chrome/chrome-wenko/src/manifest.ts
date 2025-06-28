@@ -25,20 +25,23 @@ export default defineManifest({
     service_worker: 'src/background/index.ts',
     type: 'module',
   },
-  content_scripts: [
-    {
-      matches: ['http://*/*', 'https://*/*'],
-      js: ['src/contentScript/index.ts'],
-    },
-  ],
+  // 旧 content_scripts 注释或删除，改用后台注入
+  // content_scripts: [],
   side_panel: {
     default_path: 'sidepanel.html',
   },
   host_permissions: ['http://*/*', 'https://*/*'],
   web_accessible_resources: [
     {
-      resources: ['img/logo-16.png', 'img/logo-32.png', 'img/logo-48.png', 'img/logo-128.png'],
-      matches: [],
+      resources: [
+        'img/logo-16.png',
+        'img/logo-32.png',
+        'img/logo-48.png',
+        'img/logo-128.png',
+        'inject/build/contentScriptReact.iife.js', // React打包产物必须允许访问
+        "inject/inject.js",
+      ],
+      matches: ['http://*/*', 'https://*/*'],
     },
   ],
   permissions: ['sidePanel', 'storage', 'contextMenus', 'activeTab', 'tabs', 'scripting'],

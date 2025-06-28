@@ -21,3 +21,6 @@
 
 # secrets
 secrets.*.js
+
+# builds
+inject/build
