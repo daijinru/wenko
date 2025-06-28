@@ -27,9 +27,9 @@ export default defineManifest({
   },
   // 旧 content_scripts 注释或删除，改用后台注入
   // content_scripts: [],
-  side_panel: {
-    default_path: 'sidepanel.html',
-  },
+  // side_panel: {
+  //   default_path: 'sidepanel.html',
+  // },
   host_permissions: ['http://*/*', 'https://*/*'],
   web_accessible_resources: [
     {

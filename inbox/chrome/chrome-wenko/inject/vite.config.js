@@ -1,30 +1,72 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import fs from 'fs'
+import chokidar from 'chokidar'
 
-export default defineConfig(({ mode }) => ({
-  define: {
-    'process.env.NODE_ENV': JSON.stringify(mode), // 注入当前构建模式，'development' 或 'production'
-  },
-  plugins: [react()],
-  build: {
-    lib: {
-      entry: path.resolve(__dirname, 'reactApp.tsx'),
-      name: 'contentScriptReact',
-      fileName: 'contentScriptReact',
-      formats: ['iife'],
+const srcDir = path.resolve(__dirname, 'build')
+const destDir = path.resolve(__dirname, '../build/inject/build')
+
+function copyFiles() {
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true })
+  }
+  fs.readdir(srcDir, (err, files) => {
+    if (err) {
+      console.error('Read build directory error:', err)
+      return
+    }
+    files.forEach(file => {
+      const srcPath = path.join(srcDir, file)
+      const destPath = path.join(destDir, file)
+      fs.copyFile(srcPath, destPath, (copyErr) => {
+        if (copyErr) {
+          console.error(`Failed to copy ${file}:`, copyErr)
+        } else {
+          console.log(`Copied ${file} to ${destDir}`)
+        }
+      })
+    })
+  })
+}
+
+export default defineConfig(({ mode }) => {
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true })
+  }
+
+  const watcher = chokidar.watch(srcDir, {
+    ignoreInitial: true,
+  })
+
+  watcher.on('add', copyFiles)
+  watcher.on('change', copyFiles)
+  watcher.on('unlink', copyFiles)
+
+  return {
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(mode),
     },
-    outDir: path.resolve(__dirname, 'build'),
-    emptyOutDir: true,
-    watch: {},  // 开启监听模式
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname),
+    plugins: [react()],
+    build: {
+      lib: {
+        entry: path.resolve(__dirname, 'reactApp.tsx'),
+        name: 'contentScriptReact',
+        fileName: 'contentScriptReact',
+        formats: ['iife'],
+      },
+      outDir: srcDir,
+      emptyOutDir: true,
+      watch: {}, // 继续开启监听构建
     },
-  },
-  esbuild: {
-    jsxFactory: 'React.createElement',
-    jsxFragment: 'React.Fragment',
-  },
-}))
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname),
+      },
+    },
+    esbuild: {
+      jsxFactory: 'React.createElement',
+      jsxFragment: 'React.Fragment',
+    },
+  }
+})

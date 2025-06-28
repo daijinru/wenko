@@ -421,9 +421,30 @@ func listDocuments(limit int, offset int) (DocumentResponse, error) {
 	return response, nil
 }
 
+func enableCORS(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 允许所有来源跨域
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// 允许的请求方法
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		// 允许的请求头
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// 跨域预检请求直接返回
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		handler.ServeHTTP(w, r)
+	})
+}
+
 // HTTP接口
 func main() {
-	http.HandleFunc("/generate", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/generate", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "读取请求体失败", http.StatusBadRequest)
@@ -454,7 +475,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"id": id})
 	})
 
-	http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "读取请求体失败", http.StatusBadRequest)
@@ -511,9 +532,9 @@ func main() {
 		json.NewEncoder(w).Encode(returnResults)
 	})
 
-	http.HandleFunc("/chat", Chat)
+	mux.HandleFunc("/chat", Chat)
 
-	http.HandleFunc("/compare", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/compare", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "读取请求体失败", http.StatusBadRequest)
@@ -545,7 +566,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]bool{"result": result})
 	})
 
-	http.HandleFunc("/documents", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/documents", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "读取请求体失败", http.StatusBadRequest)
@@ -582,7 +603,7 @@ func main() {
 		json.NewEncoder(w).Encode(allResults)
 	})
 
-	http.HandleFunc("/delete", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/delete", func(w http.ResponseWriter, r *http.Request) {
 		// 从 query 参数取出 id
 		id := r.URL.Query().Get("id")
 		fmt.Println("删除记录", id)
@@ -597,14 +618,14 @@ func main() {
 	})
 
 	// 创建一个 task 接口, post，使用 NewTask 方法
-	http.HandleFunc("/task", outbox.NewTask)
+	mux.HandleFunc("/task", outbox.NewTask)
 	// 用户回答 PlanningTask answer
-	http.HandleFunc("/planning/task/answer", outbox.PlanningTaskAnswer)
+	mux.HandleFunc("/planning/task/answer", outbox.PlanningTaskAnswer)
 	// 用户中断 PlanningTask
-	http.HandleFunc("/planning/task/interrupt", outbox.InterruptTask)
+	mux.HandleFunc("/planning/task/interrupt", outbox.InterruptTask)
 
 	// 导出所有文本数据
-	http.HandleFunc("/export", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/export", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -622,7 +643,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"message": "Data exported successfully to export_YYYYMMDD.md"})
 	})
 
-	// http.HandleFunc("/import", func(w http.ResponseWriter, r *http.Request) {
+	// mux.HandleFunc("/import", func(w http.ResponseWriter, r *http.Request) {
 	// 	if r.Method != http.MethodPost {
 	// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	// 		return
@@ -659,7 +680,9 @@ func main() {
 	// 	json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("数据已成功从 %s 导入并添加标记。", requestData.Filename)})
 	// })
 
+	handlerWithCORS := enableCORS(mux)
+
 	// 启动服务
 	fmt.Println("✅ 启动服务成功 -- Server running on :8080")
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":8080", handlerWithCORS)
 }

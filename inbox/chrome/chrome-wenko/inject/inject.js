@@ -12,7 +12,7 @@ function injectRootDiv() {
 // 动态注入 React bundle
 function injectReactScript() {
   const script = document.createElement('script')
-  script.src = chrome.runtime.getURL('inject/build/contentScriptReact.iife.js')
+  script.src = chrome.runtime.getURL('inject/build/contentScriptReact.iife.js?t=' + Date.now())
   script.type = 'module'
   document.documentElement.appendChild(script)
   script.onload = () => {

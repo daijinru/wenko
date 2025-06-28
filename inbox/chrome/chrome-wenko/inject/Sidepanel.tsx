@@ -6,12 +6,12 @@ import rehypeRaw from 'rehype-raw';
 
 import { Welcome } from '@ant-design/x';
 import { CoffeeOutlined, SmileOutlined } from '@ant-design/icons';
-import { Button, Space, Typography, Spin, Card, } from 'antd'
+import { Button, Space, Typography, Spin, Card, notification } from 'antd'
 import { pick } from 'lodash-es';
 
 const { Text, Link } = Typography
 
-import './SidePanel.css'
+import './Sidepanel.css'
 
 /**
  * 带权重的文本结构体
@@ -27,9 +27,9 @@ type WeightedText = {
 	Weight: number
 }
 
-export const SidePanel = () => {
+const Sidepanel = (props) => {
   const [selectedText, setSelectedText] = useState('')
-  const refTexts = useRef<Record<string, string>>([])
+  const refTexts = useRef<Record<string, string>>([] as any)
   const [matchResults, setMatchResults] = useState([])
   const [interpretation, setInterpretation] = useState<string>('')
   const [loadingText, setLoadingText] = useState<string>('')
@@ -38,20 +38,11 @@ export const SidePanel = () => {
   useEffect(() => {
 
     // 接收后台传递的文本 
-    chrome.runtime.onMessage.addListener((request)  => {
-      if (request.action  === "updateSidePanel") {
-        const text = request.text.split('_')[0]; // 仅获取文本部分
-        setSelectedText(text);
-        refTexts.current = {...pick(request, ['url', 'title', 'body']), ...{text}};
-        chrome.runtime.sendMessage({
-          target: "content-script",
-          type: "LOG",
-          text: '收到监听信息：' + JSON.stringify(refTexts.current),
-        })
-        const id = request.text.split('_')[1]
-        hightlightId.current = id; // 更新高亮ID
-      }
-    })
+    const text = props.text.split('_')[0]; // 仅获取文本部分
+    setSelectedText(text);
+    refTexts.current = {...pick(props, ['url', 'title', 'body']), ...{text}};
+    const id = props.text.split('_')[1]
+    hightlightId.current = id; // 更新高亮ID
   }, [])
 
   useEffect(() => {
@@ -59,12 +50,6 @@ export const SidePanel = () => {
       setMatchResults([])
       setInterpretation('')
       setIsLoading(true)
-      chrome.runtime.sendMessage({
-        target: "content-script",
-        type: "TOAST",
-        text: `已选中，正在搜索关联文本，请稍等...`,
-        duration: 2000,
-      });
 
       // 请求 http://localhost:8080/search 接口，请求体 text
       // 设置带权重的文本结构体
@@ -74,11 +59,7 @@ export const SidePanel = () => {
         { Text: refTexts.current.url, Weight: 0.15 },
         { Text: refTexts.current.body, Weight: 0.1 },
       ]
-      chrome.runtime.sendMessage({
-        target: "content-script",
-        type: "LOG",
-        text: '获得权重文本：' + JSON.stringify(weightedTexts),
-      })
+      console.info('获得权重文本：', weightedTexts)
       fetch("http://localhost:8080/search", {
         method: "POST",
         headers: {
@@ -90,23 +71,10 @@ export const SidePanel = () => {
       })
         .then((res) => res.json())
         .then(async data => {
-          // data.forEach(item => {
-          //   item.content = decodeURIComponent(item.content)
-          // })
-          // chrome.runtime.sendMessage({
-          //   target: "content-script",
-          //   type: "LOG",
-          //   text: JSON.stringify(data),
-          // })
           setMatchResults(data)
           setIsLoading(false)
 
           const promises = data.map(async item => {
-            // chrome.runtime.sendMessage({
-            //   target: "content-script",
-            //   type: "LOG",
-            //   text: JSON.stringify('🚗 正在比对: ' + item.id + ' content: ' + selectedText),
-            // })
             const res = await fetch('http://localhost:8080/compare', {
               method: "POST",
               headers: {
@@ -121,21 +89,15 @@ export const SidePanel = () => {
             return parsed.result
           })
           const finalRes = await Promise.all(promises)
-          chrome.runtime.sendMessage({
-            target: "content-script",
-            type: "LOG",
-            text: '✅ 比对结果: ' + JSON.stringify(finalRes),
-          })
+          console.info('✅ 比对结果: ', finalRes)
           const matched = finalRes.some(fr => fr)
           if (matched) return
           // const matchResult = data.find(item => item.content === selectedText)
           // if (matchResult && matchResult.content) return
-          chrome.runtime.sendMessage({
-            target: "content-script",
-            type: "TOAST",
-            text: `没有找到完全匹配的搜索结果，正在生成向量`,
-            duration: 2000,
-          });
+          notification.info({
+            message: '温馨提示',
+            description: '没有找到完全匹配的搜索结果，正在生成向量',
+          })
           // 请求 http://localhost:8080/generate 接口，请求体 text，返回的 id
           fetch("http://localhost:8080/generate", {
             method: "POST",
@@ -149,30 +111,19 @@ export const SidePanel = () => {
             .then((res) => res.json())
             .then((res) => {
               if (res.id) {
-                chrome.runtime.sendMessage({
-                  target: "content-script",
-                  type: "TOAST",
-                  text: `已生成并存储，${res.id}`,
-                  duration: 2000,
-                });
+                notification.success({
+                  message: '温馨提示',
+                  description: `已生成并存储，${res.id}`,
+                })
               }
             })
             .catch(err => {
-              chrome.runtime.sendMessage({
-                target: "content-script",
-                type: "TOAST",
-                text: `生成向量失败，${err}`,
-                duration: 2000,
-              });
+              notification.error({
+                message: '温馨提示',
+                description: `生成向量失败，${err}`,
+              })
             })
         })
-      setTimeout(() => {
-        chrome.runtime.sendMessage({ 
-          target: "content-script",
-          type: "HideSidePanel",
-          text: `移除高亮`,
-        });
-      }, 2000)
     }
   }, [selectedText])
 
@@ -190,11 +141,10 @@ ${matchResults.map((item,index)  =>
 ).join('\n\n')}`;
   }
   const handleInterpretation = async () => {
-    chrome.runtime.sendMessage({
-      target: "content-script",
-      type: "TOAST",
-      text: "正在生成AI解读..."
-    });
+    notification.info({
+      message: '温馨提示',
+      description: '正在生成AI解读...',
+    })
 
     
     setInterpretation('');
@@ -215,18 +165,8 @@ ${matchResults.map((item,index)  =>
       }),
       onopen(res) {
         if (res.ok) return Promise.resolve()
-        chrome.runtime.sendMessage({
-          target: "content-script",
-          type: "TOAST",
-          text: "建立会话连接失败",
-        });
       },
       onmessage(line) {
-        // chrome.runtime.sendMessage({
-        //   target: "content-script",
-        //   type: "LOG",
-        //   text: line,
-        // });
         try {
           const parsed = JSON.parse(line.data)
           if (parsed?.type === 'statusText') {
@@ -237,19 +177,17 @@ ${matchResults.map((item,index)  =>
             setLoadingText('')
           }
         } catch (error) {
-          chrome.runtime.sendMessage({
-            target: "content-script",
-            type: "TOAST",
-            text: "JSON.parse 解析数据失败",
-          });
+          notification.error({
+            message: '温馨提示',
+            description: 'JSON.parse 解析数据失败',
+          })
         }
       },
       onerror(err) {
-        chrome.runtime.sendMessage({
-          target: "content-script",
-          type: "TOAST",
-          text: "连接异常",
-        });
+        notification.error({
+          message: '温馨提示',
+          description: '连接异常',
+        })
       },
     })
   }
@@ -364,4 +302,4 @@ ${matchResults.map((item,index)  =>
   )
 }
 
-export default SidePanel
+export default Sidepanel
