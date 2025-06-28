@@ -30,6 +30,23 @@ var Tool_Use_Case_Prompt = map[string]interface{}{
 				},
 			},
 		},
+		{
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":        "task_complete",
+				"description": "当任务完成时，使用此工具通知任务已完成，并提供任务完成的总结。",
+				"parameters": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"summary": map[string]interface{}{
+							"type":        "string",
+							"description": "任务完成的总结或最终答案。",
+						},
+					},
+					"required": []string{"summary"},
+				},
+			},
+		},
 	},
 	"tool_choice": map[string]interface{}{
 		"type": "function",

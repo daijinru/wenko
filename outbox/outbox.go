@@ -97,7 +97,7 @@ type StopReason struct {
 
 var (
 	maxOuterLoop     = 2 // 外层最大循环次数
-	maxInnerLoop     = 2 // 内层最大循环次数
+	maxInnerLoop     = 5 // 内层最大循环次数
 	currentLoop      = 0 // 当前循环计数器（可被重置）
 	currentInnerLoop = 0 // 当前内层循环计数器（可被重置）
 )
@@ -152,6 +152,7 @@ func NewTask(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("当前循环次数: ", currentLoop)
 
 		if ok := CheckInterrupt(); ok {
+			Logger.Info("<NewTask Loop> 任务中断: 用户中断")
 			data := OutMessage{
 				Type:     "statusText",
 				Payload:  "任务中断: 用户中断",
@@ -219,6 +220,7 @@ type RecursiveTaskCompletion struct {
 func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	// 限制内层循环
 	if currentInnerLoop >= maxInnerLoop {
+		Logger.Info(fmt.Sprintf("内层循环次数达到最大值: %d / %d", currentInnerLoop, maxInnerLoop))
 		return RecursiveTaskCompletion{
 			Text:  "任务中断: 最大内层循环数",
 			Break: true,
@@ -280,9 +282,14 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	}
 	defer resp.Body.Close()
 
+	// ToolCallInfo 结构体用于存储工具调用的名称和参数
+	type ToolCallInfo struct {
+		Name      string
+		Arguments strings.Builder
+	}
 	// 存储工具调用信息的变量
 	toolCallDetected := false
-	var toolCallArguments strings.Builder
+	var toolCallInfo ToolCallInfo
 
 	// 为本次消息创建一个唯一ID
 	textMessageID := GenerateUUID()
@@ -332,7 +339,8 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 					if len(orResp.Choices[0].Delta.ToolCalls) > 0 {
 						fmt.Println("><检测到工具调用", orResp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 						toolCallDetected = true
-						toolCallArguments.WriteString(orResp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
+						toolCallInfo.Name = orResp.Choices[0].Delta.ToolCalls[0].Function.Name
+						toolCallInfo.Arguments.WriteString(orResp.Choices[0].Delta.ToolCalls[0].Function.Arguments)
 					}
 				}
 			}
@@ -340,110 +348,132 @@ func recursivePlanningTask(text string) RecursiveTaskCompletion {
 	}
 
 	if !toolCallDetected {
-		fmt.Println("没有检测到工具调用！")
-		if currentInnerLoop >= maxInnerLoop {
-			return RecursiveTaskCompletion{
-				Text:  ">_>模型笨，始终不会调用，对话结束",
-				Break: true,
-			}
-		}
+		Logger.Warn(fmt.Sprint("没有检测到工具调用！当前内层循环次数: ", currentInnerLoop, "/", maxInnerLoop))
 		return recursivePlanningTask("你没有使用工具调用，请务必使用工具调用，重新回答" + "用户的问题：" + text)
 	}
 
-	var toolArgs struct {
-		Question string `json:"question"`
-	}
-	if err := json.Unmarshal([]byte(toolCallArguments.String()), &toolArgs); err != nil {
-		return RecursiveTaskCompletion{
-			Text:  "解析工具参数失败: " + err.Error(),
-			Break: true,
+	switch toolCallInfo.Name {
+	case "ask_user":
+		var toolArgs struct {
+			Question string `json:"question"`
 		}
-	}
-
-	// 将工具调用参数写入会话
-	// 添加一个 ask 消息
-	actionID := GenerateUUID()
-	payload := MessageType{
-		Type: "ask",
-		Payload: PayloadType{
-			Content: toolArgs.Question,
-			Meta: map[string]interface{}{
-				"answer": false,
-				"reason": "",
-				"id":     actionID,
-			},
-		},
-		ActionID: actionID,
-	}
-	payloadStr, _ := json.Marshal(payload)
-	data := OutMessage{
-		Type:     "text",
-		Payload:  string(payloadStr),
-		ActionID: actionID,
-	}
-	dataBytes, _ := json.Marshal(data)
-	PrintOut("200", string(dataBytes))
-	globalSession.AddEntry("ask", payload)
-
-	// 用户答复，初始化为空对象
-	// 在 waitUntil 如果命中用户回复，覆写下述对象
-	// 何谓命中？即 ask 消息的 meta.answer 为 true，且 actionId 相同
-	lastEntry := MessageType{}
-
-	stopReason := ""
-	waitUntil(60*time.Second, func() bool {
-		if ok := CheckInterrupt(); ok {
-			stopReason = "用户中断对话"
-			return true
-		}
-
-		entries, exists := globalSession.GetEntries("ask")
-		if !exists || len(entries) == 0 {
-			return false
-		}
-
-		for i := len(entries) - 1; i >= 0; i-- {
-			if entries[i].ActionID == actionID {
-				entry := entries[i]
-				Logger.Info("<waitUntil> 命中用户回复: " + fmt.Sprintf("%v", entry))
-				// 仅当 answer 为 true 时才返回 true
-				if answer, ok := entry.Payload.Meta["answer"].(bool); ok && answer {
-					lastEntry = entry
-					return true
-				}
-				return false
+		if err := json.Unmarshal([]byte(toolCallInfo.Arguments.String()), &toolArgs); err != nil {
+			text := "<ask_user> 工具解析失败: " + err.Error()
+			Logger.Error(text)
+			return RecursiveTaskCompletion{
+				Text:  text,
+				Break: true,
 			}
 		}
 
-		return false
-	})
+		// 将工具调用参数写入会话
+		// 添加一个 ask 消息
+		actionID := GenerateUUID()
+		payload := MessageType{
+			Type: "ask",
+			Payload: PayloadType{
+				Content: toolArgs.Question,
+				Meta: map[string]interface{}{
+					"answer": false,
+					"reason": "",
+					"id":     actionID,
+				},
+			},
+			ActionID: actionID,
+		}
+		payloadStr, _ := json.Marshal(payload)
+		data := OutMessage{
+			Type:     "text",
+			Payload:  string(payloadStr),
+			ActionID: actionID,
+		}
+		dataBytes, _ := json.Marshal(data)
+		PrintOut("200", string(dataBytes))
+		globalSession.AddEntry("ask", payload)
 
-	// 如果 lastEntry.Type 为空说明超时
-	if lastEntry.Type == "" {
-		if stopReason == "" {
-			stopReason = "回答超时"
+		// 用户答复，初始化为空对象
+		// 在 waitUntil 如果命中用户回复，覆写下述对象
+		// 何谓命中？即 ask 消息的 meta.answer 为 true，且 actionId 相同
+		lastEntry := MessageType{}
+
+		stopReason := ""
+		waitUntil(60*time.Second, func() bool {
+			if ok := CheckInterrupt(); ok {
+				stopReason = "用户中断对话"
+				return true
+			}
+
+			entries, exists := globalSession.GetEntries("ask")
+			if !exists || len(entries) == 0 {
+				return false
+			}
+
+			for i := len(entries) - 1; i >= 0; i-- {
+				if entries[i].ActionID == actionID {
+					entry := entries[i]
+					fmt.Println("<waitUntil> 命中回复, 等待中" + fmt.Sprintf("%v", entry))
+					// 仅当 answer 为 true 时才返回 true
+					if answer, ok := entry.Payload.Meta["answer"].(bool); ok && answer {
+						lastEntry = entry
+						return true
+					}
+					return false
+				}
+			}
+
+			return false
+		})
+
+		// 如果 lastEntry.Type 为空说明超时
+		if lastEntry.Type == "" {
+			if stopReason == "" {
+				stopReason = "回答超时"
+			}
+			Logger.Info("waitUntil 函数超时" + fmt.Sprintf("%v", stopReason))
+			return RecursiveTaskCompletion{
+				Text:  stopReason,
+				Break: true,
+			}
 		}
-		Logger.Info("waitUntil 函数超时" + fmt.Sprintf("%v", stopReason))
+		// 如果 answer 为 true 但是 reason 为空，说明用户取消了对话
+		if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
+			stopReason = "用户取消对话"
+			Logger.Info("用户取消对话: [Meta] " + fmt.Sprintf("%v", lastEntry.Payload.Meta))
+			return RecursiveTaskCompletion{
+				Text:  stopReason,
+				Break: true,
+			}
+		}
+		// 只有回答了问题，才会继续循环
+		Logger.Info("用户回答了问题: [Meta] " + fmt.Sprintf("%v", lastEntry.Payload.Meta))
+		reason := lastEntry.Payload.Meta["reason"].(string)
+		// 因为用户回答了问题，所以重置内层循环计数器
+		// currentInnerLoop = 0
+		return recursivePlanningTask(reason)
+
+	case "task_complete":
+		var toolArgs struct {
+			Summary string `json:"summary"`
+		}
+		if err := json.Unmarshal([]byte(toolCallInfo.Arguments.String()), &toolArgs); err != nil {
+			return RecursiveTaskCompletion{
+				Text:  "<task_complete> 工具解析失败: " + err.Error(),
+				Break: true,
+			}
+		}
+		// 任务完成，返回总结并中断循环
 		return RecursiveTaskCompletion{
-			Text:  stopReason,
+			Text:  "任务已完成: " + toolArgs.Summary,
+			Break: true,
+		}
+
+	default:
+		// 如果是未知工具，可以记录日志或返回错误
+		return RecursiveTaskCompletion{
+			Text:  "检测到未知工具调用: " + toolCallInfo.Name,
 			Break: true,
 		}
 	}
-	// 如果 answer 为 true 但是 reason 为空，说明用户取消了对话
-	if lastEntry.Payload.Meta["answer"] == true && lastEntry.Payload.Meta["reason"] == "" {
-		stopReason = "用户取消对话"
-		Logger.Info("用户取消对话: [Meta] " + fmt.Sprintf("%v", lastEntry.Payload.Meta))
-		return RecursiveTaskCompletion{
-			Text:  stopReason,
-			Break: true,
-		}
-	}
-	// 只有回答了问题，才会继续循环
-	Logger.Info("用户回答了问题: [Meta] " + fmt.Sprintf("%v", lastEntry.Payload.Meta))
-	reason := lastEntry.Payload.Meta["reason"].(string)
-	// 因为用户回答了问题，所以重置内层循环计数器
-	currentInnerLoop = 0
-	return recursivePlanningTask(reason)
 }
 
 func PlanningTaskAnswer(w http.ResponseWriter, r *http.Request) {
