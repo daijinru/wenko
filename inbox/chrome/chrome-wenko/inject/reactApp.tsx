@@ -45,7 +45,9 @@ function FloatButton() {
           zIndex: 9999,
           cursor: 'pointer',
         }}
-        onClick={() => setVisible(!visible)}
+        onClick={() => {
+          root?.remove()
+        }}
       >
         <Button color="primary" variant="outlined">
           <CloseOutlined /> WENKO
