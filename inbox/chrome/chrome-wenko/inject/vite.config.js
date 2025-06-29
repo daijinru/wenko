@@ -6,6 +6,8 @@ import chokidar from 'chokidar'
 
 const srcDir = path.resolve(__dirname, 'build')
 const destDir = path.resolve(__dirname, '../build/inject/build')
+const injectJS = path.resolve(__dirname, './inject.js')
+const injectJSDest = path.resolve(__dirname, '../build/inject/inject.js')
 
 function copyFiles() {
   if (!fs.existsSync(destDir)) {
@@ -28,6 +30,13 @@ function copyFiles() {
       })
     })
   })
+  fs.copyFile(injectJS, injectJSDest, (copyErr) => {
+    if (copyErr) {
+      console.error(`Failed to copy inject.js:`, copyErr)
+    } else {
+      console.log(`Copied inject.js to ${injectJSDest}`)
+    }
+  })
 }
 
 export default defineConfig(({ mode }) => {
@@ -35,7 +44,7 @@ export default defineConfig(({ mode }) => {
     fs.mkdirSync(destDir, { recursive: true })
   }
 
-  const watcher = chokidar.watch(srcDir, {
+  const watcher = chokidar.watch([srcDir, injectJS], {
     ignoreInitial: true,
   })
 

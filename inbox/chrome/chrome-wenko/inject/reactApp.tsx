@@ -1,9 +1,39 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import Sidepanel from './Sidepanel'
+import { Button } from 'antd'
+import { CloseOutlined } from '@ant-design/icons'
+
+// WENKO 注入脚本
+window['WENKO_ROOT_ID'] = 'WENKO__CONTAINER-ROOT'
+window['WENKO_ROOT'] = {
+  console: {
+    info: (...args) => {
+      console.info('%c<wenko>%c', 'background: green; color: white; font-weight: bold; font-size: 16px; text-transform: uppercase;', 'color: inherit;', ...args)
+    },
+    error: (...args) => {
+      console.info('%c<wenko>%c', 'background: red; color: white; font-weight: bold; font-size: 16px; text-transform: uppercase;', 'color: inherit;', ...args)
+    },
+  }
+}
+// WENKO 注入脚本
+
+const rootId = window['WENKO_ROOT_ID']
+const CONSOLE = window['WENKO_ROOT'].console
 
 function FloatButton() {
   const [visible, setVisible] = useState(false)
+  const [text, setText] = useState('')
+  const root = document.getElementById(rootId)
+
+  useEffect(() => {
+    setTimeout(() => {
+      // 从数据属性取出文本
+      const selectedText = root?.getAttribute('data-selected-text') || ''
+      setText(selectedText)
+      setVisible(true)
+    }, 1000)
+  }, [])
 
   return (
     <>
@@ -13,16 +43,13 @@ function FloatButton() {
           bottom: 20,
           right: 20,
           zIndex: 9999,
-          padding: '10px 15px',
-          borderRadius: '5px',
-          backgroundColor: '#007bff',
-          color: '#fff',
-          border: 'none',
           cursor: 'pointer',
         }}
         onClick={() => setVisible(!visible)}
       >
-        浮动按钮
+        <Button color="primary" variant="outlined">
+          <CloseOutlined /> WENKO
+        </Button>
       </button>
       {visible && (
         <div
@@ -34,15 +61,16 @@ function FloatButton() {
             width: '50%',
             height: '80%',
             backgroundColor: 'white',
-            border: '1px solid #ccc',
-            borderRadius: '12px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            borderRadius: '16px',
+            boxShadow: 'rgba(6, 24, 44, 0.4) 0px 0px 0px 2px, rgba(6, 24, 44, 0.65) 0px 4px 6px -1px, rgba(255, 255, 255, 0.08) 0px 1px 0px inset',
             zIndex: 10000,
             overflow: 'auto',
+            boxSizing: 'border-box',
+            scrollbarWidth: 'none',
           }}
         >
           <Sidepanel
-            text='我的订阅列表越来越长，从开始的 ChatGPT 不断增加，最多有一个月我记得订阅费有 5k，那个时候甚至还会省钱去订阅，因为探索得入迷了，各种功能各种牛逼的使用结果，让我爱不释手。ChatGPT、Midjourney、ElevenLabs、Runway、Perplexity……一排五颜六色的图标仿佛儿童乐园的跷跷板，弹跳着你的注意力；而「annual plan」等字样却在账单角落悄悄累积。'
+            text={text}
             title={document.title}
             url={window.location.href}
             body={document.body?.innerText?.slice(0, 200) || ''}
@@ -53,8 +81,7 @@ function FloatButton() {
   )
 }
 
-console.info('<wenko> reactApp is running')
-const rootEl = document.getElementById('react-content-root')
+const rootEl = document.getElementById(rootId)
 if (rootEl) {
   const root = createRoot(rootEl)
   root.render(<FloatButton />)
