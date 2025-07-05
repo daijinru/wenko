@@ -2,7 +2,7 @@ console.log('background is running')
 
 chrome.contextMenus.create({
   id: "highlightAndOpenPanel",
-  title: "^_^Open Wenko",  // 菜单显示名称 
+  title: "^^ Now Open Wenko",  // 菜单显示名称 
   contexts: ["selection"]  // 仅在用户选中文本时显示 
 });
 

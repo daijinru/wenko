@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { pick } from 'lodash-es'
 
+import { SmileOutlined } from '@ant-design/icons'
+
 import './Sidepanel.css'
 
 // WENKO 注入脚本
@@ -37,9 +39,8 @@ const Sidepanel = (props) => {
   const refTexts = useRef<Record<string, string>>([] as any)
   const [matchResults, setMatchResults] = useState([])
   const hightlightId = useRef('')
-  const [isLoading, setIsLoading] = useState(true)
+  const [savingText, setSavingText] = useState('Welcome to Wenko!')
   useEffect(() => {
-
     // 接收后台传递的文本 
     const text = props.text.split('_')[0]; // 仅获取文本部分
     setSelectedText(text);
@@ -51,7 +52,6 @@ const Sidepanel = (props) => {
   useEffect(() => {
     if (selectedText) {
       setMatchResults([])
-      setIsLoading(true)
 
       // 请求 http://localhost:8080/search 接口，请求体 text
       // 设置带权重的文本结构体
@@ -62,6 +62,7 @@ const Sidepanel = (props) => {
         { Text: refTexts.current.body, Weight: 0.1 },
       ]
       CONSOLE.info('获得权重文本：', weightedTexts)
+      setSavingText('Searching...' + selectedText.slice(0, 10) + '...')
       fetch("http://localhost:8080/search", {
         method: "POST",
         headers: {
@@ -74,7 +75,6 @@ const Sidepanel = (props) => {
         .then((res) => res.json())
         .then(async data => {
           setMatchResults(data)
-          setIsLoading(false)
 
           const promises = data.map(async item => {
             const res = await fetch('http://localhost:8080/compare', {
@@ -91,15 +91,16 @@ const Sidepanel = (props) => {
             return parsed.result
           })
           const finalRes = await Promise.all(promises)
-          console.info('✅ 比对结果: ', finalRes)
           const matched = finalRes.some(fr => fr)
-          if (matched) return
+          if (matched) {
+            const text = `Matched <${finalRes.join(', ')}>, No Generated`
+            setSavingText(text)
+            return
+          }
           // const matchResult = data.find(item => item.content === selectedText)
           // if (matchResult && matchResult.content) return
-          CONSOLE.info({
-            message: '温馨提示',
-            description: '没有找到完全匹配的搜索结果，正在生成向量',
-          })
+          CONSOLE.info('❌ 未找到匹配结果，开始生成向量')
+          setSavingText('Generating...' + selectedText.slice(0, 10) + '...')
           // 请求 http://localhost:8080/generate 接口，请求体 text，返回的 id
           fetch("http://localhost:8080/generate", {
             method: "POST",
@@ -113,101 +114,84 @@ const Sidepanel = (props) => {
             .then((res) => res.json())
             .then((res) => {
               if (res.id) {
-                CONSOLE.info({
-                  message: '温馨提示',
-                  description: `已生成并存储，${res.id}`,
-                })
+                const text = `Generated <id ${res.id}>`
+                setSavingText(text)
               }
             })
             .catch(err => {
-              CONSOLE.error({
-                message: '温馨提示',
-                description: `生成向量失败，${err}`,
-              })
+              CONSOLE.error('❌ 生成向量失败', err)
+              setSavingText('❌ 生成向量失败')
             })
         })
     }
   }, [selectedText])
 
   return (
-    <main>
-      { isLoading && <div
-        style={{
-          width: '100%',
-          marginTop: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <div className='loading'></div>
-      </div>
+    <main className='bg-[rgba(58,123,186,1)] pt-16px'>
+      {
+        savingText && <div className='text-left text-14px text-[#fff] pl-16px whitespace-nowrap truncate'><SmileOutlined /> {savingText}</div>
       }
       {/* loading 结束后呈现 */}
-      {
-      !isLoading
-      && <div
-            className='w-full bg-[rgba(58,123,186,1)] rounded-lg px-4 py-6 shadow-inner border border-[rgba(58,123,186,0.3)]'
-          >
-            <div className='flex flex-col gap-6'>
-              {
-                matchResults.map((item, key) => {
-                  return (
-                    <div
-                      key={key}
-                      className='bg-white border border-[rgba(58,123,186,0.3)] rounded-md p-4 shadow-sm hover:shadow-md transition-shadow duration-300'
-                    >
-                      <p className='flex flex-col gap-3 text-12px text-[rgba(0,0,0,0.88)] leading-relaxed break-words font-serif'>
-                        <span className='mb-2 text-14px text-[#000] font-bold border-b border-[rgba(58,123,186,0.3)] pb-1 select-text'>
-                          线索{key + 1}
-                        </span>
-                        {
-                          item.content.split('$-$').map((part, index) => {
-                            if (index === 0) {
-                              return <span key={index} className='select-text'>{part}</span>
-                            }
-                            if (index === 1) {
-                              return (
-                                <span
-                                  key={index}
-                                  className='m-0 mx-[0.2em] px-[0.4em] py-[0.4em] pb-[0.1em] text-[90%] font-mono bg-[rgba(150,150,150,0.06)] border border-[rgba(100, 100, 100, 0.2)] border-b-2 rounded-[3px] select-text'
-                                >
-                                  {part}
-                                </span>
-                              )
-                            }
-                            if (index === 2) {
-                              return (
-                                <a
-                                  key={index}
-                                  href={part}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className='text-[#1677ff] no-underline outline-none cursor-pointer transition-colors duration-300 border-0 p-0 bg-transparent select-text hover:text-[#69b1ff]'
-                                >
-                                  {part}
-                                </a>
-                              )
-                            }
-                            if (index === 3) {
-                              return (
-                                <i key={index} className='text-[#7f8c8d] italic select-text'>
-                                  {part}
-                                </i>
-                              )
-                            }
-                            return null
-                          })
+      <div
+        className='w-full rounded-lg px-4 py-6 shadow-inner border border-[rgba(58,123,186,0.3)]'
+      >
+        <div className='flex flex-col gap-6'>
+          {
+            matchResults.map((item, key) => {
+              return (
+                <div
+                  key={key}
+                  className='bg-white border border-[rgba(58,123,186,0.3)] rounded-md p-4 shadow-sm hover:shadow-md transition-shadow duration-300'
+                >
+                  <p className='flex flex-col gap-3 text-12px text-[rgba(0,0,0,0.88)] leading-relaxed break-words font-serif'>
+                    <span className='mb-2 text-14px text-[#000] font-bold border-b border-[rgba(58,123,186,0.3)] pb-1 select-text'>
+                      线索{key + 1}
+                    </span>
+                    {
+                      item.content.split('$-$').map((part, index) => {
+                        if (index === 0) {
+                          return <span key={index} className='select-text'>{part}</span>
                         }
-                      </p>
-                    </div>
-                  )
-                })
-              }
-            </div>
+                        if (index === 1) {
+                          return (
+                            <span
+                              key={index}
+                              className='m-0 mx-[0.2em] px-[0.4em] py-[0.4em] pb-[0.1em] text-[90%] font-mono bg-[rgba(150,150,150,0.06)] border border-[rgba(100, 100, 100, 0.2)] border-b-2 rounded-[3px] select-text'
+                            >
+                              {part}
+                            </span>
+                          )
+                        }
+                        if (index === 2) {
+                          return (
+                            <a
+                              key={index}
+                              href={part}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className='text-[#1677ff] no-underline outline-none cursor-pointer transition-colors duration-300 border-0 p-0 bg-transparent select-text hover:text-[#69b1ff]'
+                            >
+                              {part}
+                            </a>
+                          )
+                        }
+                        if (index === 3) {
+                          return (
+                            <i key={index} className='text-[#7f8c8d] italic select-text'>
+                              {part}
+                            </i>
+                          )
+                        }
+                        return null
+                      })
+                    }
+                  </p>
+                </div>
+              )
+            })
+          }
         </div>
-      }
+      </div>
     </main>
   )
 }
