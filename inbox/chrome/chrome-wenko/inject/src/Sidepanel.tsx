@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { pick } from 'lodash-es'
 
-import { SmileOutlined } from '@ant-design/icons'
+import { SmileOutlined, BlockOutlined, ShareAltOutlined } from '@ant-design/icons'
 
 import './Sidepanel.css'
 
@@ -131,11 +131,23 @@ const Sidepanel = (props) => {
       {
         savingText && <div className='text-left text-14px text-[#fff] pl-16px whitespace-nowrap truncate'><SmileOutlined /> {savingText}</div>
       }
-      {/* loading 结束后呈现 */}
+
       <div
         className='w-full rounded-lg px-4 py-6 shadow-inner border border-[rgba(58,123,186,0.3)]'
       >
         <div className='flex flex-col gap-6'>
+          <div
+            className='bg-white border border-[rgba(58,123,186,0.3)] rounded-md p-4 shadow-sm hover:shadow-md transition-shadow duration-300'
+          >
+            <blockquote
+              className='text-14px text-[#000] font-bold select-text leading-relaxed pl-16px'
+              style={{
+                boxShadow: 'inset 3px 0 0 0 #242424',
+              }}
+            >
+              <BlockOutlined /> {selectedText}
+            </blockquote>
+          </div>
           {
             matchResults.map((item, key) => {
               return (
@@ -145,7 +157,7 @@ const Sidepanel = (props) => {
                 >
                   <p className='flex flex-col gap-3 text-12px text-[rgba(0,0,0,0.88)] leading-relaxed break-words font-serif'>
                     <span className='mb-2 text-14px text-[#000] font-bold border-b border-[rgba(58,123,186,0.3)] pb-1 select-text'>
-                      线索{key + 1}
+                      <ShareAltOutlined /> 线索{key + 1}
                     </span>
                     {
                       item.content.split('$-$').map((part, index) => {
@@ -163,10 +175,11 @@ const Sidepanel = (props) => {
                           )
                         }
                         if (index === 2) {
+                          const cleanedPart = part.replace(/-\(weight-assign:[\d.]+\)-/g, '')
                           return (
                             <a
                               key={index}
-                              href={part}
+                              href={cleanedPart}
                               target="_blank"
                               rel="noopener noreferrer"
                               className='text-[#1677ff] no-underline outline-none cursor-pointer transition-colors duration-300 border-0 p-0 bg-transparent select-text hover:text-[#69b1ff]'
