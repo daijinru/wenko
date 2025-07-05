@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import Sidepanel from './Sidepanel'
-import { Button } from 'antd'
 import { CloseOutlined } from '@ant-design/icons'
 
 import 'virtual:windi.css'
@@ -39,35 +38,33 @@ function FloatButton() {
 
   return (
     <>
-      <button
-        className='bg-white'
+      <div
+        className={[
+          'fixed bottom-20px right-20px z-9999',
+          'h-32px px-10px py-2px rounded-8px text-16px text-black',
+          'flex items-center',
+          'cursor-pointer',
+        ].join(' ')}
         style={{
-          position: 'fixed',
-          bottom: 20,
-          right: 20,
-          zIndex: 9999,
-          cursor: 'pointer',
+          boxShadow: 'rgb(85, 91, 255) 0px 0px 0px 3px, rgb(31, 193, 27) 0px 0px 0px 6px, rgb(255, 217, 19) 0px 0px 0px 9px, rgb(255, 156, 85) 0px 0px 0px 12px, rgb(255, 85, 85) 0px 0px 0px 15px',
         }}
         onClick={() => {
           root?.remove()
         }}
       >
-        <Button color="primary" variant="outlined">
-          <CloseOutlined /> WENKO
-        </Button>
-      </button>
+        <CloseOutlined /> <span className='ml-4px'>WENKO</span>
+      </div>
       {visible && (
         <div
           style={{
             position: 'fixed',
             right: '20px',
-            bottom: '75px',
-            padding: '16px',
-            width: '532px',
+            bottom: '100px',
+            width: '480px',
             maxHeight: '70%',
             backgroundColor: 'white',
-            borderRadius: '16px',
-            boxShadow: 'rgba(6, 24, 44, 0.4) 0px 0px 0px 2px, rgba(6, 24, 44, 0.65) 0px 4px 6px -1px, rgba(255, 255, 255, 0.08) 0px 1px 0px inset',
+            borderRadius: '8px',
+            boxShadow: 'rgba(240, 46, 170, 0.4) 5px 5px, rgba(240, 46, 170, 0.3) 10px 10px, rgba(240, 46, 170, 0.2) 15px 15px, rgba(240, 46, 170, 0.1) 20px 20px, rgba(240, 46, 170, 0.05) 25px 25px',
             zIndex: 10000,
             overflow: 'auto',
             boxSizing: 'border-box',
