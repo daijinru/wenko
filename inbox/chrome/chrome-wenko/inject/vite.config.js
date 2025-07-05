@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import fs from 'fs'
 import chokidar from 'chokidar'
+import windi from 'vite-plugin-windicss'
 
 const srcDir = path.resolve(__dirname, 'build')
 const destDir = path.resolve(__dirname, '../build/inject/build')
@@ -56,10 +57,13 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.NODE_ENV': JSON.stringify(mode),
     },
-    plugins: [react()],
+    plugins: [
+      windi(),
+      react(),
+    ],
     build: {
       lib: {
-        entry: path.resolve(__dirname, 'reactApp.tsx'),
+        entry: path.resolve(__dirname, 'src/reactApp.tsx'),
         name: 'contentScriptReact',
         fileName: 'contentScriptReact',
         formats: ['iife'],

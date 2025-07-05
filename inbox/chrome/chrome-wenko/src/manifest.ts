@@ -35,6 +35,7 @@ export default defineManifest({
         'img/logo-128.png',
         'inject/build/contentScriptReact.iife.js', // React打包产物必须允许访问
         "inject/inject.js",
+        'inject/build/style.css',
       ],
       matches: ['http://*/*', 'https://*/*'],
     },

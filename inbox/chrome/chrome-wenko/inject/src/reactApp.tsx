@@ -4,6 +4,8 @@ import Sidepanel from './Sidepanel'
 import { Button } from 'antd'
 import { CloseOutlined } from '@ant-design/icons'
 
+import 'virtual:windi.css'
+
 // WENKO 注入脚本
 window['WENKO_ROOT_ID'] = 'WENKO__CONTAINER-ROOT'
 window['WENKO_ROOT'] = {
@@ -38,6 +40,7 @@ function FloatButton() {
   return (
     <>
       <button
+        className='bg-white'
         style={{
           position: 'fixed',
           bottom: 20,
@@ -84,7 +87,15 @@ function FloatButton() {
 }
 
 const rootEl = document.getElementById(rootId)
-if (rootEl) {
-  const root = createRoot(rootEl)
+let reactRootContainer: HTMLElement | null = null
+if (rootEl?.shadowRoot) {
+  reactRootContainer = rootEl.shadowRoot.getElementById('wenko-react-root')
+} else {
+  reactRootContainer = rootEl
+}
+if (reactRootContainer) {
+  const root = createRoot(reactRootContainer)
   root.render(<FloatButton />)
+} else {
+  CONSOLE.error('<Wenko-React-Root> not found')
 }

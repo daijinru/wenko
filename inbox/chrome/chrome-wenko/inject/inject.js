@@ -16,24 +16,40 @@ window['WENKO_ROOT'] = {
 const rootId = window['WENKO_ROOT_ID']
 const CONSOLE = window['WENKO_ROOT'].console
 
-// 插入挂载点
+async function injectWindiStyles(shadowRoot) {
+  try {
+    const cssUrl = chrome.runtime.getURL('inject/build/style.css?t=' + Date.now())
+    const res = await fetch(cssUrl)
+    const cssText = await res.text()
+    const styleEl = document.createElement('style')
+    styleEl.textContent = cssText
+    shadowRoot.appendChild(styleEl)
+  } catch (e) {
+    CONSOLE.error('注入 WindiCSS 样式失败', e)
+  }
+}
+
 function injectRootDiv(selectedText = '') {
   CONSOLE.info('挂载选中文本 ', selectedText)
   if (!document.getElementById(rootId)) {
     const div = document.createElement('div')
     div.id = rootId
     document.body.appendChild(div)
+
+    const shadowRoot = div.attachShadow({ mode: 'open' })
+    const reactContainer = document.createElement('div')
+    reactContainer.id = 'wenko-react-root'
+    shadowRoot.appendChild(reactContainer)
+
+    injectWindiStyles(shadowRoot)
   }
-  // 将选中文本挂载到 root 节点的数据属性上
   const root = document.getElementById(rootId) 
   root.setAttribute('data-selected-text', selectedText)
 }
 
-// 动态注入 React bundle
 function injectReactScript() {
   const script = document.createElement('script')
   script.src = chrome.runtime.getURL('inject/build/contentScriptReact.iife.js?t=' + Date.now())
-  // script.type = 'module'
   document.documentElement.appendChild(script)
   script.onload = () => {
     script.remove()
