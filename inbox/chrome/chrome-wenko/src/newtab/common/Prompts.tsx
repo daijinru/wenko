@@ -12,7 +12,7 @@ const App = ({onSend}) => {
     {
       key: '6',
       icon: <CoffeeOutlined style={{ color: '#964B00' }} />,
-      description: '开始一个任务',
+      description: '帮我筛选文档',
       disabled: false,
     },
     // {

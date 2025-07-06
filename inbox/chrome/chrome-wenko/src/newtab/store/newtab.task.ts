@@ -60,6 +60,7 @@ class PlanningTaskStore {
       content: text,
     }
     runInAction(() => {
+      this.messages = []
       this.messages.push(userTaskMessage)
       this.isTaskMode = true
       this.isLoading = true
