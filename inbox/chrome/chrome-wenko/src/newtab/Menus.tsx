@@ -1,4 +1,4 @@
-import { useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { observer } from "mobx-react-lite"
 import { Flex, Result, Card, Space, Button } from "antd"
 import { Sender, Bubble } from "@ant-design/x"
@@ -6,10 +6,12 @@ import { UserOutlined, NotificationOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
-import { last } from "lodash-es"
 
 import taskStore from "./store/newtab.task"
-import Prompts from "./Prompts"
+import menusStore from "./store/newtab.menus"
+import Prompts, { NAME as PromptsName, MENU as PromptsMenu  } from "./common/Prompts"
+
+import MenusHoc from "./common/menus.hoc"
 
 const fooAvatar: React.CSSProperties = {
   color: '#f56a00',
@@ -81,8 +83,19 @@ function renderAssistantMessage(message) {
   </>
 }
 
+const MenusHocPrompts = () => {
+  return (
+    <MenusHoc menu={PromptsMenu}>
+      <Prompts onSend={text => taskStore.onNewTask(text)} />
+    </MenusHoc>
+  )
+}
+
 const Chat = () => {
-  const inputRef = useRef<any>(null)
+  useEffect(() => {
+    console.info('joinMenu', PromptsName, PromptsMenu)
+    menusStore.joinMenu(PromptsMenu)
+  }, [])
   return (
     <div className='w-480px fixed bottom-32px right-32px'>
       {
@@ -118,27 +131,48 @@ const Chat = () => {
               }
             </Flex>
           </div>
-          : taskStore.messages.length < 1 ?
-            <div
-              className='mb-16px bg-[rgba(255,255,255,0.95)] rounded-12px p-16px'
-              style={{
-                // boxShadow: 'rgba(14, 63, 126, 0.06) 0px 0px 0px 1px, rgba(42, 51, 70, 0.03) 0px 1px 1px -0.5px, rgba(42, 51, 70, 0.04) 0px 2px 2px -1px, rgba(42, 51, 70, 0.04) 0px 3px 3px -1.5px, rgba(42, 51, 70, 0.03) 0px 5px 5px -2.5px, rgba(42, 51, 70, 0.03) 0px 10px 10px -5px, rgba(42, 51, 70, 0.03) 0px 24px 24px -8px'
-                boxShadow: 'rgba(0, 0, 0, 0.4) 0px 2px 4px, rgba(0, 0, 0, 0.3) 0px 7px 13px -3px, rgba(0, 0, 0, 0.2) 0px -3px 0px inset'
-              }}
-            >
-              <Prompts onSend={text => taskStore.onNewTask(text)} />
-            </div>
-            : null
+          : <></>
       }
+
+      {
+        menusStore.isOpen(PromptsName)
+          ? <div className="fixed max-w-360px top-64px right-32px"><MenusHocPrompts /></div>
+          : <></>
+      }
+
       <div
-        className='bg-white rounded-12px'
+        className='fixed top-0 left-0 w-full h-36px bg-white rounded-b-8px px-12px'
         style={{
           // boxShadow: 'rgba(14, 63, 126, 0.06) 0px 0px 0px 1px, rgba(42, 51, 70, 0.03) 0px 1px 1px -0.5px, rgba(42, 51, 70, 0.04) 0px 2px 2px -1px, rgba(42, 51, 70, 0.04) 0px 3px 3px -1.5px, rgba(42, 51, 70, 0.03) 0px 5px 5px -2.5px, rgba(42, 51, 70, 0.03) 0px 10px 10px -5px, rgba(42, 51, 70, 0.03) 0px 24px 24px -8px'
           boxShadow: 'rgba(0, 0, 0, 0.4) 0px 2px 4px, rgba(0, 0, 0, 0.3) 0px 7px 13px -3px, rgba(0, 0, 0, 0.2) 0px -3px 0px inset'
         }}
       >
-        <Sender
-          ref={inputRef}
+        <div className="h-full flex flex-row items-center justify-between">
+          <div>
+            <span className="text-14px font-bold">WENKO!</span>
+          </div>
+          <div className="">
+            <Space size='small'>
+              {
+                menusStore.openMenus.size > 0 && Array.from(menusStore.openMenus.values()).map(menu => {
+                  return (
+                    <Button
+                      key={menu.name}
+                      size="small"
+                      type={
+                        menusStore.isOpen(menu.name) ? 'primary' : 'default'
+                      }
+                      onClick={() => {
+                        menusStore.toggleMenu(menu.name)
+                      }}
+                    >{menu.display_name}</Button>
+                  )
+                })
+              }
+            </Space>
+          </div>
+        </div>
+        {/* <Sender
           disabled={!taskStore.isWaitForAnswer}
           value={taskStore.userValue}
           onChange={value => taskStore.setUserValue(value)}
@@ -149,7 +183,7 @@ const Chat = () => {
             taskStore.onAnswer(text)
           }}
           onCancel={taskStore.onCancelTask}
-        />
+        /> */}
       </div>
     </div>
   );

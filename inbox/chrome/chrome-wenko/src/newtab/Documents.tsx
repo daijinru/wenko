@@ -26,7 +26,7 @@ const Documents = () => {
   }, [])
 
   return (
-    <div className="!pb-400px min-h-screen bg-[#3a7bba] p-4 md:p-6 lg:p-8">
+    <div className="!pb-400px min-h-screen p-4 md:p-6 lg:p-8 !pt-48px">
       <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 md:gap-6 space-y-4 md:space-y-6">
         {
           documentStore.documents.map(doc => {
