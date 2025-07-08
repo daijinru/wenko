@@ -90,6 +90,7 @@ const Sidepanel = (props) => {
             const parsed = await res.json()
             return parsed.result
           })
+          setSavingText('Comparing...' + selectedText.slice(0, 22))
           const finalRes = await Promise.all(promises)
           const matched = finalRes.some(fr => fr)
           if (matched) {
@@ -100,7 +101,7 @@ const Sidepanel = (props) => {
           // const matchResult = data.find(item => item.content === selectedText)
           // if (matchResult && matchResult.content) return
           CONSOLE.info('❌ 未找到匹配结果，开始生成向量')
-          setSavingText('Generating...' + selectedText.slice(0, 10) + '...')
+          setSavingText('Generating...' + selectedText.slice(0, 22))
           // 请求 http://localhost:8080/generate 接口，请求体 text，返回的 id
           fetch("http://localhost:8080/generate", {
             method: "POST",
