@@ -184,7 +184,7 @@ def add_to_chroma_db(id: str, embedding: list[float], texts: list[WeightedText])
     # The Go code concatenates texts with a specific format for content metadata.
     content = ""
     for text in texts:
-        content += f"{text.Text}-(weight-assign:{text.Weight})-$-"
+        content += f"{text.Text}-(weight-assign:{text.Weight})-$-$"
 
     try:
         chroma_collection.add(
@@ -244,10 +244,9 @@ def vector_compare(texts: list[WeightedText], id: str) -> bool:
     """Compares a newly generated vector with an existing vector in ChromaDB."""
     new_embedding = generate_weighted_embedding(texts)
 
+    existing_doc = chroma_collection.get(ids=[id], include=['embeddings'])
     try:
-        # Get the existing embedding by ID
-        existing_doc = chroma_collection.get(ids=[id], include=['embeddings'])
-        if not existing_doc or not existing_doc.get('embeddings') or not existing_doc['embeddings'][0]:
+        if not existing_doc or len(existing_doc.get('embeddings', [])) == 0:
             raise ValueError(f"No embedding found for ID: {id}")
 
         existing_embedding = existing_doc['embeddings'][0]
@@ -269,7 +268,7 @@ def vector_compare(texts: list[WeightedText], id: str) -> bool:
         threshold = 0.99 # Threshold from Go code
 
         logger.info(f"Comparison result for ID {id}: Similarity={similarity:.4f}, Threshold={threshold}")
-        return similarity >= threshold
+        return bool(similarity >= threshold)
     except Exception as e:
         logger.error(f"Failed to compare vectors: {e}")
         raise
@@ -353,12 +352,13 @@ def generate_handler():
             return jsonify({"error": "Invalid request body: 'texts' field is required."}), 400
 
         weighted_texts_raw = request_data["texts"]
-        weighted_texts = [WeightedText(text=t["text"], weight=t["weight"]) for t in weighted_texts_raw]
+        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
 
         logger.info(f"Storing: {weighted_texts[0].Text if weighted_texts else 'No text provided'}")
         doc_id = generate_and_store(weighted_texts)
         return jsonify({"id": doc_id}), 200
     except Exception as e:
+        logger.exception("Error in /generate")
         logger.error(f"Error in /generate: {e}")
         return jsonify({"error": str(e)}), 500
 
@@ -409,12 +409,13 @@ def compare_handler():
 
         weighted_texts_raw = request_data["texts"]
         doc_id = request_data["id"]
-        weighted_texts = [WeightedText(text=t["text"], weight=t["weight"]) for t in weighted_texts_raw]
+        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
 
         result = vector_compare(weighted_texts, doc_id)
         logger.info(f"Comparison result: {result}")
         return jsonify({"result": result}), 200
     except Exception as e:
+        logger.exception("Error in /compare")
         logger.error(f"Error in /compare: {e}")
         return jsonify({"error": str(e)}), 500
 
