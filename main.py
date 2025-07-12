@@ -72,35 +72,32 @@ def init_app():
 
     # Initialize ChromaDB client and ensure tenant, database, and collection exist
     try:
-        chroma_client = chromadb.HttpClient(host=config.ChromaDBURL)
-        logger.info(f"🌍 Initializing ChromaDB client at {config.ChromaDBURL}")
+        # 解析 ChromaDBURL，拆分 host 和 port，假设格式为 "http://host:port" 或 "host:port"
+        from urllib.parse import urlparse
 
-        # Ensure tenant exists
-        logger.info("🌍 Ensuring tenant exists...")
-        chroma_client.get_or_create_tenant(name=config.ChromDBTenants)
-        logger.info("Tenant ensured.")
+        parsed_url = urlparse(config.ChromaDBURL if config.ChromaDBURL.startswith("http") else "http://" + config.ChromaDBURL)
+        host = parsed_url.hostname or "localhost"
+        port = parsed_url.port or 8000
+        # ssl = parsed_url.scheme == "https"
 
-        # Ensure database exists within the tenant
-        logger.info("🌍 Ensuring database exists...")
-        db = chroma_client.get_or_create_database(name=config.ChromaDBDatabase, tenant=config.ChromDBTenants)
-        logger.info("Database ensured.")
-
-        # Ensure embedding collection exists within the database
-        logger.info("🌍 Ensuring Embedding collection exists...")
-        # The Go code sets "hnsw:space": "ip" as metadata. This is typically a collection parameter
-        # that defines the distance function for HNSW indexing.
-        # For chromadb.HttpClient, this is often handled by the server configuration or
-        # implicitly by the embedding function if ChromaDB is generating embeddings.
-        # When providing pre-computed embeddings, the space is usually set at collection creation.
-        # The `metadata` parameter in `get_or_create_collection` is for user-defined metadata
-        # about the collection itself, not for the HNSW space.
-        # However, to mirror the Go code's intent, we pass it as metadata.
-        # If this doesn't set the HNSW space correctly, it might need server-side configuration.
-        chroma_collection = db.get_or_create_collection(
-            name=config.Collection,
-            metadata={"hnsw:space": "ip"} # This might be ignored or used differently by ChromaDB server
+        # headers 和 settings 可根据需要传入，这里暂时传 None
+        chroma_client = chromadb.HttpClient(
+            host=host,
+            port=port,
+            ssl=False,
+            headers=None,
+            settings=None,
+            tenant=config.ChromDBTenants,
+            database=config.ChromaDBDatabase,
         )
-        logger.info(f"Embedding collection ensured: {chroma_collection.name}")
+        logger.info(f"🌍 Initialized ChromaDB client at {host}:{port} with tenant '{config.ChromDBTenants}' and database '{config.ChromaDBDatabase}'")
+
+        # 直接获取集合
+        chroma_collection = chroma_client.get_or_create_collection(
+            name=config.Collection,
+            metadata={"hnsw:space": "ip"}
+        )
+        logger.info(f"Embedding collection '{chroma_collection.name}' ensured.")
 
     except Exception as e:
         logger.critical(f"Failed to initialize ChromaDB: {e}")
@@ -113,33 +110,30 @@ def init_app():
 
 # --- Embedding Generation ---
 
-def generate_embedding_from_model_provider(text: str) -> list[float]:
-    """Generates embedding using the configured model provider (e.g., Ollama)."""
-    if not config.ModelProviderURI and not config.OllamaURL:
-        raise ValueError("Neither ModelProviderURI nor OllamaURL is configured for embedding generation.")
+def generate_embedding_from_ollama_nomic(text: str) -> list[float]:
+    """Generates embedding using the configured model provider (Ollama only)."""
+    if not config.OllamaURL:
+        raise ValueError("OllamaURL is not configured for embedding generation.")
 
-    # Prioritize ModelProviderURI if available, otherwise fall back to OllamaURL
-    url = f"{config.ModelProviderURI}/embeddings" if config.ModelProviderURI else f"{config.OllamaURL}/api/embeddings"
-    model_name = config.ModelProviderModel if config.ModelProviderModel else "llama2" # Default if not specified
+    url = f"{config.OllamaURL}"
+    model_name = "nomic-embed-text"
 
     payload = {
         "model": model_name,
         "prompt": text
     }
     headers = {"Content-Type": "application/json"}
-    if config.ModelProviderAPIKey:
-        headers["Authorization"] = f"Bearer {config.ModelProviderAPIKey}"
 
     try:
         response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+        response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
         data = response.json()
         if "embedding" in data:
             return data["embedding"]
         else:
             raise ValueError(f"Model provider response missing 'embedding': {data}")
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error calling model provider for embedding ({url}): {e}")
+        logger.error(f"Error calling Ollama for embedding ({url}): {e}")
         raise
 
 def generate_weighted_embedding(texts: list[WeightedText]) -> list[float]:
@@ -158,7 +152,7 @@ def generate_weighted_embedding(texts: list[WeightedText]) -> list[float]:
             continue # Skip empty texts
 
         try:
-            embedding = generate_embedding_from_model_provider(wt.Text)
+            embedding = generate_embedding_from_ollama_nomic(wt.Text)
             all_embeddings.append(np.array(embedding) * wt.Weight)
             total_weight += wt.Weight
         except Exception as e:
@@ -375,9 +369,9 @@ def search_handler():
         request_data = request.json
         if not request_data or "texts" not in request_data or not request_data["texts"]:
             return jsonify({"error": "Invalid request body: 'texts' field should not be empty."}), 400
-
+        print(f"request_data: {request_data}")
         weighted_texts_raw = request_data["texts"]
-        weighted_texts = [WeightedText(text=t["text"], weight=t["weight"]) for t in weighted_texts_raw]
+        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
 
         logger.info(f"Generating text vector for search: {weighted_texts[0].Text if weighted_texts else 'No text provided'}")
         query_vector = generate_weighted_embedding(weighted_texts)
@@ -394,6 +388,7 @@ def search_handler():
             })
         return jsonify(return_results), 200
     except Exception as e:
+        logger.exception("Error in /search")
         logger.error(f"Error in /search: {e}")
         return jsonify({"error": str(e)}), 500
 
