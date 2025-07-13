@@ -36,13 +36,16 @@ class DocumentStore {
       })
   }
   getRelations = (text) => {
+    // 通过 $-$ 切割 text，取第一个元素
+    text = text.split('$-$')[0]
+    if (!text) return
     fetch("http://localhost:8080/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        text,
+        texts: [{ Text: text, Weight: 0.6 }]
       }),
     })
       .then(res => res.json())
@@ -52,7 +55,6 @@ class DocumentStore {
           return
         }
         docs.forEach(doc => {
-          doc.content = decodeURIComponent(doc.content)
           if (!doc.metadata) doc.metadata = {}
           doc.metadata.content = doc.content
         })
