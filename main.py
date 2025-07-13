@@ -9,6 +9,15 @@ import chromadb
 import numpy as np
 from datetime import datetime
 
+from typing import TypedDict, List, Dict, Any, Optional
+import time
+import io
+
+# LangGraph imports
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemoryCheckpoint
+from langgraph.graph.message import AnyMessage, ToolMessage, HumanMessage, AIMessage
+
 # --- Configuration and Global Variables ---
 
 class Config:
@@ -107,6 +116,8 @@ def init_app():
     # In Python, this would involve setting up a client for the model provider.
     # For now, we'll assume `generate_weighted_embedding` handles this by calling the configured model provider.
     logger.info("Outbox initialization placeholder.")
+
+    # 初始化 outbox 相关的内容
 
 # --- Embedding Generation ---
 
@@ -457,23 +468,6 @@ def delete_handler():
         logger.error(f"Error in /delete: {e}")
         return jsonify({"error": str(e)}), 500
 
-# Placeholder for outbox handlers (Go's outbox.NewTask, outbox.PlanningTaskAnswer, outbox.InterruptTask)
-# These would typically be implemented in a separate module or class, similar to Go's outbox package.
-@app.route("/task", methods=["POST"])
-def new_task_handler():
-    logger.info("New task endpoint hit (placeholder).")
-    return jsonify({"message": "New task functionality not implemented yet."}), 200
-
-@app.route("/planning/task/answer", methods=["POST"])
-def planning_task_answer_handler():
-    logger.info("Planning task answer endpoint hit (placeholder).")
-    return jsonify({"message": "Planning task answer functionality not implemented yet."}), 200
-
-@app.route("/planning/task/interrupt", methods=["POST"])
-def interrupt_task_handler():
-    logger.info("Interrupt task endpoint hit (placeholder).")
-    return jsonify({"message": "Interrupt task functionality not implemented yet."}), 200
-
 @app.route("/export", methods=["POST"])
 def export_handler():
     """Handles requests to export all document data."""
@@ -487,7 +481,574 @@ def export_handler():
         logger.error(f"Error in /export: {e}")
         return jsonify({"error": str(e)}), 500
 
-# The /import endpoint was commented out in the Go code, so it's omitted here.
+# --- LangGraph Integration ---
+# from langgraph import LangGraphPH, HTTPResponse, Logger # Remove these, they are not standard LangGraph imports
+
+SIGNAL_TYPE = "signal"
+SIGNAL_STOP = "stop"
+
+class MessageType(TypedDict):
+    Type: str
+    Payload: Dict[str, Any]
+    ActionID: Optional[str]
+
+class Session:
+    def __init__(self):
+        self.entries = {"ask": []}
+
+    def add_entry(self, key, message: MessageType):
+        self.entries[key].append(message)
+
+    def get_entries(self, key) -> List[MessageType]:
+        return self.entries.get(key, [])
+
+    def update_entry(self, key, index, entry: MessageType):
+        if key in self.entries and 0 <= index < len(self.entries[key]):
+            self.entries[key][index] = entry
+            return True
+        return False
+
+global_session = Session()
+# logger = Logger("outbox.log") # Use the existing logger
+
+# Constants from Go code (placeholders)
+InteractivePlanningSystemPrompt = """
+You are an AI assistant designed to help users with various tasks by planning and executing actions.
+You have access to a set of tools to interact with the user and complete tasks.
+Your primary goal is to break down complex requests into smaller, manageable steps and use the available tools effectively.
+
+Available tools:
+1. `ask_user`: Use this tool when you need more information from the user to proceed with the task. Provide a clear and concise question.
+2. `task_complete`: Use this tool when you have successfully completed the user's request or determined that no further action is possible/necessary. Provide a summary of the task completion.
+
+Always prioritize using tools to achieve the task. If you need information, ask the user. If the task is done, complete it.
+"""
+
+Tool_Use_Case_Prompt = {
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name":        "ask_user",
+                "description": "Ask the user a question to get more information or clarification. The question should be clear and concise.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "The question to ask the user."
+                        }
+                    },
+                    "required": ["question"]
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name":        "task_complete",
+                "description": "Indicate that the task is complete and provide a summary of the outcome.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "summary": {
+                            "type": "string",
+                            "description": "A summary of the completed task."
+                        }
+                    },
+                    "required": ["summary"]
+                },
+            },
+        },
+    ],
+    "tool_choice": "auto",
+}
+
+# LangGraph State Definition
+class GraphState(TypedDict):
+    user_input: str
+    chat_history: List[AnyMessage] # To store messages for the LLM
+    sse_messages: List[Dict[str, Any]] # To store messages to send via SSE
+    model_response_content: str
+    tool_call_name: Optional[str]
+    tool_call_arguments: Optional[str]
+    current_outer_loop: int
+    current_inner_loop: int
+    break_task: bool # Renamed from break_done
+    task_completion_message: str # Renamed from done_message
+    action_id_waiting_for_answer: Optional[str] # For ask_user tool
+    sse_id_counter: int # For SSE 'id' field
+
+# Helper to generate UUID
+def GenerateUUID() -> str:
+    return str(uuid.uuid4()).replace("-", "")
+
+# Helper to send SSE messages (will be collected by the generator)
+def _add_sse_message(state: GraphState, event_type: str, data: Dict[str, Any]) -> GraphState:
+    state["sse_id_counter"] += 1
+    out_message = {
+        "type": event_type,
+        "payload": data,
+        "actionID": data.get("actionID", "") # Ensure actionID is passed if present
+    }
+    state["sse_messages"].append({
+        "id": state["sse_id_counter"],
+        "event": event_type,
+        "data": json.dumps(out_message)
+    })
+    return state
+
+# Nodes for the LangGraph
+def initial_setup_node(state: GraphState) -> GraphState:
+    logger.info("LangGraph: Initializing task state.")
+    state["current_outer_loop"] = 0
+    state["current_inner_loop"] = 0
+    state["break_task"] = False
+    state["task_completion_message"] = ""
+    state["model_response_content"] = ""
+    state["tool_call_name"] = None
+    state["tool_call_arguments"] = None
+    state["action_id_waiting_for_answer"] = None
+    state["sse_messages"] = [] # Clear SSE messages for new task
+    state["sse_id_counter"] = 0 # Reset SSE ID counter
+
+    # Add initial user message to chat history
+    state["chat_history"].append(HumanMessage(content=state["user_input"]))
+
+    return state
+
+def check_interrupt_node(state: GraphState) -> GraphState:
+    if check_interrupt():
+        logger.info("<LangGraph Loop> Task interrupted: User interruption")
+        state["break_task"] = True
+        state["task_completion_message"] = "任务中断: 用户中断"
+        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+    return state
+
+def check_loop_limits(state: GraphState) -> GraphState:
+    if state["break_task"]:
+        return state # Already marked for break
+
+    if state["current_outer_loop"] >= max_outer_loop:
+        state["break_task"] = True
+        state["task_completion_message"] = "任务中断: 最大循环数"
+        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        return state
+
+    state["current_outer_loop"] += 1
+    logger.info(f"Current outer loop: {state['current_outer_loop']}")
+    return state
+
+def call_model(state: GraphState) -> GraphState:
+    if state["break_task"]:
+        return state
+
+    # Limit inner loop
+    if state["current_inner_loop"] >= max_inner_loop:
+        logger.info(f"Inner loop count reached maximum: {state['current_inner_loop']} / {max_inner_loop}")
+        state["break_task"] = True
+        state["task_completion_message"] = "任务中断: 最大内层循环数"
+        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        return state
+
+    state["current_inner_loop"] += 1
+
+    model_messages = [
+        {"role": "system", "content": InteractivePlanningSystemPrompt},
+    ]
+    # Add chat history, ensuring it's in the correct format for the model
+    for msg in state["chat_history"]:
+        if isinstance(msg, HumanMessage):
+            model_messages.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage):
+            if msg.content:
+                model_messages.append({"role": "assistant", "content": msg.content})
+            if msg.tool_calls:
+                # Convert LangChain tool_calls to model's expected format
+                for tc in msg.tool_calls:
+                    model_messages.append({
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": GenerateUUID(), # Model might expect an ID
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc["args"])
+                            }
+                        }]
+                    })
+        elif isinstance(msg, ToolMessage):
+            model_messages.append({"role": "tool", "tool_call_id": msg.tool_call_id, "content": msg.content})
+
+
+    model_request_body = {
+        "model": config.ModelProviderModel,
+        "messages": model_messages,
+        "stream": True,
+        "temperature": 0,
+        "tools": Tool_Use_Case_Prompt["tools"],
+        "tool_choice": Tool_Use_Case_Prompt["tool_choice"],
+    }
+
+    logger.info(f"🌍 Model request body: {json.dumps(model_request_body, indent=2)}")
+    logger.info(f"Model provider URI: {config.ModelProviderURI}")
+
+    try:
+        req_headers = {
+            "Authorization": "Bearer " + config.ModelProviderAPIKey,
+            "Content-Type": "application/json"
+        }
+        
+        # Use requests.post with stream=True for streaming response
+        with requests.post(config.ModelProviderURI, json=model_request_body, headers=req_headers, stream=True) as resp:
+            resp.raise_for_status()
+
+            tool_call_detected = False
+            tool_call_name = ""
+            tool_call_arguments_builder = io.StringIO() # Use StringIO to build arguments
+
+            text_message_id = GenerateUUID()
+            accumulated_content = ""
+            
+            for line in resp.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    if decoded_line.startswith("data: "):
+                        data = decoded_line[6:]
+                        if data == "[DONE]":
+                            break
+                        
+                        try:
+                            or_resp = json.loads(data)
+                            if or_resp.get("choices") and len(or_resp["choices"]) > 0:
+                                choice = or_resp["choices"][0]
+                                delta = choice.get("delta", {})
+
+                                content = delta.get("content")
+                                if content:
+                                    accumulated_content += content
+                                    payload = {
+                                        "type": "text",
+                                        "payload": {
+                                            "Content": content,
+                                            "Meta": {"id": text_message_id},
+                                        },
+                                        "actionID": "",
+                                    }
+                                    state = _add_sse_message(state, "text", payload)
+
+                                tool_calls = delta.get("tool_calls")
+                                if tool_calls and len(tool_calls) > 0:
+                                    tool_call_detected = True
+                                    # Assuming only one tool call per delta for simplicity, as in Go code
+                                    function_call = tool_calls[0].get("function", {})
+                                    if function_call.get("name"):
+                                        tool_call_name = function_call["name"]
+                                    if function_call.get("arguments"):
+                                        tool_call_arguments_builder.write(function_call["arguments"])
+                                        logger.info(f"><Detected tool call arguments chunk: {function_call['arguments']}")
+
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse JSON from model stream: {e}, line: {decoded_line}")
+                            continue
+            
+            state["model_response_content"] = accumulated_content
+            state["tool_call_name"] = tool_call_name
+            state["tool_call_arguments"] = tool_call_arguments_builder.getvalue()
+
+            # Add the AI's response to chat history
+            if state["tool_call_name"]:
+                # If a tool was called, add an AIMessage with tool_calls
+                try:
+                    tool_args_dict = json.loads(state["tool_call_arguments"])
+                    state["chat_history"].append(AIMessage(
+                        content=accumulated_content, # Content might be empty if only tool call
+                        tool_calls=[{"name": state["tool_call_name"], "args": tool_args_dict}]
+                    ))
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse tool arguments JSON: {state['tool_call_arguments']}")
+                    # Fallback to just content if args are malformed
+                    state["chat_history"].append(AIMessage(content=accumulated_content))
+            else:
+                state["chat_history"].append(AIMessage(content=accumulated_content))
+
+            if not tool_call_detected:
+                logger.warning(f"No tool call detected! Current inner loop: {state['current_inner_loop']} / {max_inner_loop}")
+                # This will trigger a retry in the next step if not already broken
+                state["tool_call_name"] = "no_tool_detected" # Custom signal for routing
+                state["tool_call_arguments"] = "" # Clear arguments
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error calling model provider: {e}")
+        state["break_task"] = True
+        state["task_completion_message"] = "调用大模型失败: " + str(e)
+        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+
+    return state
+
+def handle_tool_call(state: GraphState) -> GraphState:
+    if state["break_task"]:
+        return state
+
+    tool_name = state["tool_call_name"]
+    tool_args_str = state["tool_call_arguments"]
+
+    if tool_name == "no_tool_detected":
+        # This is the retry logic for when the model didn't call a tool
+        state["user_input"] = "你没有使用工具调用，请务必使用工具调用，重新回答用户的问题：" + state["user_input"]
+        # The inner loop counter was already incremented in call_model
+        # The check for max_inner_loop is done at the beginning of call_model
+        return state # This will route back to call_model
+
+    try:
+        tool_args = json.loads(tool_args_str)
+    except json.JSONDecodeError as e:
+        logger.error(f"Tool arguments JSON parsing failed for {tool_name}: {e}, args: {tool_args_str}")
+        state["break_task"] = True
+        state["task_completion_message"] = f"工具解析失败: {tool_name} - {e}"
+        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        return state
+
+    if tool_name == "ask_user":
+        question = tool_args.get("question", "")
+        action_id = GenerateUUID()
+        state["action_id_waiting_for_answer"] = action_id
+
+        payload = {
+            "type": "ask",
+            "payload": {
+                "Content": question,
+                "Meta": {
+                    "answer": False,
+                    "reason": "",
+                    "id": action_id,
+                },
+            },
+            "actionID": action_id,
+        }
+        state = _add_sse_message(state, "text", payload)
+        global_session.add_entry("ask", payload) # Add to global session for polling
+
+        logger.info(f"Waiting for user answer for actionID: {action_id}")
+        
+        # Simulate waitUntil blocking behavior
+        start_time = time.time()
+        timeout_seconds = 60
+        stop_reason = ""
+        last_entry = None
+
+        while True:
+            if check_interrupt():
+                stop_reason = "用户中断对话"
+                break
+
+            entries = global_session.get_entries("ask")
+            found_entry = False
+            for entry in reversed(entries):
+                if entry.get("ActionID") == action_id:
+                    if entry.get("Payload", {}).get("Meta", {}).get("answer") == True:
+                        last_entry = entry
+                        found_entry = True
+                        break
+            
+            if found_entry:
+                break
+
+            if time.time() - start_time > timeout_seconds:
+                stop_reason = "回答超时"
+                break
+            
+            time.sleep(2) # Poll every 2 seconds
+
+        if last_entry is None: # Timeout or interrupt
+            if stop_reason == "": # Should not happen if stop_reason is set on interrupt/timeout
+                stop_reason = "未知原因中断"
+            logger.info(f"waitUntil function timed out or interrupted: {stop_reason}")
+            state["break_task"] = True
+            state["task_completion_message"] = stop_reason
+            state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+            return state
+        
+        if last_entry.get("Payload", {}).get("Meta", {}).get("answer") == True and \
+           last_entry.get("Payload", {}).get("Meta", {}).get("reason") == "":
+            stop_reason = "用户取消对话"
+            logger.info(f"User cancelled conversation: [Meta] {last_entry.get('Payload', {}).get('Meta')}")
+            state["break_task"] = True
+            state["task_completion_message"] = stop_reason
+            state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+            return state
+
+        reason = last_entry.get("Payload", {}).get("Meta", {}).get("reason", "")
+        logger.info(f"User answered question: [Meta] {last_entry.get('Payload', {}).get('Meta')}")
+        
+        # Add tool message to chat history
+        state["chat_history"].append(ToolMessage(content=reason, tool_call_id=action_id))
+        state["user_input"] = reason # Set new user input for next model call
+        state["current_inner_loop"] = 0 # Reset inner loop counter
+        state["action_id_waiting_for_answer"] = None # Clear waiting state
+        return state # This will route back to call_model
+
+    elif tool_name == "task_complete":
+        summary = tool_args.get("summary", "")
+        state["break_task"] = True
+        state["task_completion_message"] = "任务已完成: " + summary
+        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        return state
+
+    else:
+        state["break_task"] = True
+        state["task_completion_message"] = f"检测到未知工具调用: {tool_name}"
+        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        return state
+
+# Max loop counters
+max_outer_loop = 2
+max_inner_loop = 5
+
+# Build the LangGraph
+workflow = StateGraph(GraphState)
+
+# Define nodes
+workflow.add_node("initial_setup", initial_setup_node)
+workflow.add_node("check_interrupt", check_interrupt_node)
+workflow.add_node("check_loop_limits", check_loop_limits)
+workflow.add_node("call_model", call_model)
+workflow.add_node("handle_tool_call", handle_tool_call)
+
+# Define edges
+workflow.set_entry_point("initial_setup")
+
+workflow.add_edge("initial_setup", "check_interrupt")
+
+workflow.add_conditional_edges(
+    "check_interrupt",
+    lambda state: "break_task" if state["break_task"] else "continue",
+    {
+        "break_task": END, # If interrupted, end the graph
+        "continue": "check_loop_limits",
+    },
+)
+
+workflow.add_conditional_edges(
+    "check_loop_limits",
+    lambda state: "break_task" if state["break_task"] else "continue",
+    {
+        "break_task": END, # If outer loop limit reached, end the graph
+        "continue": "call_model",
+    },
+)
+
+workflow.add_conditional_edges(
+    "call_model",
+    lambda state: "handle_tool" if state["tool_call_name"] else "no_tool",
+    {
+        "handle_tool": "handle_tool_call",
+        "no_tool": "handle_tool_call", # Route to handle_tool_call to process "no_tool_detected"
+    },
+)
+
+workflow.add_conditional_edges(
+    "handle_tool_call",
+    lambda state: "break_task" if state["break_task"] else (
+        "call_model" if state["tool_call_name"] == "no_tool_detected" or state["tool_call_name"] == "ask_user" else END
+    ),
+    {
+        "break_task": END, # If tool handling resulted in a break
+        "call_model": "check_interrupt", # Loop back for next iteration (e.g., after ask_user or no_tool_detected)
+        END: END, # If task_complete or unknown tool, end
+    },
+)
+
+# Compile the graph
+app_graph = workflow.compile()
+
+# Integrate LangGraph with Flask
+@app.route("/planning/task/interrupt", methods=["POST"])
+def interrupt_task():
+    # This updates the global session, which the waitUntil in handle_tool_call polls
+    ask_message: MessageType = {
+        "Type": SIGNAL_TYPE,
+        "Payload": {
+            "Content": "",
+            "Meta": {"action": SIGNAL_STOP},
+        },
+        "ActionID": "",
+    }
+    global_session.add_entry("ask", ask_message)
+    response = {"message": "已收到中断信号", "status": "200"}
+    return jsonify(response), 200
+
+def check_interrupt() -> bool:
+    entries = global_session.get_entries("ask")
+    if not entries:
+        return False
+    for entry in reversed(entries):
+        if entry.get("Type") == SIGNAL_TYPE and entry.get("Payload", {}).get("Meta", {}).get("action") == SIGNAL_STOP:
+            return True
+    return False
+
+@app.route("/new_task", methods=["POST"])
+def new_task():
+    logger.info("Creating new task...")
+    global_session.entries["ask"] = [] # Reset session for new task
+
+    # From body, get text
+    body = request.get_json()
+    if not body or "text" not in body:
+        return jsonify({"error": "Invalid request body: 'text' field is required."}), 400
+    
+    chat_request_text = body["text"]
+
+    def event_stream():
+        # Initial state for the graph
+        initial_state: GraphState = {
+            "user_input": chat_request_text,
+            "chat_history": [],
+            "sse_messages": [],
+            "model_response_content": "",
+            "tool_call_name": None,
+            "tool_call_arguments": None,
+            "current_outer_loop": 0,
+            "current_inner_loop": 0,
+            "break_task": False,
+            "task_completion_message": "",
+            "action_id_waiting_for_answer": None,
+            "sse_id_counter": 0,
+        }
+
+        # Run the graph
+        # The `stream()` method yields the state at each step
+        for s in app_graph.stream(initial_state):
+            # s is a dictionary where keys are node names and values are the state after that node
+            # The last key in s is the current node that just executed
+            current_node_name = list(s.keys())[-1]
+            current_state = s[current_node_name]
+
+            # Yield any new SSE messages accumulated in the state
+            for msg in current_state["sse_messages"]:
+                yield f"id: {msg['id']}\nevent: {msg['event']}\ndata: {msg['data']}\n\n"
+            
+            # Clear messages that have been sent
+            current_state["sse_messages"] = []
+
+            # If the task is broken, stop streaming
+            if current_state["break_task"]:
+                # Send final status message if not already sent by a node
+                if current_state["task_completion_message"]:
+                    final_payload = {
+                        "type": "statusText",
+                        "payload": current_state["task_completion_message"],
+                        "actionID": "",
+                    }
+                    # Increment counter for the final message
+                    current_state["sse_id_counter"] += 1 
+                    yield f"id: {current_state['sse_id_counter']}\nevent: 200\ndata: {json.dumps(final_payload)}\n\n"
+                break # Exit the streaming loop
+
+        # Send a [DONE] message to signal the end of the stream
+        yield "data: [DONE]\n\n"
+
+    return app.response_class(event_stream(), mimetype='text/event-stream')
+
 
 # --- Main Execution ---
 
