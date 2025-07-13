@@ -15,8 +15,8 @@ import io
 
 # LangGraph imports
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemoryCheckpoint
-from langgraph.graph.message import AnyMessage, ToolMessage, HumanMessage, AIMessage
+# from langgraph.checkpoint.memory import MemoryCheckpoint
+from langchain_core.messages import AnyMessage, ToolMessage, HumanMessage, AIMessage
 
 # --- Configuration and Global Variables ---
 
