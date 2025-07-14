@@ -762,7 +762,11 @@ def call_model(state: GraphState) -> GraphState:
                     tool_args_dict = json.loads(state["tool_call_arguments"])
                     state["chat_history"].append(AIMessage(
                         content=accumulated_content, # Content might be empty if only tool call
-                        tool_calls=[{"name": state["tool_call_name"], "args": tool_args_dict}]
+                        tool_calls=[{
+                            "id": GenerateUUID(),
+                            "name": state["tool_call_name"],
+                            "args": tool_args_dict
+                        }]
                     ))
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse tool arguments JSON: {state['tool_call_arguments']}")
@@ -809,6 +813,20 @@ def handle_tool_call(state: GraphState) -> GraphState:
         return state
 
     if tool_name == "ask_user":
+        # 如果之前已经发送了 ask_user，且等待回答
+        if state["action_id_waiting_for_answer"]:
+            entries = global_session.get_entries("ask")
+            for entry in entries:
+                if entry.get("ActionID") == state["action_id_waiting_for_answer"]:
+                    if entry.get("Payload", {}).get("Meta", {}).get("answer") == True:
+                        reason = entry["Payload"]["Meta"].get("reason", "")
+                        # 用户已回答，继续执行
+                        state["chat_history"].append(ToolMessage(content=reason, tool_call_id=state["action_id_waiting_for_answer"]))
+                        state["user_input"] = reason
+                        state["current_inner_loop"] = 0
+                        state["action_id_waiting_for_answer"] = None
+                        return state
+
         question = tool_args.get("question", "")
         action_id = GenerateUUID()
         state["action_id_waiting_for_answer"] = action_id
@@ -829,63 +847,7 @@ def handle_tool_call(state: GraphState) -> GraphState:
         global_session.add_entry("ask", payload) # Add to global session for polling
 
         logger.info(f"Waiting for user answer for actionID: {action_id}")
-        
-        # Simulate waitUntil blocking behavior
-        start_time = time.time()
-        timeout_seconds = 60
-        stop_reason = ""
-        last_entry = None
-
-        while True:
-            if check_interrupt():
-                stop_reason = "用户中断对话"
-                break
-
-            entries = global_session.get_entries("ask")
-            found_entry = False
-            for entry in reversed(entries):
-                if entry.get("ActionID") == action_id:
-                    if entry.get("Payload", {}).get("Meta", {}).get("answer") == True:
-                        last_entry = entry
-                        found_entry = True
-                        break
-            
-            if found_entry:
-                break
-
-            if time.time() - start_time > timeout_seconds:
-                stop_reason = "回答超时"
-                break
-            
-            time.sleep(2) # Poll every 2 seconds
-
-        if last_entry is None: # Timeout or interrupt
-            if stop_reason == "": # Should not happen if stop_reason is set on interrupt/timeout
-                stop_reason = "未知原因中断"
-            logger.info(f"waitUntil function timed out or interrupted: {stop_reason}")
-            state["break_task"] = True
-            state["task_completion_message"] = stop_reason
-            state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
-            return state
-        
-        if last_entry.get("Payload", {}).get("Meta", {}).get("answer") == True and \
-           last_entry.get("Payload", {}).get("Meta", {}).get("reason") == "":
-            stop_reason = "用户取消对话"
-            logger.info(f"User cancelled conversation: [Meta] {last_entry.get('Payload', {}).get('Meta')}")
-            state["break_task"] = True
-            state["task_completion_message"] = stop_reason
-            state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
-            return state
-
-        reason = last_entry.get("Payload", {}).get("Meta", {}).get("reason", "")
-        logger.info(f"User answered question: [Meta] {last_entry.get('Payload', {}).get('Meta')}")
-        
-        # Add tool message to chat history
-        state["chat_history"].append(ToolMessage(content=reason, tool_call_id=action_id))
-        state["user_input"] = reason # Set new user input for next model call
-        state["current_inner_loop"] = 0 # Reset inner loop counter
-        state["action_id_waiting_for_answer"] = None # Clear waiting state
-        return state # This will route back to call_model
+        return state
 
     elif tool_name == "task_complete":
         summary = tool_args.get("summary", "")
@@ -949,12 +911,15 @@ workflow.add_conditional_edges(
 workflow.add_conditional_edges(
     "handle_tool_call",
     lambda state: "break_task" if state["break_task"] else (
-        "call_model" if state["tool_call_name"] == "no_tool_detected" or state["tool_call_name"] == "ask_user" else END
+        "call_model" if (
+            state["tool_call_name"] == "no_tool_detected" or
+            (state["tool_call_name"] == "ask_user" and state["action_id_waiting_for_answer"] is None)
+        ) else END
     ),
     {
-        "break_task": END, # If tool handling resulted in a break
-        "call_model": "check_interrupt", # Loop back for next iteration (e.g., after ask_user or no_tool_detected)
-        END: END, # If task_complete or unknown tool, end
+        "break_task": END,
+        "call_model": "check_interrupt",
+        END: END,
     },
 )
 
@@ -986,10 +951,10 @@ def check_interrupt() -> bool:
             return True
     return False
 
-@app.route("/new_task", methods=["POST"])
+@app.route("/task", methods=["POST"])
 def new_task():
     logger.info("Creating new task...")
-    global_session.entries["ask"] = [] # Reset session for new task
+    # global_session.entries["ask"] = [] # Reset session for new task
 
     # From body, get text
     body = request.get_json()
@@ -1048,6 +1013,29 @@ def new_task():
         yield "data: [DONE]\n\n"
 
     return app.response_class(event_stream(), mimetype='text/event-stream')
+
+@app.route("/answer", methods=["POST"])
+def answer_handler():
+    data = request.json
+    action_id = data.get("actionID")
+    answer = data.get("answer", "")
+    reason = data.get("reason", "")
+
+    if not action_id:
+        return jsonify({"error": "Missing actionID"}), 400
+
+    # 在 global_session 中找到对应的 ask 消息，更新为已回答
+    entries = global_session.get_entries("ask")
+    for i, entry in enumerate(entries):
+        if entry.get("ActionID") == action_id:
+            updated_entry = entry.copy()
+            updated_entry["Payload"]["Meta"]["answer"] = True
+            updated_entry["Payload"]["Meta"]["reason"] = answer or reason
+            global_session.update_entry("ask", i, updated_entry)
+            logger.info(f"Received answer for actionID {action_id}: {answer or reason}")
+            return jsonify({"status": "ok"}), 200
+
+    return jsonify({"error": "actionID not found"}), 404
 
 
 # --- Main Execution ---
