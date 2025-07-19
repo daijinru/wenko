@@ -483,15 +483,25 @@ def export_handler():
 
 # --- LangGraph Integration ---
 # from langgraph import LangGraphPH, HTTPResponse, Logger # Remove these, they are not standard LangGraph imports
-
-SIGNAL_TYPE = "signal"
-SIGNAL_STOP = "stop"
-
 class MessageType(TypedDict):
     Type: str
     Payload: Dict[str, Any]
     ActionID: Optional[str]
 
+# LangGraph State Definition
+class GraphState(TypedDict):
+    user_input: str
+    chat_history: List[AnyMessage] # To store messages for the LLM
+    sse_messages: List[Dict[str, Any]] # To store messages to send via SSE
+    model_response_content: str
+    tool_call_name: Optional[str]
+    tool_call_arguments: Optional[str]
+    current_outer_loop: int
+    current_inner_loop: int
+    break_task: bool # Renamed from break_done
+    task_completion_message: str # Renamed from done_message
+    action_id_waiting_for_answer: Optional[str] # For ask_user tool
+    sse_id_counter: int # For SSE 'id' field
 class Session:
     def __init__(self):
         self.entries = {"ask": []}
@@ -507,6 +517,12 @@ class Session:
             self.entries[key][index] = entry
             return True
         return False
+    def save_state(self, session_id: str, state: GraphState):
+        self.states[session_id] = state
+
+    def load_state(self, session_id: str) -> Optional[GraphState]:
+        return self.states.get(session_id)
+        
 
 global_session = Session()
 # logger = Logger("outbox.log") # Use the existing logger
@@ -564,21 +580,6 @@ Tool_Use_Case_Prompt = {
     "tool_choice": "auto",
 }
 
-# LangGraph State Definition
-class GraphState(TypedDict):
-    user_input: str
-    chat_history: List[AnyMessage] # To store messages for the LLM
-    sse_messages: List[Dict[str, Any]] # To store messages to send via SSE
-    model_response_content: str
-    tool_call_name: Optional[str]
-    tool_call_arguments: Optional[str]
-    current_outer_loop: int
-    current_inner_loop: int
-    break_task: bool # Renamed from break_done
-    task_completion_message: str # Renamed from done_message
-    action_id_waiting_for_answer: Optional[str] # For ask_user tool
-    sse_id_counter: int # For SSE 'id' field
-
 # Helper to generate UUID
 def GenerateUUID() -> str:
     return str(uuid.uuid4()).replace("-", "")
@@ -618,7 +619,7 @@ def initial_setup_node(state: GraphState) -> GraphState:
     return state
 
 def check_interrupt_node(state: GraphState) -> GraphState:
-    if check_interrupt():
+    if check_interrupt(state):
         logger.info("<LangGraph Loop> Task interrupted: User interruption")
         state["break_task"] = True
         state["task_completion_message"] = "任务中断: 用户中断"
@@ -760,14 +761,17 @@ def call_model(state: GraphState) -> GraphState:
                 # If a tool was called, add an AIMessage with tool_calls
                 try:
                     tool_args_dict = json.loads(state["tool_call_arguments"])
+                    tool_call_id = GenerateUUID()
                     state["chat_history"].append(AIMessage(
                         content=accumulated_content, # Content might be empty if only tool call
                         tool_calls=[{
-                            "id": GenerateUUID(),
+                            "id": tool_call_id,
                             "name": state["tool_call_name"],
                             "args": tool_args_dict
                         }]
                     ))
+                    if state["tool_call_name"] == "ask_user":
+                        state["action_id_waiting_for_answer"] = tool_call_id
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse tool arguments JSON: {state['tool_call_arguments']}")
                     # Fallback to just content if args are malformed
@@ -797,10 +801,7 @@ def handle_tool_call(state: GraphState) -> GraphState:
     tool_args_str = state["tool_call_arguments"]
 
     if tool_name == "no_tool_detected":
-        # This is the retry logic for when the model didn't call a tool
         state["user_input"] = "你没有使用工具调用，请务必使用工具调用，重新回答用户的问题：" + state["user_input"]
-        # The inner loop counter was already incremented in call_model
-        # The check for max_inner_loop is done at the beginning of call_model
         return state # This will route back to call_model
 
     try:
@@ -813,24 +814,8 @@ def handle_tool_call(state: GraphState) -> GraphState:
         return state
 
     if tool_name == "ask_user":
-        # 如果之前已经发送了 ask_user，且等待回答
-        if state["action_id_waiting_for_answer"]:
-            entries = global_session.get_entries("ask")
-            for entry in entries:
-                if entry.get("ActionID") == state["action_id_waiting_for_answer"]:
-                    if entry.get("Payload", {}).get("Meta", {}).get("answer") == True:
-                        reason = entry["Payload"]["Meta"].get("reason", "")
-                        # 用户已回答，继续执行
-                        state["chat_history"].append(ToolMessage(content=reason, tool_call_id=state["action_id_waiting_for_answer"]))
-                        state["user_input"] = reason
-                        state["current_inner_loop"] = 0
-                        state["action_id_waiting_for_answer"] = None
-                        return state
-
+        action_id = state.get("action_id_waiting_for_answer")
         question = tool_args.get("question", "")
-        action_id = GenerateUUID()
-        state["action_id_waiting_for_answer"] = action_id
-
         payload = {
             "type": "ask",
             "payload": {
@@ -844,9 +829,10 @@ def handle_tool_call(state: GraphState) -> GraphState:
             "actionID": action_id,
         }
         state = _add_sse_message(state, "text", payload)
-        global_session.add_entry("ask", payload) # Add to global session for polling
-
         logger.info(f"Waiting for user answer for actionID: {action_id}")
+        # 关键：直接结束本轮对话
+        state["break_task"] = True
+        state["task_completion_message"] = "等待用户回答"
         return state
 
     elif tool_name == "task_complete":
@@ -878,9 +864,9 @@ workflow.add_node("handle_tool_call", handle_tool_call)
 
 # Define edges
 workflow.set_entry_point("initial_setup")
-
+# 直连 initial_setup 到 check_interrupt
 workflow.add_edge("initial_setup", "check_interrupt")
-
+# 条件连接 check_interrupt 到 break_task 或 continue
 workflow.add_conditional_edges(
     "check_interrupt",
     lambda state: "break_task" if state["break_task"] else "continue",
@@ -910,16 +896,10 @@ workflow.add_conditional_edges(
 
 workflow.add_conditional_edges(
     "handle_tool_call",
-    lambda state: "break_task" if state["break_task"] else (
-        "call_model" if (
-            state["tool_call_name"] == "no_tool_detected" or
-            (state["tool_call_name"] == "ask_user" and state["action_id_waiting_for_answer"] is None)
-        ) else END
-    ),
+    lambda state: "break_task" if state["break_task"] else "call_model",
     {
         "break_task": END,
         "call_model": "check_interrupt",
-        END: END,
     },
 )
 
@@ -927,27 +907,10 @@ workflow.add_conditional_edges(
 app_graph = workflow.compile()
 
 # Integrate LangGraph with Flask
-@app.route("/planning/task/interrupt", methods=["POST"])
-def interrupt_task():
-    # This updates the global session, which the waitUntil in handle_tool_call polls
-    ask_message: MessageType = {
-        "Type": SIGNAL_TYPE,
-        "Payload": {
-            "Content": "",
-            "Meta": {"action": SIGNAL_STOP},
-        },
-        "ActionID": "",
-    }
-    global_session.add_entry("ask", ask_message)
-    response = {"message": "已收到中断信号", "status": "200"}
-    return jsonify(response), 200
-
-def check_interrupt() -> bool:
-    entries = global_session.get_entries("ask")
-    if not entries:
-        return False
-    for entry in reversed(entries):
-        if entry.get("Type") == SIGNAL_TYPE and entry.get("Payload", {}).get("Meta", {}).get("action") == SIGNAL_STOP:
+def check_interrupt(state: GraphState) -> bool:
+    # 遍历 chat_history，查找 content 为 "stop" 的 ToolMessage
+    for msg in reversed(state["chat_history"]):
+        if isinstance(msg, ToolMessage) and msg.content.strip().lower() == "stop":
             return True
     return False
 
@@ -962,9 +925,28 @@ def new_task():
         return jsonify({"error": "Invalid request body: 'text' field is required."}), 400
     
     chat_request_text = body["text"]
+    session_id = body.get("session_id", "default")
 
-    def event_stream():
-        # Initial state for the graph
+    previous_state = global_session.load_state(session_id)
+
+    if previous_state:
+        # 恢复历史 chat_history 和等待回答的 action_id
+        initial_state: GraphState = {
+            "user_input": chat_request_text,
+            "chat_history": previous_state["chat_history"],
+            "sse_messages": [],
+            "model_response_content": "",
+            "tool_call_name": None,
+            "tool_call_arguments": None,
+            "current_outer_loop": 0,
+            "current_inner_loop": 0,
+            "break_task": False,
+            "task_completion_message": "",
+            "action_id_waiting_for_answer": previous_state.get("action_id_waiting_for_answer"),
+            "sse_id_counter": 0,
+        }
+    else:
+        # 新任务，初始化空状态
         initial_state: GraphState = {
             "user_input": chat_request_text,
             "chat_history": [],
@@ -980,36 +962,30 @@ def new_task():
             "sse_id_counter": 0,
         }
 
-        # Run the graph
-        # The `stream()` method yields the state at each step
+    def event_stream():
         for s in app_graph.stream(initial_state):
-            # s is a dictionary where keys are node names and values are the state after that node
-            # The last key in s is the current node that just executed
             current_node_name = list(s.keys())[-1]
             current_state = s[current_node_name]
 
-            # Yield any new SSE messages accumulated in the state
+            # 持久化当前状态，方便下一次恢复
+            global_session.save_state(session_id, current_state)
+
             for msg in current_state["sse_messages"]:
                 yield f"id: {msg['id']}\nevent: {msg['event']}\ndata: {msg['data']}\n\n"
-            
-            # Clear messages that have been sent
+
             current_state["sse_messages"] = []
 
-            # If the task is broken, stop streaming
             if current_state["break_task"]:
-                # Send final status message if not already sent by a node
                 if current_state["task_completion_message"]:
                     final_payload = {
                         "type": "statusText",
                         "payload": current_state["task_completion_message"],
                         "actionID": "",
                     }
-                    # Increment counter for the final message
-                    current_state["sse_id_counter"] += 1 
+                    current_state["sse_id_counter"] += 1
                     yield f"id: {current_state['sse_id_counter']}\nevent: 200\ndata: {json.dumps(final_payload)}\n\n"
-                break # Exit the streaming loop
+                break
 
-        # Send a [DONE] message to signal the end of the stream
         yield "data: [DONE]\n\n"
 
     return app.response_class(event_stream(), mimetype='text/event-stream')
@@ -1019,23 +995,23 @@ def answer_handler():
     data = request.json
     action_id = data.get("actionID")
     answer = data.get("answer", "")
-    reason = data.get("reason", "")
+    session_id = data.get("session_id", "default")
 
     if not action_id:
         return jsonify({"error": "Missing actionID"}), 400
 
-    # 在 global_session 中找到对应的 ask 消息，更新为已回答
-    entries = global_session.get_entries("ask")
-    for i, entry in enumerate(entries):
-        if entry.get("ActionID") == action_id:
-            updated_entry = entry.copy()
-            updated_entry["Payload"]["Meta"]["answer"] = True
-            updated_entry["Payload"]["Meta"]["reason"] = answer or reason
-            global_session.update_entry("ask", i, updated_entry)
-            logger.info(f"Received answer for actionID {action_id}: {answer or reason}")
-            return jsonify({"status": "ok"}), 200
+    # 加载当前会话状态
+    state = global_session.load_state(session_id)
+    if not state:
+        return jsonify({"error": "Session not found"}), 404
 
-    return jsonify({"error": "actionID not found"}), 404
+    # 追加 ToolMessage 到 chat_history
+    state["chat_history"].append(
+        ToolMessage(content=answer, tool_call_id=action_id)
+    )
+    global_session.save_state(session_id, state)
+    logger.info(f"Received answer for actionID {action_id}: {answer}")
+    return jsonify({"status": "ok"}), 200
 
 
 # --- Main Execution ---
