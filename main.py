@@ -505,6 +505,7 @@ class GraphState(TypedDict):
 class Session:
     def __init__(self):
         self.entries = {"ask": []}
+        self.states = {}
 
     def add_entry(self, key, message: MessageType):
         self.entries[key].append(message)
@@ -623,7 +624,7 @@ def check_interrupt_node(state: GraphState) -> GraphState:
         logger.info("<LangGraph Loop> Task interrupted: User interruption")
         state["break_task"] = True
         state["task_completion_message"] = "任务中断: 用户中断"
-        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
     return state
 
 def check_loop_limits(state: GraphState) -> GraphState:
@@ -633,7 +634,7 @@ def check_loop_limits(state: GraphState) -> GraphState:
     if state["current_outer_loop"] >= max_outer_loop:
         state["break_task"] = True
         state["task_completion_message"] = "任务中断: 最大循环数"
-        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
         return state
 
     state["current_outer_loop"] += 1
@@ -649,7 +650,7 @@ def call_model(state: GraphState) -> GraphState:
         logger.info(f"Inner loop count reached maximum: {state['current_inner_loop']} / {max_inner_loop}")
         state["break_task"] = True
         state["task_completion_message"] = "任务中断: 最大内层循环数"
-        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
         return state
 
     state["current_inner_loop"] += 1
@@ -690,8 +691,8 @@ def call_model(state: GraphState) -> GraphState:
         "tool_choice": Tool_Use_Case_Prompt["tool_choice"],
     }
 
-    logger.info(f"🌍 Model request body: {json.dumps(model_request_body, indent=2)}")
-    logger.info(f"Model provider URI: {config.ModelProviderURI}")
+    # logger.info(f"🌍 Model request body: {json.dumps(model_request_body, indent=2)}")
+    logger.info(f"🌍 Model provider URI: {config.ModelProviderURI}")
 
     try:
         req_headers = {
@@ -730,8 +731,8 @@ def call_model(state: GraphState) -> GraphState:
                                     payload = {
                                         "type": "text",
                                         "payload": {
-                                            "Content": content,
-                                            "Meta": {"id": text_message_id},
+                                            "content": content,
+                                            "meta": {"id": text_message_id},
                                         },
                                         "actionID": "",
                                     }
@@ -789,7 +790,7 @@ def call_model(state: GraphState) -> GraphState:
         logger.error(f"Error calling model provider: {e}")
         state["break_task"] = True
         state["task_completion_message"] = "调用大模型失败: " + str(e)
-        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
 
     return state
 
@@ -810,7 +811,7 @@ def handle_tool_call(state: GraphState) -> GraphState:
         logger.error(f"Tool arguments JSON parsing failed for {tool_name}: {e}, args: {tool_args_str}")
         state["break_task"] = True
         state["task_completion_message"] = f"工具解析失败: {tool_name} - {e}"
-        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
         return state
 
     if tool_name == "ask_user":
@@ -819,8 +820,8 @@ def handle_tool_call(state: GraphState) -> GraphState:
         payload = {
             "type": "ask",
             "payload": {
-                "Content": question,
-                "Meta": {
+                "content": question,
+                "meta": {
                     "answer": False,
                     "reason": "",
                     "id": action_id,
@@ -839,13 +840,13 @@ def handle_tool_call(state: GraphState) -> GraphState:
         summary = tool_args.get("summary", "")
         state["break_task"] = True
         state["task_completion_message"] = "任务已完成: " + summary
-        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
         return state
 
     else:
         state["break_task"] = True
         state["task_completion_message"] = f"检测到未知工具调用: {tool_name}"
-        state = _add_sse_message(state, "statusText", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
         return state
 
 # Max loop counters
@@ -976,14 +977,7 @@ def new_task():
             current_state["sse_messages"] = []
 
             if current_state["break_task"]:
-                if current_state["task_completion_message"]:
-                    final_payload = {
-                        "type": "statusText",
-                        "payload": current_state["task_completion_message"],
-                        "actionID": "",
-                    }
-                    current_state["sse_id_counter"] += 1
-                    yield f"id: {current_state['sse_id_counter']}\nevent: 200\ndata: {json.dumps(final_payload)}\n\n"
+                logger.info("Task completed or interrupted: " + current_state["task_completion_message"])
                 break
 
         yield "data: [DONE]\n\n"

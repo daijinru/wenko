@@ -1,8 +1,8 @@
 import { makeAutoObservable, runInAction } from "mobx"
 import { last } from "lodash-es"
 import { fetchEventSource } from "@microsoft/fetch-event-source"
-import { isObject } from "lodash-es"
-import { message } from "antd"
+import { isEmpty } from "lodash-es"
+import { message, notification } from "antd"
 
 export const generateMsgId = () => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -20,10 +20,11 @@ export type PayloadMessageType = {
       [key: string]: any
     }
   }
+  actionID: string
 }
 export type SSE_DataType = {
   type: string
-  payload: string
+  payload: PayloadMessageType
   actionID: string
 }
 export type Message = {
@@ -41,6 +42,7 @@ class PlanningTaskStore {
   isLoading: boolean = false
 
   messages: Message[] = []
+  current_session_id: string = ''
 
   userValue:string = ''
   setUserValue(value: string) {
@@ -53,6 +55,9 @@ class PlanningTaskStore {
   }
   
   onNewTask = async (text: string) => {
+    const session_id = this.current_session_id || generateMsgId()
+    this.current_session_id = session_id
+
     const userTaskMessage = {
       id: generateMsgId(),
       type: 'text',
@@ -74,6 +79,7 @@ class PlanningTaskStore {
       },
       body: JSON.stringify({
         text,
+        session_id,
       }),
       onopen: res => {
         console.info('>< onopen:', res)
@@ -103,50 +109,62 @@ class PlanningTaskStore {
   }
 
   handleMessage = (data: SSE_DataType) => {
+    const payload: PayloadMessageType = data?.payload
+    if(isEmpty(payload)) {
+      notification.error({
+        message: 'Error',
+        description: '<handleMessage> payload is empty',
+      })
+      return
+    }
+    console.info('>< payload:', payload)
     // 状态文本处理
-    if (data?.type === 'statusText') {
+    if (payload.type === 'statusText') {
       const newMessage = {
         id: generateMsgId(),
         type: 'statusText',
         role: 'assistant',
-        content: data?.payload,
+        content: payload.payload || '对话已结束',
       }
       runInAction(() => {
+        // @ts-ignore
         this.messages.push(newMessage)
       })
       return
     }
-    // console.info('>< parsed:', parsed)
+    // 非 statusText 类型
+    try {
+      // 正文处理
+      if (!isEmpty(payload)) {
+        // payload.payload.content 不能为空，不能为 \n
+        if (payload?.type === 'text' && payload.payload.content && payload.payload.content !== '\n') {
+          const newMessage = {
+            id: payload.payload.meta.id,
+            type: 'text',
+            role: 'assistant',
+            content: payload.payload.content || '',
+          }
+          this.appendMessage(newMessage)
 
-    // 正文处理
-    const payload: PayloadMessageType = JSON.parse(data?.payload)
-    if (data?.type === 'text' && isObject(payload)) {
-      if (payload?.type === 'text') {
-        const newMessage = {
-          id: payload.payload.meta.id,
-          type: 'text',
-          role: 'assistant',
-          content: payload.payload.content || '',
+        } else if (payload?.type === 'ask') {
+          /** ask 类型问题，基本类型同样是 text，通过 action 区分 */
+          const newMessage = {
+            id: data.actionID,
+            type: 'text',
+            role: 'assistant',
+            content: payload.payload.content || '',
+            action: 'ask',
+          }
+          this.appendMessage(newMessage)
+          runInAction(() => {
+            // 遇到 ask 类型问题，停止 loading
+            this.isLoading = false
+            this.isWaitForAnswer = true
+          })
         }
-
-        this.appendMessage(newMessage)
-
-      } else if (payload?.type === 'ask') {
-        /** ask 类型问题，基本类型同样是 text，通过 action 区分 */
-        const newMessage = {
-          id: data.actionID,
-          type: 'text',
-          role: 'assistant',
-          content: payload.payload.content || '',
-          action: 'ask',
-        }
-        this.appendMessage(newMessage)
-        runInAction(() => {
-          // 遇到 ask 类型问题，停止 loading
-          this.isLoading = false
-          this.isWaitForAnswer = true
-        })
       }
+    } catch (err) {
+      console.error('>< handleMessage error:', err)
     }
   }
 

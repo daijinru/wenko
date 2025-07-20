@@ -60,7 +60,8 @@ function renderAssistantMessage(message) {
           placement='start'
           avatar={{ icon: <UserOutlined />, style: fooAvatar }}
           content={<>
-            <Card title={message.content} variant='borderless' size='small'>
+            <Card variant='borderless' size='small'>
+              <p>{message.content}</p>
               <Space direction='vertical'>
                 <Sender
                   disabled={!taskStore.isWaitForAnswer}
