@@ -91,6 +91,12 @@ class PlanningTaskStore {
       },
       onmessage: line => {
         try {
+          if (line.data === '[DONE]') {
+            runInAction(() => {
+              this.isLoading = false
+            })
+            return
+          }
           const parsed: SSE_DataType = JSON.parse(line.data)
           this.handleMessage(parsed)
         } catch (error) {
@@ -98,6 +104,7 @@ class PlanningTaskStore {
         }
       },
       onclose: () => {
+        console.info('>< onclose')
         runInAction(() => {
           this.isLoading = false
         })
@@ -182,22 +189,6 @@ class PlanningTaskStore {
     })
   }
 
-  onCancelTask = () => {
-    fetch("http://localhost:8080/planning/task/interrupt", {
-      method: 'POST',
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
-      .then(res => res.json())
-      .then(res => {
-        runInAction(() => {
-          this.isLoading = false
-          this.isTaskMode = false
-        })
-      })
-  }
-
   /** 获取最新问题的actionID */
   getAnswerActionID(): string {
     let askMessage = last(this.messages)
@@ -224,7 +215,7 @@ class PlanningTaskStore {
 
     if (this.isTaskMode) {
       if (this.isWaitForAnswer) {
-        fetch("http://localhost:8080/planning/task/answer", {
+        fetch("http://localhost:8080/answer", {
           method: 'POST',
           headers: {
             "Content-Type": "application/json",
@@ -232,6 +223,7 @@ class PlanningTaskStore {
           body: JSON.stringify({
             text: content,
             actionID: this.getAnswerActionID(),
+            session_id: this.current_session_id,
           }),
         })
           .then(res => res.json())
@@ -239,6 +231,8 @@ class PlanningTaskStore {
             runInAction(() => {
               this.isWaitForAnswer = false
             })
+            // 通过 /task 重新发起任务
+            this.onNewTask(content)
         })
       } else {
       }

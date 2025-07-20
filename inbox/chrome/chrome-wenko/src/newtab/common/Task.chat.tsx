@@ -6,6 +6,7 @@ import { UserOutlined, NotificationOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
+import { observer } from "mobx-react-lite"
 
 const fooAvatar: React.CSSProperties = {
   color: '#f56a00',
@@ -62,21 +63,6 @@ function renderAssistantMessage(message) {
           content={<>
             <Card variant='borderless' size='small'>
               <p>{message.content}</p>
-              <Space direction='vertical'>
-                <Sender
-                  disabled={!taskStore.isWaitForAnswer}
-                  value={taskStore.userValue}
-                  onChange={value => taskStore.setUserValue(value)}
-                  loading={taskStore.isLoading}
-                  submitType="shiftEnter"
-                  placeholder="Press Shift + Enter to send message"
-                  onSubmit={text => {
-                    taskStore.onAnswer(text)
-                  }}
-                  onCancel={taskStore.onCancelTask}
-                />
-                <Button type='text' color='danger' size='small' onClick={taskStore.onCancelTask}>Cancel</Button>
-              </Space>
             </Card>
           </>}
         />
@@ -95,7 +81,7 @@ const App = () => {
   return (
     <>
       {
-        taskStore.messages.length > 0 ?
+        taskStore.messages.length &&
           <div
             className='mb-16px bg-[rgba(255,255,255,0.9)] rounded-12px overflow-y-scroll scrollbar-hide px-16px py-16px'
             style={{
@@ -125,10 +111,22 @@ const App = () => {
               }
             </Flex>
           </div>
-          : <></>
       }
+      <Space direction='vertical'>
+        <Sender
+          disabled={!taskStore.isWaitForAnswer}
+          value={taskStore.userValue}
+          onChange={value => taskStore.setUserValue(value)}
+          loading={taskStore.isLoading}
+          submitType="shiftEnter"
+          placeholder="Press Shift + Enter to send message"
+          onSubmit={text => {
+            taskStore.onAnswer(text)
+          }}
+        />
+      </Space>
     </>
   )
 }
 
-export default App
+export default observer(App)

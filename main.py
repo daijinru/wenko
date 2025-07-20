@@ -658,16 +658,14 @@ def call_model(state: GraphState) -> GraphState:
                 for tc in msg.tool_calls:
                     model_messages.append({
                         "role": "assistant",
-                        "tool_calls": [{
-                            "id": GenerateUUID(), # Model might expect an ID
-                            "function": {
-                                "name": tc["name"],
-                                "arguments": json.dumps(tc["args"])
-                            }
-                        }]
+                        "content": f"[TOOL_CALL][{tc['name']}][id:{tc.get('id', '')}] {json.dumps(tc['args'], ensure_ascii=False)}"
                     })
         elif isinstance(msg, ToolMessage):
-            model_messages.append({"role": "tool", "tool_call_id": msg.tool_call_id, "content": msg.content})
+            # 转为 assistant role，并在 content 里注明工具调用
+            model_messages.append({
+                "role": "assistant",
+                "content": f"[TOOL_MESSAGE][{msg.tool_call_id}] {msg.content}"
+            })
 
 
     model_request_body = {
@@ -917,7 +915,7 @@ def new_task():
     session_id = body.get("session_id", "default")
 
     previous_state = global_session.load_state(session_id)
-
+    logger.info(f"Previous state: {previous_state}")
     if previous_state:
         # 恢复历史 chat_history 和等待回答的 action_id
         initial_state: GraphState = {
@@ -974,7 +972,7 @@ def new_task():
 def answer_handler():
     data = request.json
     action_id = data.get("actionID")
-    answer = data.get("answer", "")
+    answer = data.get("text", "")
     session_id = data.get("session_id", "default")
 
     if not action_id:
