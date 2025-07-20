@@ -2,11 +2,9 @@
 
 ```bash
 cd inbox/chrome/chrome-wenko/
-npm run dev
+./start.sh
 
 # and then->
 cd inject
-# optional
-chmod +x script.dev.sh
-./script.dev.sh
+./start.sh
 ```

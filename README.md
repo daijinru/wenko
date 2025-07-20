@@ -10,7 +10,7 @@
 
 | Language | Version |
 |----------|---------|
-| Go       | 1.20+   |
+| Python       | 3.13.1+   |
 | Node.js  | 18+     |
 
 ### Other Environment
@@ -21,12 +21,15 @@ Plz reading `scripts/ollama_init.md` and `scripts/docker.md` for setup service.
 
 ```bash
 # 1. project root run Service
-go run main.go
+./start.sh
 
 # 2. go to chrome-wenko run Service
 cd inbox/chrome/chrome-wenko
 npm install
-npm start
+./start.sh
+
+cd inbox/chrome/chrome-wenko/inject
+./start.sh
 
 # 3. chrome plugin development guider
 # open Chrome browser, and open chrome://extensions/
