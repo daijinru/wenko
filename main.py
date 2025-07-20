@@ -497,7 +497,6 @@ class GraphState(TypedDict):
     tool_call_name: Optional[str]
     tool_call_arguments: Optional[str]
     current_outer_loop: int
-    current_inner_loop: int
     break_task: bool # Renamed from break_done
     task_completion_message: str # Renamed from done_message
     action_id_waiting_for_answer: Optional[str] # For ask_user tool
@@ -604,7 +603,6 @@ def _add_sse_message(state: GraphState, event_type: str, data: Dict[str, Any]) -
 def initial_setup_node(state: GraphState) -> GraphState:
     logger.info("LangGraph: Initializing task state.")
     state["current_outer_loop"] = 0
-    state["current_inner_loop"] = 0
     state["break_task"] = False
     state["task_completion_message"] = ""
     state["model_response_content"] = ""
@@ -633,7 +631,7 @@ def check_loop_limits(state: GraphState) -> GraphState:
 
     if state["current_outer_loop"] >= max_outer_loop:
         state["break_task"] = True
-        state["task_completion_message"] = "任务中断: 最大循环数"
+        state["task_completion_message"] = "任务中断: 最大外层循环数"
         state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
         return state
 
@@ -644,16 +642,6 @@ def check_loop_limits(state: GraphState) -> GraphState:
 def call_model(state: GraphState) -> GraphState:
     if state["break_task"]:
         return state
-
-    # Limit inner loop
-    if state["current_inner_loop"] >= max_inner_loop:
-        logger.info(f"Inner loop count reached maximum: {state['current_inner_loop']} / {max_inner_loop}")
-        state["break_task"] = True
-        state["task_completion_message"] = "任务中断: 最大内层循环数"
-        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
-        return state
-
-    state["current_inner_loop"] += 1
 
     model_messages = [
         {"role": "system", "content": InteractivePlanningSystemPrompt},
@@ -691,7 +679,7 @@ def call_model(state: GraphState) -> GraphState:
         "tool_choice": Tool_Use_Case_Prompt["tool_choice"],
     }
 
-    # logger.info(f"🌍 Model request body: {json.dumps(model_request_body, indent=2)}")
+    logger.info(f"🌍 Model request body: {json.dumps(model_request_body, indent=2)}")
     logger.info(f"🌍 Model provider URI: {config.ModelProviderURI}")
 
     try:
@@ -757,34 +745,34 @@ def call_model(state: GraphState) -> GraphState:
             state["tool_call_name"] = tool_call_name
             state["tool_call_arguments"] = tool_call_arguments_builder.getvalue()
 
-            # Add the AI's response to chat history
-            if state["tool_call_name"]:
-                # If a tool was called, add an AIMessage with tool_calls
-                try:
-                    tool_args_dict = json.loads(state["tool_call_arguments"])
-                    tool_call_id = GenerateUUID()
-                    state["chat_history"].append(AIMessage(
-                        content=accumulated_content, # Content might be empty if only tool call
-                        tool_calls=[{
-                            "id": tool_call_id,
-                            "name": state["tool_call_name"],
-                            "args": tool_args_dict
-                        }]
-                    ))
-                    if state["tool_call_name"] == "ask_user":
-                        state["action_id_waiting_for_answer"] = tool_call_id
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse tool arguments JSON: {state['tool_call_arguments']}")
-                    # Fallback to just content if args are malformed
-                    state["chat_history"].append(AIMessage(content=accumulated_content))
-            else:
-                state["chat_history"].append(AIMessage(content=accumulated_content))
-
             if not tool_call_detected:
-                logger.warning(f"No tool call detected! Current inner loop: {state['current_inner_loop']} / {max_inner_loop}")
-                # This will trigger a retry in the next step if not already broken
+                logger.warning(f"No tool call detected! Current outer loop: {state['current_outer_loop']} / {max_outer_loop}")
+                # 用 HumanMessage 提示模型必须使用工具调用
+                prompt = "你没有使用工具调用，请务必使用工具调用，重新回答用户的问题：" + accumulated_content
+                state["chat_history"].append(HumanMessage(content=prompt))
+                # 这会在下次 call_model 时作为用户输入，强制模型调用工具
                 state["tool_call_name"] = "no_tool_detected" # Custom signal for routing
                 state["tool_call_arguments"] = "" # Clear arguments
+            else:
+                if state["tool_call_name"]:
+                    try:
+                        tool_args_dict = json.loads(state["tool_call_arguments"])
+                        tool_call_id = GenerateUUID()
+                        state["chat_history"].append(AIMessage(
+                            content=accumulated_content,
+                            tool_calls=[{
+                                "id": tool_call_id,
+                                "name": state["tool_call_name"],
+                                "args": tool_args_dict
+                            }]
+                        ))
+                        if state["tool_call_name"] == "ask_user":
+                            state["action_id_waiting_for_answer"] = tool_call_id
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse tool arguments JSON: {state['tool_call_arguments']}")
+                        state["chat_history"].append(AIMessage(content=accumulated_content))
+                else:
+                    state["chat_history"].append(AIMessage(content=accumulated_content))
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Error calling model provider: {e}")
@@ -851,7 +839,7 @@ def handle_tool_call(state: GraphState) -> GraphState:
 
 # Max loop counters
 max_outer_loop = 2
-max_inner_loop = 5
+max_inner_loop = 2
 
 # Build the LangGraph
 workflow = StateGraph(GraphState)
@@ -888,7 +876,7 @@ workflow.add_conditional_edges(
 
 workflow.add_conditional_edges(
     "call_model",
-    lambda state: "handle_tool" if state["tool_call_name"] else "no_tool",
+    lambda state: "break_task" if state["break_task"] else ("handle_tool" if state["tool_call_name"] else "no_tool"),
     {
         "handle_tool": "handle_tool_call",
         "no_tool": "handle_tool_call", # Route to handle_tool_call to process "no_tool_detected"
@@ -900,7 +888,7 @@ workflow.add_conditional_edges(
     lambda state: "break_task" if state["break_task"] else "call_model",
     {
         "break_task": END,
-        "call_model": "check_interrupt",
+        "call_model": "check_loop_limits", # Go back to check_loop_limits after handling tool call
     },
 )
 
@@ -940,7 +928,6 @@ def new_task():
             "tool_call_name": None,
             "tool_call_arguments": None,
             "current_outer_loop": 0,
-            "current_inner_loop": 0,
             "break_task": False,
             "task_completion_message": "",
             "action_id_waiting_for_answer": previous_state.get("action_id_waiting_for_answer"),
@@ -956,7 +943,6 @@ def new_task():
             "tool_call_name": None,
             "tool_call_arguments": None,
             "current_outer_loop": 0,
-            "current_inner_loop": 0,
             "break_task": False,
             "task_completion_message": "",
             "action_id_waiting_for_answer": None,
