@@ -599,6 +599,18 @@ def _add_sse_message(state: GraphState, event_type: str, data: Dict[str, Any]) -
     })
     return state
 
+def intent_recognition_node(state: GraphState) -> GraphState:
+    # 这里示例简单意图识别逻辑，实际可调用模型或规则判断
+    user_input = state.get("user_input", "").lower()
+    if "[task_flow]" in user_input:
+        state["intent"] = "task_flow"
+    elif "[keyword_classification]" in user_input:
+        state["intent"] = "keyword_classification"
+    else:
+        state["intent"] = "unknown"
+    logger.info(f"Intent recognized: {state['intent']}")
+    return state
+
 # Nodes for the LangGraph
 def initial_setup_node(state: GraphState) -> GraphState:
     logger.info("LangGraph: Initializing task state.")
@@ -843,6 +855,7 @@ max_inner_loop = 2
 workflow = StateGraph(GraphState)
 
 # Define nodes
+workflow.add_node("intent_recognition", intent_recognition_node)
 workflow.add_node("initial_setup", initial_setup_node)
 workflow.add_node("check_interrupt", check_interrupt_node)
 workflow.add_node("check_loop_limits", check_loop_limits)
@@ -850,10 +863,54 @@ workflow.add_node("call_model", call_model)
 workflow.add_node("handle_tool_call", handle_tool_call)
 
 # Define edges
-workflow.set_entry_point("initial_setup")
-# 直连 initial_setup 到 check_interrupt
+# workflow.set_entry_point("initial_setup")
+workflow.set_entry_point("intent_recognition")
+
+workflow.add_conditional_edges(
+    "intent_recognition",
+    lambda state: state["intent"],
+    {
+        "task_flow": "initial_setup",
+        "keyword_classification": "keyword_classification",
+        "unknown": "other_handler",
+    },
+)
+
+# 工作流：关键词分类
+def keyword_classification_node(state: GraphState) -> GraphState:
+    logger.info("Entered keyword classification flow")
+    # 关键词分类流程
+    content = "从社会规则、历史唯物论、工具关系、生产力、文化符号、权力结构、技术伦理、阶层流动、制度演化、认知范式、资源分配、交往形式中任选其一，生成一段不超过 50 字的文本（直接输出内容，无需额外表述）。"
+    model_messages = [
+        {"role": "user", "content": content},
+    ]
+    model_request_body = {
+        "model": config.ModelProviderModel,
+        "messages": model_messages,
+        "stream": False,
+        "temperature": 0,
+    }
+    response = requests.post(config.ModelProviderURI, json=model_request_body, headers={"Authorization": "Bearer " + config.ModelProviderAPIKey})
+    response.raise_for_status()
+    response_json = response.json()
+    state["model_response_content"] = response_json["choices"][0]["message"]["content"]
+    logger.info(f"Keyword classification result: {state['model_response_content']}")
+    state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["model_response_content"], "actionID": ""})
+    return state
+workflow.add_node("keyword_classification", keyword_classification_node)
+
+# 工作流：未知流程
+def other_handler_node(state: GraphState) -> GraphState:
+    # 未知流程直接结束
+    logger.info("Entered other flow")
+    state["break_task"] = True
+    state["task_completion_message"] = "Unready to handle this intent"
+    state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
+    return state
+workflow.add_node("other_handler", other_handler_node)
+
+# 工作流：工具调用
 workflow.add_edge("initial_setup", "check_interrupt")
-# 条件连接 check_interrupt 到 break_task 或 continue
 workflow.add_conditional_edges(
     "check_interrupt",
     lambda state: "break_task" if state["break_task"] else "continue",
@@ -862,7 +919,6 @@ workflow.add_conditional_edges(
         "continue": "check_loop_limits",
     },
 )
-
 workflow.add_conditional_edges(
     "check_loop_limits",
     lambda state: "break_task" if state["break_task"] else "continue",
@@ -871,7 +927,6 @@ workflow.add_conditional_edges(
         "continue": "call_model",
     },
 )
-
 workflow.add_conditional_edges(
     "call_model",
     lambda state: "break_task" if state["break_task"] else ("handle_tool" if state["tool_call_name"] else "no_tool"),
@@ -880,7 +935,6 @@ workflow.add_conditional_edges(
         "no_tool": "handle_tool_call", # Route to handle_tool_call to process "no_tool_detected"
     },
 )
-
 workflow.add_conditional_edges(
     "handle_tool_call",
     lambda state: "break_task" if state["break_task"] else "call_model",

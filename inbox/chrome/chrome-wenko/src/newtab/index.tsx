@@ -6,7 +6,5 @@ import './index.css'
 import 'virtual:windi.css'
 
 ReactDOM.createRoot(document.getElementById('app') as HTMLElement).render(
-  <React.StrictMode>
-    <NewTab />
-  </React.StrictMode>,
+  <NewTab />
 )

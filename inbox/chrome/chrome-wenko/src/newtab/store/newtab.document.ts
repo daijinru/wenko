@@ -1,5 +1,7 @@
 import { makeAutoObservable, runInAction } from "mobx"
-import { notification } from "antd";
+import { notification } from "antd"
+import { fetchEventSource } from "@microsoft/fetch-event-source"
+import newtabTask, { generateMsgId } from "./newtab.task"
 
 class DocumentStore {
   documents: any[] = []
@@ -10,30 +12,41 @@ class DocumentStore {
 
   reload = () => {
     // fetch http://localhost:8080/documents
-    fetch("http://localhost:8080/documents", {
-      method: "POST",
+    fetchEventSource('http://localhost:8080/task', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        limit: 100,
-        offset: 0,
+        id: generateMsgId(),
+        text: '[keyword_classification]',
       }),
-    })
-      .then((res) => res.json())
-      .then((docs) => {
-        // console.log(docs)
-        if (Array.isArray(docs)) {
-          docs.forEach(doc => {
-            if (!doc.metadata || !doc.metadata.content) return
-            // doc.metadata.content = decodeURIComponent(doc.metadata?.content)
-          })
+      onopen: (res) => {
+        console.log('open', res)
+        if (res.ok) return Promise.resolve()
+      },
+      onmessage: (line) => {
+        try {
+          const parsed = JSON.parse(line.data)
+          console.log('<intent parsed>', parsed)
+          const content = parsed.payload?.payload
+          if (!content) return
+          notification.info({ message: content })
+          if (newtabTask.messages.length > 0) return
+          newtabTask.addUserMessage(content)
+          this.getRelations(content)
+        } catch (error) {
+          console.error(error)
         }
-        docs = docs.sort(() => Math.random() - 0.5)
-        runInAction(() => {
-          this.documents = docs
-        })
-      })
+      },
+      onclose: () => {
+        console.log('close')
+      },
+      onerror: (err) => {
+        console.log('error', err)
+      },
+    })
+    return
   }
   getRelations = (text) => {
     // 通过 $-$ 切割 text，取第一个元素

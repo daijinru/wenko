@@ -1,7 +1,7 @@
-import { useRef, useEffect } from "react"
+import { useEffect } from "react"
 import { Card, Space, Button, Tooltip, Typography } from "antd"
 import { observer } from "mobx-react-lite"
-import { BulbTwoTone, DeleteTwoTone } from '@ant-design/icons'
+import { DeleteTwoTone } from '@ant-design/icons'
 
 import documentStore from "./store/newtab.document"
 
@@ -9,20 +9,9 @@ const { Text, Link } = Typography
 
 const Documents = () => {
 
-  const hashCount = useRef(0)
-  const getRelations = (text) => {
-    // 主动修改路由 #1 #2，形成可回退的路由
-    window.location.hash = `#` + hashCount.current++
-    documentStore.getRelations(text)
-  }
-
   // 监听 hash router 变化
   useEffect(() => {
-    window.onhashchange = () => {
-      if (window.location.hash === '') {
-        documentStore.reload()
-      }
-    }
+    documentStore.reload()
   }, [])
 
   return (
@@ -39,9 +28,6 @@ const Documents = () => {
                   <Space size="small">
                     <Tooltip title="删除">
                       <Button onClick={() => documentStore.deleteRecord(doc.id)} icon={<DeleteTwoTone twoToneColor={"#eb2f96"} />} type="text"></Button>
-                    </Tooltip>
-                    <Tooltip title="线索">
-                      <Button onClick={() => getRelations(doc.metadata?.content)} icon={<BulbTwoTone />} type="text"></Button>
                     </Tooltip>
                   </Space>
                 }

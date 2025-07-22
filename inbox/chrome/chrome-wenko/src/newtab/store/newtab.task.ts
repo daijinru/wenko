@@ -53,6 +53,16 @@ class PlanningTaskStore {
     makeAutoObservable(this)
     window['_NewTab'] = this
   }
+
+  addUserMessage = (text: string) => {
+    const userTaskMessage = {
+      id: generateMsgId(),
+      type: 'text',
+      role: 'user',
+      content: text,
+    }
+    this.messages.push(userTaskMessage)
+  }
   
   onNewTask = async (text: string) => {
     const session_id = this.current_session_id || generateMsgId()
