@@ -7,11 +7,13 @@ class DocumentStore {
   documents: any[] = []
 
   constructor() {
-    makeAutoObservable(this);
+    makeAutoObservable(this)
   }
 
+  keyword_classification = ''
   reload = () => {
     // fetch http://localhost:8080/documents
+    this.keyword_classification = ''
     fetchEventSource('http://localhost:8080/task', {
       method: 'POST',
       headers: {
@@ -29,18 +31,20 @@ class DocumentStore {
         try {
           const parsed = JSON.parse(line.data)
           console.log('<intent parsed>', parsed)
-          const content = parsed.payload?.payload
-          if (!content) return
-          notification.info({ message: content })
-          if (newtabTask.messages.length > 0) return
-          newtabTask.addUserMessage(content)
-          this.getRelations(content)
+          const payload = parsed.payload
+          if (payload.type !== 'text') return
+          runInAction(() => {
+            this.keyword_classification = this.keyword_classification + payload.payload.content
+          })
         } catch (error) {
           console.error(error)
         }
       },
       onclose: () => {
-        console.log('close')
+        console.log('<intent parsed> close', this.keyword_classification)
+        notification.success({ message: this.keyword_classification })
+        newtabTask.addUserMessage(this.keyword_classification)
+        this.getRelations(this.keyword_classification)
       },
       onerror: (err) => {
         console.log('error', err)

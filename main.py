@@ -600,7 +600,6 @@ def _add_sse_message(state: GraphState, event_type: str, data: Dict[str, Any]) -
     return state
 
 def intent_recognition_node(state: GraphState) -> GraphState:
-    # 这里示例简单意图识别逻辑，实际可调用模型或规则判断
     user_input = state.get("user_input", "").lower()
     if "[task_flow]" in user_input:
         state["intent"] = "task_flow"
@@ -880,22 +879,58 @@ workflow.add_conditional_edges(
 def keyword_classification_node(state: GraphState) -> GraphState:
     logger.info("Entered keyword classification flow")
     # 关键词分类流程
-    content = "从社会规则、历史唯物论、工具关系、生产力、文化符号、权力结构、技术伦理、阶层流动、制度演化、认知范式、资源分配、交往形式中任选其一，生成一段不超过 50 字的文本（直接输出内容，无需额外表述）。"
+    content = "从动态话题池（可增删，含社会规则、量子伦理、部落图腾、算法霸权、生物权力、虚拟交往、认知殖民、反制度行为、心理防御机制、时间管理策略、家庭财务规划、办公协作软件）中随机抽取 2-3 个，生成 150-200 字文本，需合理建立话题关联，体现独特视角，禁止重复表述逻辑，直接输出内容。"
     model_messages = [
         {"role": "user", "content": content},
     ]
     model_request_body = {
         "model": config.ModelProviderModel,
         "messages": model_messages,
-        "stream": False,
-        "temperature": 0,
+        "stream": True,  # 开启流式
+        "temperature": 0.8,
     }
-    response = requests.post(config.ModelProviderURI, json=model_request_body, headers={"Authorization": "Bearer " + config.ModelProviderAPIKey})
-    response.raise_for_status()
-    response_json = response.json()
-    state["model_response_content"] = response_json["choices"][0]["message"]["content"]
-    logger.info(f"Keyword classification result: {state['model_response_content']}")
-    state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["model_response_content"], "actionID": ""})
+    req_headers = {
+        "Authorization": "Bearer " + config.ModelProviderAPIKey,
+        "Content-Type": "application/json"
+    }
+    try:
+        with requests.post(config.ModelProviderURI, json=model_request_body, headers=req_headers, stream=True) as resp:
+            resp.raise_for_status()
+            accumulated_content = ""
+            text_message_id = GenerateUUID()
+            for line in resp.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    if decoded_line.startswith("data: "):
+                        data = decoded_line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            or_resp = json.loads(data)
+                            if or_resp.get("choices") and len(or_resp["choices"]) > 0:
+                                choice = or_resp["choices"][0]
+                                delta = choice.get("delta", {})
+                                content_piece = delta.get("content")
+                                if content_piece:
+                                    accumulated_content += content_piece
+                                    payload = {
+                                        "type": "text",
+                                        "payload": {
+                                            "content": content_piece,
+                                            "meta": {"id": text_message_id},
+                                        },
+                                        "actionID": "",
+                                    }
+                                    state = _add_sse_message(state, "text", payload)
+                        except Exception as e:
+                            logger.error(f"Stream JSON decode error: {e}, line: {decoded_line}")
+                            continue
+            state["model_response_content"] = accumulated_content
+            logger.info(f"Keyword classification result: {state['model_response_content']}")
+    except Exception as e:
+        logger.error(f"Keyword classification stream error: {e}")
+        state["model_response_content"] = f"模型调用失败: {e}"
+        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["model_response_content"], "actionID": ""})
     return state
 workflow.add_node("keyword_classification", keyword_classification_node)
 
