@@ -5,11 +5,11 @@ import newtabTask, { generateMsgId } from "./newtab.task"
 
 // 添加一个 "_WENKO_STORE" 的 sessionStorage，用于存储数据
 // 如果没有，则初始化为空对象
-if (!sessionStorage.getItem("_WENKO_STORE")) {
-  sessionStorage.setItem("_WENKO_STORE", JSON.stringify({}))
+if (!localStorage.getItem("_WENKO_STORE")) {
+  localStorage.setItem("_WENKO_STORE", JSON.stringify({}))
 }
 const getWenkoStore = () => {
-  const store = JSON.parse(sessionStorage.getItem("_WENKO_STORE") || "{}")
+  const store = JSON.parse(localStorage.getItem("_WENKO_STORE") || "{}")
   const date = new Date().toISOString().split("T")[0]
   if (store.date === date) {
     return store
@@ -23,9 +23,8 @@ const setWenkoStore = (key: string | Record<string, any>, value?: any) => {
   } else if (typeof key === 'object') {
     Object.assign(store, key)
   }
-  sessionStorage.setItem("_WENKO_STORE", JSON.stringify(store))
+  localStorage.setItem("_WENKO_STORE", JSON.stringify(store))
 }
-
 
 class DocumentStore {
   documents: any[] = []
