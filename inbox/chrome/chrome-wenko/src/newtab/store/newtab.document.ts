@@ -3,6 +3,28 @@ import { notification } from "antd"
 import { fetchEventSource } from "@microsoft/fetch-event-source"
 import newtabTask, { generateMsgId } from "./newtab.task"
 
+// 添加一个 "_WENKO_STORE" 的 sessionStorage，用于存储数据
+// 如果没有，则初始化为空对象
+if (!sessionStorage.getItem("_WENKO_STORE")) {
+  sessionStorage.setItem("_WENKO_STORE", JSON.stringify({}))
+}
+// 获取 "_WENKO_STORE" 的数据的方法
+const getWenkoStore = () => {
+  const store = JSON.parse(sessionStorage.getItem("_WENKO_STORE") || "{}")
+  const date = new Date().toISOString().split("T")[0]
+  if (store.date === date) {
+    return store
+  }
+  return {}
+}
+// 添加一个 "_WENKO_STORE" 的数据的方法，先检查该指定键值是否存在，如果存在，则覆盖，如果不存在，则添加
+const setWenkoStore = (key: string, value: any) => {
+  const store = getWenkoStore()
+  store[key] = value
+  sessionStorage.setItem("_WENKO_STORE", JSON.stringify(store))
+}
+
+
 class DocumentStore {
   documents: any[] = []
 
@@ -12,6 +34,14 @@ class DocumentStore {
 
   keyword_classification = ''
   reload = () => {
+    const store = getWenkoStore()
+    if (store.documents) {
+      console.info('>< 读取缓存数据:', store.documents)
+      this.documents = store.documents
+      this.keyword_classification = store.keyword_classification
+      return
+    }
+    notification.info({ message: '无缓存数据，正在生成...' })
     // fetch http://localhost:8080/documents
     this.keyword_classification = ''
     fetchEventSource('http://localhost:8080/task', {
@@ -81,6 +111,9 @@ class DocumentStore {
         runInAction(() => {
           this.documents = docs
         })
+        setWenkoStore('documents', docs)
+        setWenkoStore('keyword_classification', this.keyword_classification)
+        setWenkoStore('date', new Date().toISOString().split("T")[0])
       })
   }
   deleteRecord = async (id: string) => {
