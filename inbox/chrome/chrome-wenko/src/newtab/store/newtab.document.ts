@@ -8,7 +8,6 @@ import newtabTask, { generateMsgId } from "./newtab.task"
 if (!sessionStorage.getItem("_WENKO_STORE")) {
   sessionStorage.setItem("_WENKO_STORE", JSON.stringify({}))
 }
-// 获取 "_WENKO_STORE" 的数据的方法
 const getWenkoStore = () => {
   const store = JSON.parse(sessionStorage.getItem("_WENKO_STORE") || "{}")
   const date = new Date().toISOString().split("T")[0]
@@ -17,10 +16,13 @@ const getWenkoStore = () => {
   }
   return {}
 }
-// 添加一个 "_WENKO_STORE" 的数据的方法，先检查该指定键值是否存在，如果存在，则覆盖，如果不存在，则添加
-const setWenkoStore = (key: string, value: any) => {
+const setWenkoStore = (key: string | Record<string, any>, value?: any) => {
   const store = getWenkoStore()
-  store[key] = value
+  if (typeof key === 'string') {
+    store[key] = value
+  } else if (typeof key === 'object') {
+    Object.assign(store, key)
+  }
   sessionStorage.setItem("_WENKO_STORE", JSON.stringify(store))
 }
 
@@ -111,9 +113,11 @@ class DocumentStore {
         runInAction(() => {
           this.documents = docs
         })
-        setWenkoStore('documents', docs)
-        setWenkoStore('keyword_classification', this.keyword_classification)
-        setWenkoStore('date', new Date().toISOString().split("T")[0])
+        setWenkoStore({
+          documents: docs,
+          keyword_classification: this.keyword_classification,
+          date: new Date().toISOString().split("T")[0],
+        })
       })
   }
   deleteRecord = async (id: string) => {
