@@ -1,0 +1,3 @@
+[submodule "live2d/live2d-widget"]
+	path = live2d/live2d-widget
+	url = https://github.com/daijinru/live2d-widget.git
