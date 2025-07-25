@@ -1080,6 +1080,34 @@ def answer_handler():
     logger.info(f"Received answer for actionID {action_id}: {answer}")
     return jsonify({"status": "ok"}), 200
 
+# --- Static File Serving ---
+from flask import Response, abort
+
+# /live2d 接口用于读取 live2d 目录下的文件
+@app.route("/live2d/<path:filename>")
+def live2d_send_from_directory(filename):
+    live2d_dir = os.path.join(os.getcwd(), "live2d")
+    file_path = os.path.join(live2d_dir, filename)
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        return jsonify({"error": "File not found"}), 404
+    try:
+        def generate():
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        # Guess mimetype by extension (optional)
+        import mimetypes
+        mimetype, _ = mimetypes.guess_type(file_path)
+        return Response(generate(), mimetype=mimetype or "application/octet-stream")
+    except Exception as e:
+        logger.error(f"Error serving file {filename}: {e}")
+        abort(500)
+    
+
 
 # --- Main Execution ---
 
