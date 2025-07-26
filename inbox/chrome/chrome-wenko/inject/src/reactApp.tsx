@@ -22,65 +22,38 @@ window['WENKO_ROOT'] = {
 const rootId = window['WENKO_ROOT_ID']
 const CONSOLE = window['WENKO_ROOT'].console
 
+/**  */
+function loadScript(src: string) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = src
+    script.onload = resolve
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
 function FloatButton() {
-  const [visible, setVisible] = useState(false)
-  const [text, setText] = useState('')
+  // 根节点，可用于获取数据属性 或者 整体移除
   const root = document.getElementById(rootId)
+  const wifuMount = document.getElementById('wenko_wifu')
+
+  loadScript('http://localhost:8080/live2d/live2d-widget/dist/autoload.js')
+
 
   useEffect(() => {
     setTimeout(() => {
       // 从数据属性取出文本
       const selectedText = root?.getAttribute('data-selected-text') || ''
-      setText(selectedText)
-      setVisible(true)
     }, 1000)
   }, [])
 
-  return (
-    <>
-      <div
-        className={[
-          'fixed bottom-20px right-20px z-9999',
-          'h-32px px-10px py-2px rounded-8px text-16px text-black',
-          'flex items-center',
-          'cursor-pointer',
-        ].join(' ')}
-        style={{
-          boxShadow: 'rgb(85, 91, 255) 0px 0px 0px 3px, rgb(31, 193, 27) 0px 0px 0px 6px, rgb(255, 217, 19) 0px 0px 0px 9px, rgb(255, 156, 85) 0px 0px 0px 12px, rgb(255, 85, 85) 0px 0px 0px 15px',
-        }}
-        onClick={() => {
-          root?.remove()
-        }}
-      >
-        <CloseOutlined /> <span className='ml-4px'>WENKO</span>
-      </div>
-      {visible && (
-        <div
-          style={{
-            position: 'fixed',
-            right: '20px',
-            bottom: '100px',
-            width: '480px',
-            maxHeight: '70%',
-            backgroundColor: 'white',
-            borderRadius: '8px',
-            boxShadow: 'rgba(240, 46, 170, 0.4) 5px 5px, rgba(240, 46, 170, 0.3) 10px 10px, rgba(240, 46, 170, 0.2) 15px 15px, rgba(240, 46, 170, 0.1) 20px 20px, rgba(240, 46, 170, 0.05) 25px 25px',
-            zIndex: 10000,
-            overflow: 'auto',
-            boxSizing: 'border-box',
-            scrollbarWidth: 'none',
-          }}
-        >
-          <Sidepanel
-            text={text}
-            title={document.title}
-            url={window.location.href}
-            body={document.body?.innerText?.slice(0, 200) || ''}
-          />
-        </div>
-      )}
-    </>
-  )
+  return <>
+    <div
+      id="wenko_wifu"
+      className="fixed bottom-66px right-0 z-10000"
+    ></div>
+  </>
 }
 
 const rootEl = document.getElementById(rootId)

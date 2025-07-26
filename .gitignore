@@ -3,4 +3,6 @@ node_modules
 # 日志
 logs
 *.log
+.VSCodeCounter
+.DS_Store
 

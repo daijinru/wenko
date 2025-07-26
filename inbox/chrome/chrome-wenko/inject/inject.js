@@ -58,6 +58,9 @@ function injectReactScript() {
 
 CONSOLE.info('app is now running ^^')
 
+injectRootDiv('')
+injectReactScript()
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   CONSOLE.info('<wenko/inject> listener received ', request)
   if (request.action === "highlightAndOpenPanel") {
@@ -94,3 +97,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ highlightId }) // 返回ID供后台跟踪
   }
 });
+
