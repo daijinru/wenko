@@ -501,6 +501,8 @@ class GraphState(TypedDict):
     task_completion_message: str # Renamed from done_message
     action_id_waiting_for_answer: Optional[str] # For ask_user tool
     sse_id_counter: int # For SSE 'id' field
+    handle_sse_messages: str # For handling SSE messages
+
 class Session:
     def __init__(self):
         self.entries = {"ask": []}
@@ -622,6 +624,7 @@ def initial_setup_node(state: GraphState) -> GraphState:
     state["action_id_waiting_for_answer"] = None
     state["sse_messages"] = [] # Clear SSE messages for new task
     state["sse_id_counter"] = 0 # Reset SSE ID counter
+    state["handle_sse_messages"] = ""
 
     # Add initial user message to chat history
     state["chat_history"].append(HumanMessage(content=state["user_input"]))
@@ -875,10 +878,12 @@ workflow.add_conditional_edges(
     },
 )
 
-# 工作流：关键词分类
-def keyword_classification_node(state: GraphState) -> GraphState:
+def stream_keyword_classification(state: GraphState):
+    """
+    Performs keyword classification streaming from model provider,
+    calls on_payload_callback(payload) for each text chunk received.
+    """
     logger.info("Entered keyword classification flow")
-    # 关键词分类流程
     content = "从动态话题池（可增删，含社会规则、量子伦理、部落图腾、算法霸权、生物权力、虚拟交往、认知殖民、反制度行为、心理防御机制、时间管理策略、家庭财务规划、办公协作软件）中随机抽取 2-3 个，生成 150-200 字文本，需合理建立话题关联，体现独特视角，禁止重复表述逻辑，直接输出内容。"
     model_messages = [
         {"role": "user", "content": content},
@@ -898,6 +903,7 @@ def keyword_classification_node(state: GraphState) -> GraphState:
             resp.raise_for_status()
             accumulated_content = ""
             text_message_id = GenerateUUID()
+            sse_id_counter = state.get("sse_id_counter", 0)
             for line in resp.iter_lines():
                 if line:
                     decoded_line = line.decode('utf-8')
@@ -918,19 +924,39 @@ def keyword_classification_node(state: GraphState) -> GraphState:
                                         "payload": {
                                             "content": content_piece,
                                             "meta": {"id": text_message_id},
+                                            "type": "text",
                                         },
                                         "actionID": "",
                                     }
-                                    state = _add_sse_message(state, "text", payload)
+                                    sse_msg = {
+                                        "id": sse_id_counter,
+                                        "event": "text",
+                                        "data": json.dumps(payload)
+                                    }
+                                    sse_id_counter += 1
+                                    yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
                         except Exception as e:
                             logger.error(f"Stream JSON decode error: {e}, line: {decoded_line}")
                             continue
             state["model_response_content"] = accumulated_content
+            state["sse_id_counter"] = sse_id_counter
             logger.info(f"Keyword classification result: {state['model_response_content']}")
     except Exception as e:
         logger.error(f"Keyword classification stream error: {e}")
         state["model_response_content"] = f"模型调用失败: {e}"
-        state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["model_response_content"], "actionID": ""})
+        payload = {"type": "statusText", "payload": state["model_response_content"], "actionID": ""}
+        sse_msg = {
+            "id": state.get("sse_id_counter", 0),
+            "event": "text",
+            "data": json.dumps(payload)
+        }
+        yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
+
+# 工作流：关键词分类
+def keyword_classification_node(state: GraphState) -> GraphState:
+    logger.info("Entered keyword classification flow")
+    # 关键词分类流程
+    state["handle_sse_messages"] = "stream_keyword_classification"
     return state
 workflow.add_node("keyword_classification", keyword_classification_node)
 
@@ -1043,6 +1069,11 @@ def new_task():
 
             # 持久化当前状态，方便下一次恢复
             global_session.save_state(session_id, current_state)
+
+            if current_state.get("handle_sse_messages") == "stream_keyword_classification":
+                for sse_event in stream_keyword_classification(current_state):
+                    yield sse_event
+                current_state["handle_sse_messages"] = None
 
             for msg in current_state["sse_messages"]:
                 yield f"id: {msg['id']}\nevent: {msg['event']}\ndata: {msg['data']}\n\n"
