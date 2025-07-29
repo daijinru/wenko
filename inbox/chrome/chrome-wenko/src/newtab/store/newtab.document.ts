@@ -65,7 +65,7 @@ class DocumentStore {
           const payload = parsed.payload
           if (payload.type !== 'text') return
           runInAction(() => {
-            this.keyword_classification = this.keyword_classification + payload.payload.content
+            this.keyword_classification = this.keyword_classification + payload.content
           })
         } catch (error) {
           console.error(error)
