@@ -64,37 +64,9 @@ injectReactScript()
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   CONSOLE.info('<wenko/inject> listener received ', request)
   if (request.action === "highlightAndOpenPanel") {
-    // 高亮选中文本并生成唯一ID 
-    const selection = window.getSelection()
-    const range = selection?.getRangeAt(0)
-    const highlightId = `highlight-${Date.now()}`
-    // 该变量已在 background 声明
-    if (!range) {
-      CONSOLE.error("没有选中文本 ", range)
-      return
-    }
-    const span = document.createElement("span")
-    span.id = highlightId
-    span.style.backgroundColor = "rgba(255, 255, 0, 0.5)"
-    
-    try {
-      range.surroundContents(span)
-    } catch (e) {
-      CONSOLE.error("<surroundContents> 失败，尝试替代方案", e)
-
-      span.textContent = selection.toString()
-
-      // 用 span 替换选区中的内容
-      range.deleteContents()
-      range.insertNode(span)
-    }
-
-    if (request.selectedText) {
-      injectRootDiv(request.selectedText)
-      injectReactScript()
-    }
-
-    sendResponse({ highlightId }) // 返回ID供后台跟踪
+    // 将 selectedText 通过原生自定义事件发送
+    const event = new CustomEvent('wenko-highlight', { detail: request.selectedText })
+    window.dispatchEvent(event)
   }
 });
 
