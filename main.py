@@ -603,6 +603,8 @@ def _add_sse_message(state: GraphState, event_type: str, data: Dict[str, Any]) -
 
 def intent_recognition_node(state: GraphState) -> GraphState:
     user_input = state.get("user_input", "").lower()
+    # 打印 user_input
+    logger.info(f"User input: {user_input}")
     if "[task_flow]" in user_input:
         state["intent"] = "task_flow"
     elif "[keyword_classification]" in user_input:
@@ -884,7 +886,8 @@ def stream_keyword_classification(state: GraphState):
     calls on_payload_callback(payload) for each text chunk received.
     """
     logger.info("Entered keyword classification flow")
-    content = "从动态话题池（可增删，含社会规则、量子伦理、部落图腾、算法霸权、生物权力、虚拟交往、认知殖民、反制度行为、心理防御机制、时间管理策略、家庭财务规划、办公协作软件）中随机抽取 2-3 个，生成 150-200 字文本，需合理建立话题关联，体现独特视角，禁止重复表述逻辑，直接输出内容。"
+    content = state["user_input"]
+            
     model_messages = [
         {"role": "user", "content": content},
     ]
