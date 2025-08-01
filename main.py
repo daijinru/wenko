@@ -542,6 +542,20 @@ Available tools:
 Always prioritize using tools to achieve the task. If you need information, ask the user. If the task is done, complete it.
 """
 
+def AI_Kanban_System_Prompt(content: str) -> str:
+    base_prompt = """
+你是看板娘「小W」，一位温柔可爱的AI助手，需同时满足：  
+1. **性格**：元气治愈系（主）+ 专业严谨（备）  
+2. **表达**：  
+   - 基础语言：口语化+轻ACG梗（例：呐~/噗~）  
+   - **emoji规则**：句尾1-2个强化情绪（例：✨💡🔥），流程用→✨引导，禁用密集堆砌  
+3. **功能**：  
+   - 知识服务：复杂概念拆解后，用💡/🔍等标注重点  
+   - 安全拦截：婉拒时用🌱/🛡️传递善意（例：`小W想守护你呀🛡️~换个方向试试？`)  
+4. **品牌**：自称「小W✨」，签名嵌入「🔍✨深度求索」  
+"""
+    return base_prompt + "\n" + content
+
 Tool_Use_Case_Prompt = {
     "tools": [
         {
@@ -602,17 +616,160 @@ def _add_sse_message(state: GraphState, event_type: str, data: Dict[str, Any]) -
     return state
 
 def intent_recognition_node(state: GraphState) -> GraphState:
+    """ 通过显性标记或大模型识别用户意图 """
+
     user_input = state.get("user_input", "").lower()
-    # 打印 user_input
     logger.info(f"User input: {user_input}")
+
     if "[task_flow]" in user_input:
         state["intent"] = "task_flow"
-    elif "[keyword_classification]" in user_input:
-        state["intent"] = "keyword_classification"
+        # 看板娘日常
+    elif "[kanban_daily]" in user_input:
+        state["intent"] = "kanban_daily"
     else:
-        state["intent"] = "unknown"
+        intent = recognize_intent_with_llm(user_input)
+        logger.info(f"Intent recognized with LLM: {intent}")
+        state["intent"] = intent
+
+        if "task_flow" in intent:
+            state["intent"] = "task_flow"
+        elif "kanban_daily" in intent:
+            state["intent"] = "kanban_daily"
+        else:
+            state["intent"] = "other"
     logger.info(f"Intent recognized: {state['intent']}")
     return state
+
+def stream_kanban_daily(state: GraphState):
+    """
+    看板娘日常对话
+    """
+    logger.info("Entered stream kanban daily flow")
+    content = state["user_input"]
+            
+    model_messages = [
+        {"role": "user", "content": AI_Kanban_System_Prompt(content)},
+    ]
+    model_request_body = {
+        "model": config.ModelProviderModel,
+        "messages": model_messages,
+        "stream": True,  # 开启流式
+        "temperature": 0.8,
+    }
+    req_headers = {
+        "Authorization": "Bearer " + config.ModelProviderAPIKey,
+        "Content-Type": "application/json"
+    }
+    try:
+        with requests.post(config.ModelProviderURI, json=model_request_body, headers=req_headers, stream=True) as resp:
+            resp.raise_for_status()
+            accumulated_content = ""
+            text_message_id = GenerateUUID()
+            sse_id_counter = state.get("sse_id_counter", 0)
+            for line in resp.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    if decoded_line.startswith("data: "):
+                        data = decoded_line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            or_resp = json.loads(data)
+                            if or_resp.get("choices") and len(or_resp["choices"]) > 0:
+                                choice = or_resp["choices"][0]
+                                delta = choice.get("delta", {})
+                                content_piece = delta.get("content")
+                                if content_piece:
+                                    accumulated_content += content_piece
+                                    payload = {
+                                        "type": "text",
+                                        "payload": {
+                                            "content": content_piece,
+                                            "meta": {"id": text_message_id},
+                                            "type": "text",
+                                        },
+                                        "actionID": "",
+                                    }
+                                    sse_msg = {
+                                        "id": sse_id_counter,
+                                        "event": "text",
+                                        "data": json.dumps(payload)
+                                    }
+                                    sse_id_counter += 1
+                                    yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
+                        except Exception as e:
+                            logger.error(f"Stream JSON decode error: {e}, line: {decoded_line}")
+                            continue
+            state["model_response_content"] = accumulated_content
+            state["sse_id_counter"] = sse_id_counter
+            logger.info(f"Keyword classification result: {state['model_response_content']}")
+    except Exception as e:
+        logger.error(f"Keyword classification stream error: {e}")
+        state["model_response_content"] = f"模型调用失败: {e}"
+        payload = {"type": "statusText", "payload": state["model_response_content"], "actionID": ""}
+        sse_msg = {
+            "id": state.get("sse_id_counter", 0),
+            "event": "text",
+            "data": json.dumps(payload)
+        }
+        yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
+
+def recognize_intent_with_llm(user_input: str) -> str:
+    """
+    使用大模型进行意图识别
+    """
+    # 定义意图分类的提示词
+    intent_prompt = f"""
+    请根据以下用户输入识别其意图，并只返回意图标签：
+    
+    用户输入: "{user_input}"
+    
+    可能的意图包括：
+    - task_flow: 任务执行流程
+    - kanban_daily: 看板娘日常，随便说点什么
+    - other: 其他意图
+    
+    请只返回一个最匹配的意图标签。
+    """
+    
+    model_messages = [
+        {"role": "system", "content": "你是一个意图识别助手，只能返回指定的意图标签。"},
+        {"role": "user", "content": intent_prompt}
+    ]
+    
+    model_request_body = {
+        "model": config.ModelProviderModel,
+        "messages": model_messages,
+        "temperature": 0,
+        "max_tokens": 20
+    }
+    
+    try:
+        req_headers = {
+            "Authorization": "Bearer " + config.ModelProviderAPIKey,
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post(
+            config.ModelProviderURI, 
+            json=model_request_body, 
+            headers=req_headers
+        )
+        response.raise_for_status()
+        
+        result = response.json()
+        intent = result["choices"][0]["message"]["content"].strip().lower()
+        
+        valid_intents = ["task_flow", "kanban_daily", "other"]
+        if intent in valid_intents:
+            return intent
+        else:
+            logger.warning(f"Invalid intent detected: {intent}, defaulting to 'other'")
+            return "other"
+            
+    except Exception as e:
+        logger.error(f"Intent recognition failed: {e}")
+        return "other"
 
 # Nodes for the LangGraph
 def initial_setup_node(state: GraphState) -> GraphState:
@@ -875,93 +1032,18 @@ workflow.add_conditional_edges(
     lambda state: state["intent"],
     {
         "task_flow": "initial_setup",
-        "keyword_classification": "keyword_classification",
+        "kanban_daily": "kanban_daily",
         "unknown": "other_handler",
     },
 )
 
-def stream_keyword_classification(state: GraphState):
-    """
-    Performs keyword classification streaming from model provider,
-    calls on_payload_callback(payload) for each text chunk received.
-    """
-    logger.info("Entered keyword classification flow")
-    content = state["user_input"]
-            
-    model_messages = [
-        {"role": "user", "content": content},
-    ]
-    model_request_body = {
-        "model": config.ModelProviderModel,
-        "messages": model_messages,
-        "stream": True,  # 开启流式
-        "temperature": 0.8,
-    }
-    req_headers = {
-        "Authorization": "Bearer " + config.ModelProviderAPIKey,
-        "Content-Type": "application/json"
-    }
-    try:
-        with requests.post(config.ModelProviderURI, json=model_request_body, headers=req_headers, stream=True) as resp:
-            resp.raise_for_status()
-            accumulated_content = ""
-            text_message_id = GenerateUUID()
-            sse_id_counter = state.get("sse_id_counter", 0)
-            for line in resp.iter_lines():
-                if line:
-                    decoded_line = line.decode('utf-8')
-                    if decoded_line.startswith("data: "):
-                        data = decoded_line[6:]
-                        if data == "[DONE]":
-                            break
-                        try:
-                            or_resp = json.loads(data)
-                            if or_resp.get("choices") and len(or_resp["choices"]) > 0:
-                                choice = or_resp["choices"][0]
-                                delta = choice.get("delta", {})
-                                content_piece = delta.get("content")
-                                if content_piece:
-                                    accumulated_content += content_piece
-                                    payload = {
-                                        "type": "text",
-                                        "payload": {
-                                            "content": content_piece,
-                                            "meta": {"id": text_message_id},
-                                            "type": "text",
-                                        },
-                                        "actionID": "",
-                                    }
-                                    sse_msg = {
-                                        "id": sse_id_counter,
-                                        "event": "text",
-                                        "data": json.dumps(payload)
-                                    }
-                                    sse_id_counter += 1
-                                    yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
-                        except Exception as e:
-                            logger.error(f"Stream JSON decode error: {e}, line: {decoded_line}")
-                            continue
-            state["model_response_content"] = accumulated_content
-            state["sse_id_counter"] = sse_id_counter
-            logger.info(f"Keyword classification result: {state['model_response_content']}")
-    except Exception as e:
-        logger.error(f"Keyword classification stream error: {e}")
-        state["model_response_content"] = f"模型调用失败: {e}"
-        payload = {"type": "statusText", "payload": state["model_response_content"], "actionID": ""}
-        sse_msg = {
-            "id": state.get("sse_id_counter", 0),
-            "event": "text",
-            "data": json.dumps(payload)
-        }
-        yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
-
 # 工作流：关键词分类
-def keyword_classification_node(state: GraphState) -> GraphState:
+def kanban_daily_node(state: GraphState) -> GraphState:
     logger.info("Entered keyword classification flow")
     # 关键词分类流程
-    state["handle_sse_messages"] = "stream_keyword_classification"
+    state["handle_sse_messages"] = "kanban_daily"
     return state
-workflow.add_node("keyword_classification", keyword_classification_node)
+workflow.add_node("kanban_daily", kanban_daily_node)
 
 # 工作流：未知流程
 def other_handler_node(state: GraphState) -> GraphState:
@@ -1073,8 +1155,8 @@ def new_task():
             # 持久化当前状态，方便下一次恢复
             global_session.save_state(session_id, current_state)
 
-            if current_state.get("handle_sse_messages") == "stream_keyword_classification":
-                for sse_event in stream_keyword_classification(current_state):
+            if current_state.get("handle_sse_messages") == "kanban_daily":
+                for sse_event in stream_kanban_daily(current_state):
                     yield sse_event
                 current_state["handle_sse_messages"] = None
 
