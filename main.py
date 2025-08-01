@@ -635,10 +635,90 @@ def intent_recognition_node(state: GraphState) -> GraphState:
             state["intent"] = "task_flow"
         elif "kanban_daily" in intent:
             state["intent"] = "kanban_daily"
+        elif "code_explain" in intent:
+            state["intent"] = "code_explain"
         else:
             state["intent"] = "other"
     logger.info(f"Intent recognized: {state['intent']}")
     return state
+
+# TODO 增加工具类型
+def process_stream_response(resp, logger, state):
+    accumulated_content = ""
+    text_message_id = GenerateUUID()
+    sse_id_counter = state.get("sse_id_counter", 0)
+    for line in resp.iter_lines():
+        if line:
+            decoded_line = line.decode('utf-8')
+            if decoded_line.startswith("data: "):
+                data = decoded_line[6:]
+                if data == "[DONE]":
+                    break
+                try:
+                    or_resp = json.loads(data)
+                    if or_resp.get("choices") and len(or_resp["choices"]) > 0:
+                        choice = or_resp["choices"][0]
+                        delta = choice.get("delta", {})
+                        content_piece = delta.get("content")
+                        if content_piece:
+                            accumulated_content += content_piece
+                            payload = {
+                                "type": "text",
+                                "payload": {
+                                    "content": content_piece,
+                                    "meta": {"id": text_message_id},
+                                    "type": "text",
+                                },
+                                "actionID": "",
+                            }
+                            sse_msg = {
+                                "id": sse_id_counter,
+                                "event": "text",
+                                "data": json.dumps(payload)
+                            }
+                            sse_id_counter += 1
+                            yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
+                except Exception as e:
+                    logger.error(f"Stream JSON decode error: {e}, line: {decoded_line}")
+                    continue
+    state["model_response_content"] = accumulated_content
+    state["sse_id_counter"] = sse_id_counter
+
+# 用于分析代码，给出代码解释的函数
+def stream_code_explanation(state: GraphState):
+    """
+    代码解释流式处理
+    """
+    logger.info("Entered stream code explanation flow")
+    content = state["user_input"]
+    model_messages = [
+        {"role": "user", "content": AI_Kanban_System_Prompt(content)},
+    ]
+    model_request_body = {
+        "model": config.ModelProviderModel,
+        "messages": model_messages,
+        "stream": True,  # 开启流式
+        "temperature": 0.8,
+    }
+    req_headers = {
+        "Authorization": "Bearer " + config.ModelProviderAPIKey,
+        "Content-Type": "application/json"
+    }
+    try:
+        with requests.post(config.ModelProviderURI, json=model_request_body, headers=req_headers, stream=True) as resp:
+            resp.raise_for_status()
+            yield from process_stream_response(resp, logger, state)
+            logger.info(f"stream code explanation result: {state['model_response_content']}")
+    except Exception as e:
+        logger.error(f"code explanation stream error: {e}")
+        state["model_response_content"] = f"模型调用失败: {e}"
+        payload = {"type": "statusText", "payload": state["model_response_content"], "actionID": ""}
+        sse_msg = {
+            "id": state.get("sse_id_counter", 0),
+            "event": "text",
+            "data": json.dumps(payload)
+        }
+        yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
 
 def stream_kanban_daily(state: GraphState):
     """
@@ -663,48 +743,10 @@ def stream_kanban_daily(state: GraphState):
     try:
         with requests.post(config.ModelProviderURI, json=model_request_body, headers=req_headers, stream=True) as resp:
             resp.raise_for_status()
-            accumulated_content = ""
-            text_message_id = GenerateUUID()
-            sse_id_counter = state.get("sse_id_counter", 0)
-            for line in resp.iter_lines():
-                if line:
-                    decoded_line = line.decode('utf-8')
-                    if decoded_line.startswith("data: "):
-                        data = decoded_line[6:]
-                        if data == "[DONE]":
-                            break
-                        try:
-                            or_resp = json.loads(data)
-                            if or_resp.get("choices") and len(or_resp["choices"]) > 0:
-                                choice = or_resp["choices"][0]
-                                delta = choice.get("delta", {})
-                                content_piece = delta.get("content")
-                                if content_piece:
-                                    accumulated_content += content_piece
-                                    payload = {
-                                        "type": "text",
-                                        "payload": {
-                                            "content": content_piece,
-                                            "meta": {"id": text_message_id},
-                                            "type": "text",
-                                        },
-                                        "actionID": "",
-                                    }
-                                    sse_msg = {
-                                        "id": sse_id_counter,
-                                        "event": "text",
-                                        "data": json.dumps(payload)
-                                    }
-                                    sse_id_counter += 1
-                                    yield f"id: {sse_msg['id']}\nevent: {sse_msg['event']}\ndata: {sse_msg['data']}\n\n"
-                        except Exception as e:
-                            logger.error(f"Stream JSON decode error: {e}, line: {decoded_line}")
-                            continue
-            state["model_response_content"] = accumulated_content
-            state["sse_id_counter"] = sse_id_counter
-            logger.info(f"Keyword classification result: {state['model_response_content']}")
+            yield from process_stream_response(resp, logger, state)
+            logger.info(f"stream kanban daily result: {state['model_response_content']}")
     except Exception as e:
-        logger.error(f"Keyword classification stream error: {e}")
+        logger.error(f"kanban daily stream error: {e}")
         state["model_response_content"] = f"模型调用失败: {e}"
         payload = {"type": "statusText", "payload": state["model_response_content"], "actionID": ""}
         sse_msg = {
@@ -727,6 +769,7 @@ def recognize_intent_with_llm(user_input: str) -> str:
     可能的意图包括：
     - task_flow: 任务执行流程
     - kanban_daily: 看板娘日常，随便说点什么
+    - code_explain: 如果这是代码，请解释代码
     - other: 其他意图
     
     请只返回一个最匹配的意图标签。
@@ -760,7 +803,7 @@ def recognize_intent_with_llm(user_input: str) -> str:
         result = response.json()
         intent = result["choices"][0]["message"]["content"].strip().lower()
         
-        valid_intents = ["task_flow", "kanban_daily", "other"]
+        valid_intents = ["task_flow", "code_explain", "kanban_daily", "other"]
         if intent in valid_intents:
             return intent
         else:
@@ -1032,6 +1075,7 @@ workflow.add_conditional_edges(
     lambda state: state["intent"],
     {
         "task_flow": "initial_setup",
+        "code_explain": "code_explain",
         "kanban_daily": "kanban_daily",
         "unknown": "other_handler",
     },
@@ -1039,11 +1083,19 @@ workflow.add_conditional_edges(
 
 # 工作流：关键词分类
 def kanban_daily_node(state: GraphState) -> GraphState:
-    logger.info("Entered keyword classification flow")
+    logger.info("Entered kanban daily flow")
     # 关键词分类流程
     state["handle_sse_messages"] = "kanban_daily"
     return state
 workflow.add_node("kanban_daily", kanban_daily_node)
+
+# 工作流：代码解释
+def code_explain_node(state: GraphState) -> GraphState:
+    logger.info("Entered code explain flow")
+    # 代码解释流程
+    state["handle_sse_messages"] = "code_explain"
+    return state
+workflow.add_node("code_explain", code_explain_node)
 
 # 工作流：未知流程
 def other_handler_node(state: GraphState) -> GraphState:
@@ -1157,6 +1209,11 @@ def new_task():
 
             if current_state.get("handle_sse_messages") == "kanban_daily":
                 for sse_event in stream_kanban_daily(current_state):
+                    yield sse_event
+                current_state["handle_sse_messages"] = None
+
+            if current_state.get("handle_sse_messages") == "code_explain":
+                for sse_event in stream_code_explanation(current_state):
                     yield sse_event
                 current_state["handle_sse_messages"] = None
 
