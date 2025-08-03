@@ -1,17 +1,34 @@
 console.log('background is running')
 
-chrome.contextMenus.create({
-  id: "highlightAndOpenPanel",
-  title: "^^ Now Open Wenko",  // 菜单显示名称 
-  contexts: ["selection"]  // 仅在用户选中文本时显示 
-});
+chrome.contextMenus.removeAll(() => {
+  chrome.contextMenus.create({
+    id: "wenko_highlight",
+    title: "🍉 Wenko Highlight",  // 菜单显示名称 
+    contexts: ["selection"]  // 仅在用户选中文本时显示 
+  });
+
+  chrome.contextMenus.create({
+    id: "wenko_saveText",
+    title: "🍌 Wenko Save Text",  // 菜单显示名称
+    contexts: ["selection"]  // 仅在用户选中文本时显示
+  });
+})
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "highlightAndOpenPanel") {
+  if (info.menuItemId === "wenko_highlight") {
     if (tab && typeof tab.id === "number") {
       // 发送消息到内容脚本
       chrome.tabs.sendMessage(
-        tab.id, { action: "highlightAndOpenPanel", selectedText: info.selectionText }
+        tab.id, { action: "wenko_highlight", selectedText: info.selectionText }
+      )
+    }
+  }
+  
+  if (info.menuItemId === "wenko_saveText") {
+    if (tab && typeof tab.id === "number") {
+      // 发送消息到内容脚本
+      chrome.tabs.sendMessage(
+        tab.id, { action: "wenko_saveText", selectedText: info.selectionText }
       )
     }
   }

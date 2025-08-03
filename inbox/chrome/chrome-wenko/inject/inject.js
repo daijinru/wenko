@@ -63,10 +63,18 @@ injectReactScript()
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   CONSOLE.info('<wenko/inject> listener received ', request)
-  if (request.action === "highlightAndOpenPanel") {
+  if (request.action === "wenko_highlight") {
     // 将 selectedText 通过原生自定义事件发送
-    const event = new CustomEvent('wenko-highlight', { detail: request.selectedText })
+    const event = new CustomEvent('wenko_highlight', { detail: request.selectedText })
+    window.dispatchEvent(event)
+  }
+
+  if (request.action === "wenko_saveText") {
+    // 将 selectedText 通过原生自定义事件发送
+    const event = new CustomEvent('wenko_saveText', { detail: request.selectedText })
     window.dispatchEvent(event)
   }
 });
+
+
 
