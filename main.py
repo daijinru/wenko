@@ -638,7 +638,7 @@ def intent_recognition_node(state: GraphState) -> GraphState:
         elif "code_explain" in intent:
             state["intent"] = "code_explain"
         else:
-            state["intent"] = "other"
+            state["intent"] = "unknown"
     logger.info(f"Intent recognized: {state['intent']}")
     return state
 
@@ -692,7 +692,7 @@ def stream_code_explanation(state: GraphState):
     logger.info("Entered stream code explanation flow")
     content = state["user_input"]
     model_messages = [
-        {"role": "user", "content": AI_Kanban_System_Prompt(content)},
+        {"role": "user", "content": "请解释以下代码: " + content},
     ]
     model_request_body = {
         "model": config.ModelProviderModel,
@@ -767,10 +767,8 @@ def recognize_intent_with_llm(user_input: str) -> str:
     用户输入: "{user_input}"
     
     可能的意图包括：
-    - task_flow: 任务执行流程
-    - kanban_daily: 看板娘日常，随便说点什么
     - code_explain: 如果这是代码，请解释代码
-    - other: 其他意图
+    - kanban_daily: code_explain 以外的意图
     
     请只返回一个最匹配的意图标签。
     """
@@ -802,17 +800,17 @@ def recognize_intent_with_llm(user_input: str) -> str:
         
         result = response.json()
         intent = result["choices"][0]["message"]["content"].strip().lower()
-        
-        valid_intents = ["task_flow", "code_explain", "kanban_daily", "other"]
+        # 预置意图列表
+        valid_intents = ["task_flow", "code_explain", "kanban_daily"]
         if intent in valid_intents:
             return intent
         else:
-            logger.warning(f"Invalid intent detected: {intent}, defaulting to 'other'")
-            return "other"
+            logger.warning(f"Invalid intent detected: {intent}, defaulting to 'unknown'")
+            return "unknown"
             
     except Exception as e:
         logger.error(f"Intent recognition failed: {e}")
-        return "other"
+        return "unknown"
 
 # Nodes for the LangGraph
 def initial_setup_node(state: GraphState) -> GraphState:
@@ -1077,7 +1075,7 @@ workflow.add_conditional_edges(
         "task_flow": "initial_setup",
         "code_explain": "code_explain",
         "kanban_daily": "kanban_daily",
-        "unknown": "other_handler",
+        "unknown": "unknown_handler",
     },
 )
 
@@ -1098,14 +1096,14 @@ def code_explain_node(state: GraphState) -> GraphState:
 workflow.add_node("code_explain", code_explain_node)
 
 # 工作流：未知流程
-def other_handler_node(state: GraphState) -> GraphState:
+def unknown_handler_node(state: GraphState) -> GraphState:
     # 未知流程直接结束
     logger.info("Entered other flow")
     state["break_task"] = True
     state["task_completion_message"] = "Unready to handle this intent"
     state = _add_sse_message(state, "text", {"type": "statusText", "payload": state["task_completion_message"], "actionID": ""})
     return state
-workflow.add_node("other_handler", other_handler_node)
+workflow.add_node("unknown_handler", unknown_handler_node)
 
 # 工作流：工具调用
 workflow.add_edge("initial_setup", "check_interrupt")
