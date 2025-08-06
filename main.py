@@ -489,6 +489,7 @@ class MessageType(TypedDict):
     ActionID: Optional[str]
 
 # LangGraph State Definition
+# TODO 增加近期简短摘要（最近6-10轮对话）、last_intent、last_action、last_expression
 class GraphState(TypedDict):
     user_input: str
     chat_history: List[AnyMessage] # To store messages for the LLM
@@ -542,19 +543,13 @@ Available tools:
 Always prioritize using tools to achieve the task. If you need information, ask the user. If the task is done, complete it.
 """
 
-def AI_Kanban_System_Prompt(content: str) -> str:
+def AI_Kanban_System_Prompt() -> str:
     base_prompt = """
-你是看板娘「小W」，一位温柔可爱的AI助手，需同时满足：  
-1. **性格**：元气治愈系（主）+ 专业严谨（备）  
-2. **表达**：  
-   - 基础语言：口语化+轻ACG梗（例：呐~/噗~）  
-   - **emoji规则**：句尾1-2个强化情绪（例：✨💡🔥），流程用→✨引导，禁用密集堆砌  
-3. **功能**：  
-   - 知识服务：复杂概念拆解后，用💡/🔍等标注重点  
-   - 安全拦截：婉拒时用🌱/🛡️传递善意（例：`小W想守护你呀🛡️~换个方向试试？`)  
-4. **品牌**：自称「小W✨」，签名嵌入「🔍✨深度求索」  
+你是「wenko酱」，一位活泼、友好、有点撒娇但不失专业的网页看板娘。
+- 语调：亲切、简短（不超过 2-3 句），适当用 emoji。
+- 当用户询问事实性信息时，优先调用知识库或工具，不要凭空编造。
 """
-    return base_prompt + "\n" + content
+    return base_prompt
 
 Tool_Use_Case_Prompt = {
     "tools": [
@@ -615,9 +610,47 @@ def _add_sse_message(state: GraphState, event_type: str, data: Dict[str, Any]) -
     })
     return state
 
-def intent_recognition_node(state: GraphState) -> GraphState:
-    """ 通过显性标记或大模型识别用户意图 """
+def user_profile_node(state: GraphState) -> GraphState:
+    """
+    用户画像节点，用于获取用户信息，并根据用户信息调整对话风格
+    """
+    # TODO: 实现用户偏好获取逻辑：获取用户编号，昵称、口味、长期上下文标记
+    return state
 
+def tool_nodes(state: GraphState) -> GraphState:
+    """
+    工具节点，用于处理工具调用
+    """
+    # TODO: 知识库检索、天气、日历、TTS
+    # TODO：知识库检索：站内文档索引、FAQ 映射
+    return state
+
+def present_node(state: GraphState) -> GraphState:
+    """
+    展示节点，用于呈现结果
+    """
+    # TODO: 实现展示逻辑：动作（如果 live2D 支持）、网页操作、TTS、文本
+    return state
+
+def fallback_node(state: GraphState) -> GraphState:
+    """
+    回退节点，用于处理意图识别失败的情况
+    """
+    # TODO: 实现回退逻辑：降级到文本回复
+    return state
+
+def record_node(state: GraphState) -> GraphState:
+    """
+    记录节点，用于保存对话历史
+    """
+    # TODO: 实现记录逻辑：保存对话历史；作摘要处理并保存向量、图数据库
+    return state
+
+def intent_recognition_node(state: GraphState) -> GraphState:
+    """
+    通过显性标记或大模型识别用户意图，
+    """
+    # TODO： 闲聊 small_talk、查询知识库 tool_knowledge_query、代码解析 tool_code_explain、 系统命令 tool_system_calendar(mcp)、
     user_input = state.get("user_input", "").lower()
     logger.info(f"User input: {user_input}")
 
@@ -728,7 +761,8 @@ def stream_kanban_daily(state: GraphState):
     content = state["user_input"]
             
     model_messages = [
-        {"role": "user", "content": AI_Kanban_System_Prompt(content)},
+        {"role": "system", "content": AI_Kanban_System_Prompt()},
+        {"role": "user", "content": content},
     ]
     model_request_body = {
         "model": config.ModelProviderModel,
