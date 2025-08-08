@@ -5,7 +5,7 @@ import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import Dict, Any
 import io
 
 from .logger import logger, setup_logger
@@ -32,149 +32,6 @@ def init_app():
 
     # Initialize ChromaDB client and ensure tenant, database, and collection exist
     initialize_chromadb()
-
-    # Placeholder for outbox initialization (Go's outbox.InitModelProvider, outbox.Init)
-    # In Python, this would involve setting up a client for the model provider.
-    # For now, we'll assume `generate_weighted_embedding` handles this by calling the configured model provider.
-    logger.info("Outbox initialization placeholder.")
-
-    # 初始化 outbox 相关的内容
-
-# --- Embedding Generation ---
-
-
-
-# --- HTTP Handlers (Flask) ---
-
-app = Flask(__name__)
-CORS(app) # Enable CORS for all routes, equivalent to Go's enableCORS middleware
-
-@app.route("/generate", methods=["POST"])
-def generate_handler():
-    """Handles requests to generate embeddings and store documents."""
-    try:
-        request_data = request.json
-        if not request_data or "texts" not in request_data:
-            return jsonify({"error": "Invalid request body: 'texts' field is required."}), 400
-
-        weighted_texts_raw = request_data["texts"]
-        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
-
-        logger.info(f"Storing: {weighted_texts[0].Text if weighted_texts else 'No text provided'}")
-        doc_id = generate_and_store(weighted_texts)
-        return jsonify({"id": doc_id}), 200
-    except Exception as e:
-        logger.exception("Error in /generate")
-        logger.error(f"Error in /generate: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/search", methods=["POST"])
-def search_handler():
-    """Handles requests to perform vector similarity search."""
-    try:
-        request_data = request.json
-        if not request_data or "texts" not in request_data or not request_data["texts"]:
-            return jsonify({"error": "Invalid request body: 'texts' field should not be empty."}), 400
-        print(f"request_data: {request_data}")
-        weighted_texts_raw = request_data["texts"]
-        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
-
-        logger.info(f"Generating text vector for search: {weighted_texts[0].Text if weighted_texts else 'No text provided'}")
-        query_vector = generate_weighted_embedding(weighted_texts)
-        logger.info("Text vector generated successfully for search.")
-
-        results = vector_search(query_vector)
-
-        return_results = []
-        for result in results:
-            content = result["metadata"].get("content")
-            return_results.append({
-                "id": result["id"],
-                "content": content
-            })
-        return jsonify(return_results), 200
-    except Exception as e:
-        logger.exception("Error in /search")
-        logger.error(f"Error in /search: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/chat", methods=["POST"])
-def chat_handler():
-    """Placeholder for chat functionality."""
-    # The original Go code had mux.HandleFunc("/chat", Chat) but the Chat function was not provided.
-    logger.info("Chat endpoint hit (placeholder).")
-    return jsonify({"message": "Chat functionality not implemented yet."}), 200
-
-@app.route("/compare", methods=["POST"])
-def compare_handler():
-    """Handles requests to compare a new text's embedding with an existing document's embedding."""
-    try:
-        request_data = request.json
-        if not request_data or "texts" not in request_data or "id" not in request_data:
-            return jsonify({"error": "Invalid request body: 'texts' and 'id' fields are required."}), 400
-
-        weighted_texts_raw = request_data["texts"]
-        doc_id = request_data["id"]
-        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
-
-        result = vector_compare(weighted_texts, doc_id)
-        logger.info(f"Comparison result: {result}")
-        return jsonify({"result": result}), 200
-    except Exception as e:
-        logger.exception("Error in /compare")
-        logger.error(f"Error in /compare: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/documents", methods=["POST"])
-def documents_handler():
-    """Handles requests to list documents with pagination."""
-    try:
-        request_data = request.json
-        limit = request_data.get("limit", 10) # Default limit
-        offset = request_data.get("offset", 0) # Default offset
-
-        documents = list_documents(limit, offset)
-
-        all_results = []
-        if documents and documents.get('ids'):
-            for i in range(len(documents['ids'])):
-                result_item = {
-                    "id": documents['ids'][i],
-                    "metadata": documents['metadatas'][i],
-                }
-                all_results.append(result_item)
-        return jsonify(all_results), 200
-    except Exception as e:
-        logger.error(f"Error in /documents: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/delete", methods=["GET"]) # Go code uses GET with query param
-def delete_handler():
-    """Handles requests to delete a document by ID."""
-    try:
-        doc_id = request.args.get("id") # Get ID from query parameter
-        if not doc_id:
-            return jsonify({"error": "ID query parameter is missing."}), 400
-
-        logger.info(f"Deleting record: {doc_id}")
-        deleted_id = delete_record(doc_id)
-        return jsonify({"id": deleted_id}), 200
-    except Exception as e:
-        logger.error(f"Error in /delete: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/export", methods=["POST"])
-def export_handler():
-    """Handles requests to export all document data."""
-    try:
-        logger.info("Received request to export all data.")
-        export_all_data()
-        # The Go code returns a message with YYYYMMDD, but the actual filename includes HHMMSS.
-        # Let's return a more generic message or the actual filename.
-        return jsonify({"message": "Data export initiated. Check ./exports directory."}), 200
-    except Exception as e:
-        logger.error(f"Error in /export: {e}")
-        return jsonify({"error": str(e)}), 500
 
 # --- LangGraph Integration ---
 from .session import Session
@@ -739,6 +596,13 @@ def check_interrupt(state: GraphState) -> bool:
             return True
     return False
 
+# --- HTTP Handlers (Flask) ---
+
+app = Flask(__name__)
+CORS(app) # Enable CORS for all routes, equivalent to Go's enableCORS middleware
+
+# --- LangGraph Task Handler ---
+
 @app.route("/task", methods=["POST"])
 def new_task():
     logger.info("Creating new task...")
@@ -839,7 +703,8 @@ def answer_handler():
     logger.info(f"Received answer for actionID {action_id}: {answer}")
     return jsonify({"status": "ok"}), 200
 
-# --- Static File Serving ---
+# --- Static File(live2D) Serving ---
+
 from flask import Response, abort
 
 # /live2d 接口用于读取 live2d 目录下的文件
@@ -865,3 +730,132 @@ def live2d_send_from_directory(filename):
     except Exception as e:
         logger.error(f"Error serving file {filename}: {e}")
         abort(500)
+
+# --- ChromaDB Handlers ---
+
+@app.route("/generate", methods=["POST"])
+def generate_handler():
+    """Handles requests to generate embeddings and store documents."""
+    try:
+        request_data = request.json
+        if not request_data or "texts" not in request_data:
+            return jsonify({"error": "Invalid request body: 'texts' field is required."}), 400
+
+        weighted_texts_raw = request_data["texts"]
+        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
+
+        logger.info(f"Storing: {weighted_texts[0].Text if weighted_texts else 'No text provided'}")
+        doc_id = generate_and_store(weighted_texts)
+        return jsonify({"id": doc_id}), 200
+    except Exception as e:
+        logger.exception("Error in /generate")
+        logger.error(f"Error in /generate: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/search", methods=["POST"])
+def search_handler():
+    """Handles requests to perform vector similarity search."""
+    try:
+        request_data = request.json
+        if not request_data or "texts" not in request_data or not request_data["texts"]:
+            return jsonify({"error": "Invalid request body: 'texts' field should not be empty."}), 400
+        print(f"request_data: {request_data}")
+        weighted_texts_raw = request_data["texts"]
+        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
+
+        logger.info(f"Generating text vector for search: {weighted_texts[0].Text if weighted_texts else 'No text provided'}")
+        query_vector = generate_weighted_embedding(weighted_texts)
+        logger.info("Text vector generated successfully for search.")
+
+        results = vector_search(query_vector)
+
+        return_results = []
+        for result in results:
+            content = result["metadata"].get("content")
+            return_results.append({
+                "id": result["id"],
+                "content": content
+            })
+        return jsonify(return_results), 200
+    except Exception as e:
+        logger.exception("Error in /search")
+        logger.error(f"Error in /search: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/chat", methods=["POST"])
+def chat_handler():
+    """Placeholder for chat functionality."""
+    # The original Go code had mux.HandleFunc("/chat", Chat) but the Chat function was not provided.
+    logger.info("Chat endpoint hit (placeholder).")
+    return jsonify({"message": "Chat functionality not implemented yet."}), 200
+
+@app.route("/compare", methods=["POST"])
+def compare_handler():
+    """Handles requests to compare a new text's embedding with an existing document's embedding."""
+    try:
+        request_data = request.json
+        if not request_data or "texts" not in request_data or "id" not in request_data:
+            return jsonify({"error": "Invalid request body: 'texts' and 'id' fields are required."}), 400
+
+        weighted_texts_raw = request_data["texts"]
+        doc_id = request_data["id"]
+        weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
+
+        result = vector_compare(weighted_texts, doc_id)
+        logger.info(f"Comparison result: {result}")
+        return jsonify({"result": result}), 200
+    except Exception as e:
+        logger.exception("Error in /compare")
+        logger.error(f"Error in /compare: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/documents", methods=["POST"])
+def documents_handler():
+    """Handles requests to list documents with pagination."""
+    try:
+        request_data = request.json
+        limit = request_data.get("limit", 10) # Default limit
+        offset = request_data.get("offset", 0) # Default offset
+
+        documents = list_documents(limit, offset)
+
+        all_results = []
+        if documents and documents.get('ids'):
+            for i in range(len(documents['ids'])):
+                result_item = {
+                    "id": documents['ids'][i],
+                    "metadata": documents['metadatas'][i],
+                }
+                all_results.append(result_item)
+        return jsonify(all_results), 200
+    except Exception as e:
+        logger.error(f"Error in /documents: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/delete", methods=["GET"]) # Go code uses GET with query param
+def delete_handler():
+    """Handles requests to delete a document by ID."""
+    try:
+        doc_id = request.args.get("id") # Get ID from query parameter
+        if not doc_id:
+            return jsonify({"error": "ID query parameter is missing."}), 400
+
+        logger.info(f"Deleting record: {doc_id}")
+        deleted_id = delete_record(doc_id)
+        return jsonify({"id": deleted_id}), 200
+    except Exception as e:
+        logger.error(f"Error in /delete: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/export", methods=["POST"])
+def export_handler():
+    """Handles requests to export all document data."""
+    try:
+        logger.info("Received request to export all data.")
+        export_all_data()
+        # The Go code returns a message with YYYYMMDD, but the actual filename includes HHMMSS.
+        # Let's return a more generic message or the actual filename.
+        return jsonify({"message": "Data export initiated. Check ./exports directory."}), 200
+    except Exception as e:
+        logger.error(f"Error in /export: {e}")
+        return jsonify({"error": str(e)}), 500
