@@ -48,4 +48,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       }
     })
   }
+
+  // 定时向页面发送消息，
+  // 内容从 chrome.storage.sync.get(['pauseUse', 'pauseRecord'] 读取
+  setTimeout(() => {
+    chrome.storage.sync.get(['pauseUse', 'pauseRecord'], (result) => {
+      chrome.tabs.sendMessage(tabId, { action: 'wenko_popup_option', option: {pauseUse: !!result.pauseUse, pauseRecord: !!result.pauseRecord} })
+    })
+  }, 100)
 });

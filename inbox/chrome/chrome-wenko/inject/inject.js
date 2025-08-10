@@ -74,6 +74,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const event = new CustomEvent('wenko_saveText', { detail: request.selectedText })
     window.dispatchEvent(event)
   }
+
+  if (request.action === "wenko_popup_option") {
+    // 将 selectedText 通过原生自定义事件发送
+    const event = new CustomEvent('wenko_popup', { detail: request.option })
+    window.dispatchEvent(event)
+  }
 });
 
 
