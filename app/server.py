@@ -291,8 +291,11 @@ def generate_handler():
         weighted_texts_raw = request_data["texts"]
         weighted_texts = [WeightedText(text=t["Text"], weight=t["Weight"]) for t in weighted_texts_raw]
 
+        # original the Custom Content from frontend, which is not processed but returned in the response
+        original = request_data.get("original", "")
+
         logger.info(f"Storing: {weighted_texts[0].Text if weighted_texts else 'No text provided'}")
-        doc_id = generate_and_store(weighted_texts)
+        doc_id = generate_and_store(texts=weighted_texts, original=original)
         return jsonify({"id": doc_id}), 200
     except Exception as e:
         logger.exception("Error in /generate")
@@ -314,14 +317,18 @@ def search_handler():
         query_vector = generate_weighted_embedding(weighted_texts)
         logger.info("Text vector generated successfully for search.")
 
-        results = vector_search(query_vector)
+        # Get n_results from request, default to 10
+        n_results = request_data.get("n_results", 10)
+        results = vector_search(query_vector, n_results)
 
         return_results = []
         for result in results:
             content = result["metadata"].get("content")
+            original = result["metadata"].get("original")
             return_results.append({
                 "id": result["id"],
-                "content": content
+                "content": content,
+                "original": original,
             })
         return jsonify(return_results), 200
     except Exception as e:

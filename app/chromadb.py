@@ -120,7 +120,7 @@ def generate_weighted_embedding(texts: list[WeightedText]) -> list[float]:
 
 # --- ChromaDB Operations (using chromadb client) ---
 
-def add_to_chroma_db(id: str, embedding: list[float], texts: list[WeightedText]) -> str:
+def add_to_chroma_db(id: str, embedding: list[float], texts: list[WeightedText], original: str) -> str:
     """Adds a document to ChromaDB."""
     # The Go code concatenates texts with a specific format for content metadata.
     content = ""
@@ -131,7 +131,7 @@ def add_to_chroma_db(id: str, embedding: list[float], texts: list[WeightedText])
         chroma_collection.add(
             # documents=[content],
             embeddings=[embedding],
-            metadatas=[{"content": content}],
+            metadatas=[{"content": content, "original": original or ""}],
             ids=[id]
         )
         logger.info(f"Added document with ID: {id}")
@@ -140,11 +140,11 @@ def add_to_chroma_db(id: str, embedding: list[float], texts: list[WeightedText])
         logger.error(f"Failed to add to ChromaDB: {e}")
         raise
 
-def generate_and_store(texts: list[WeightedText]) -> str:
+def generate_and_store(texts: list[WeightedText], original: str) -> str:
     """Generates embedding for texts and stores it in ChromaDB."""
     embedding = generate_weighted_embedding(texts)
     doc_id = str(uuid.uuid4()).replace("-", "") # UUIDv4 without hyphens
-    return add_to_chroma_db(doc_id, embedding, texts)
+    return add_to_chroma_db(doc_id, embedding, texts, original or "")
 
 def delete_record(record_id: str) -> str:
     """Deletes a record from ChromaDB by ID."""
@@ -156,12 +156,12 @@ def delete_record(record_id: str) -> str:
         logger.error(f"Failed to delete record {record_id}: {e}")
         raise
 
-def vector_search(query_vector: list[float]) -> list[dict]:
+def vector_search(query_vector: list[float], n_results: int) -> list[dict]:
     """Performs a vector similarity search in ChromaDB."""
     try:
         results = chroma_collection.query(
             query_embeddings=[query_vector],
-            n_results=5, # Hardcoded n_results as in Go code
+            n_results=n_results if n_results is not None else 10,
             include=['metadatas', 'distances'] # Include distances as per Go's VectorSearchResponse
         )
         logger.info(f"Vector search results IDs: {results.get('ids')}")

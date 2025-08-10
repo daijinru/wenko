@@ -30,7 +30,7 @@ async function injectWindiStyles(shadowRoot) {
 }
 
 function injectRootDiv(selectedText = '') {
-  CONSOLE.info('挂载选中文本 ', selectedText)
+  // CONSOLE.info('挂载选中文本 ', selectedText)
   if (!document.getElementById(rootId)) {
     const div = document.createElement('div')
     div.id = rootId

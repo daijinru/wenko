@@ -35,15 +35,14 @@ const Documents = () => {
                 <div className="p-4 md:p-6">
                   <p className="text-12 overflow-hidden text-slate-700 leading-relaxed">
                     <Space direction="vertical" size="small">
-                    {
-                      // 将 doc.metadata?.content 按 $-$ 分割，换行显示
-                      doc.metadata?.content.split('$-$').map((item, index) => {
-                        if (index == 0) return <Text>{item}</Text>
-                        if (index == 1) return <Text keyboard>{item}</Text>
-                        if (index == 2) return <Link href={item} target="_blank">{item}</Link>
-                        if (index === 3) return <Text italic type="secondary">{item}</Text>
-                      })
-                    }
+                      <Text>{doc.metadata?.original?.title}</Text>
+                      <Link onClick={() => {
+                        window.open(doc.metadata?.original?.url, '_blank')
+                      }} target="_blank">{doc.metadata?.original?.url}</Link>
+                      <Text keyboard>{doc.metadata?.original?.time}</Text>
+                      <Tooltip title={doc.metadata?.content}>
+                        <Text italic type="secondary">{doc.metadata?.content.substr(0, 50)}...</Text>
+                      </Tooltip>
                     </Space>
                   </p>
                 </div>
