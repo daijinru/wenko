@@ -7,7 +7,7 @@ from .helper import process_stream_response
 from .types import GraphState
 from .config import config
 
-from .prompts import AI_Kanban_System_Prompt
+from .prompts import AI_Kanban_System_Prompt, AI_Kanban_User_Prompt
 
 def stream_kanban_daily(state: GraphState):
     """
@@ -18,7 +18,7 @@ def stream_kanban_daily(state: GraphState):
             
     model_messages = [
         {"role": "system", "content": AI_Kanban_System_Prompt()},
-        {"role": "user", "content": content},
+        {"role": "user", "content": AI_Kanban_User_Prompt(content)},
     ]
     model_request_body = {
         "model": config.ModelProviderModel,

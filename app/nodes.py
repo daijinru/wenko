@@ -41,7 +41,7 @@ def record_node(state: GraphState) -> GraphState:
 
 # 工作流：关键词分类
 def kanban_daily_node(state: GraphState) -> GraphState:
-    logger.info("Entered kanban daily flow")
+    logger.info("Entered kanban daily node")
     # 关键词分类流程
     state["handle_sse_messages"] = "kanban_daily"
     return state

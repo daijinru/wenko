@@ -18,6 +18,18 @@ def AI_Kanban_System_Prompt() -> str:
 """
     return base_prompt
 
+def AI_Kanban_User_Prompt(user_input: str) -> str:
+    return f"""
+用户输入：{user_input}
+
+请：
+1. 简单总结用户输入的内容。
+1. 尝试推测用户为什么会访问这些内容（可以自由发挥）。
+2. 将推测融入到一段轻松、口语化、像朋友闲聊的对话中。
+3. 可以穿插调侃、幽默感，让用户会心一笑。
+4. 输出不超过300字。
+"""
+
 Tool_Use_Case_Prompt = {
     "tools": [
         {

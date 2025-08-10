@@ -129,7 +129,7 @@ def add_to_chroma_db(id: str, embedding: list[float], texts: list[WeightedText])
 
     try:
         chroma_collection.add(
-            documents=[content],
+            # documents=[content],
             embeddings=[embedding],
             metadatas=[{"content": content}],
             ids=[id]
