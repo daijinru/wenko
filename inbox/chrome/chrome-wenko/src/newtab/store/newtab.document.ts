@@ -74,6 +74,27 @@ class DocumentStore {
           doc.metadata.content = doc.content
           return true
         })
+
+        // 时间戳处理，doc.metadata.original.time 可能是个string类型的时间戳
+        docs = docs.map(doc => {
+          if (doc.metadata?.original?.time) {
+            // 如果是字符串类型的时间戳，转换为数字
+            if (typeof doc.metadata.original.time === 'string') {
+              doc.metadata.original.time = parseInt(doc.metadata.original.time, 10) || doc.metadata.original.time;
+            }
+            // 如果是秒级时间戳，转换为毫秒级
+            if (doc.metadata.original.time < 10000000000) {
+              doc.metadata.original.time = doc.metadata.original.time * 1000;
+            }
+            
+            // 转换为本地时间格式 (YYYY-MM-DD HH:mm:ss)
+            doc.metadata.original.time = new Date(doc.metadata.original.time).toLocaleString()
+            
+          }
+          return doc;
+        });
+
+
         // 随机处理 docs
         docs = docs.sort(() => Math.random() - 0.5)
         console.info('>< 线索:', docs)
