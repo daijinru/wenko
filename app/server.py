@@ -273,7 +273,9 @@ def live2d_send_from_directory(filename):
         # Guess mimetype by extension (optional)
         import mimetypes
         mimetype, _ = mimetypes.guess_type(file_path)
-        return Response(generate(), mimetype=mimetype or "application/octet-stream")
+        response = Response(generate(), mimetype=mimetype or "application/octet-stream")
+        response.headers["Cache-Control"] = "public, max-age=2592000"
+        return response
     except Exception as e:
         logger.error(f"Error serving file {filename}: {e}")
         abort(500)
