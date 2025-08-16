@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wenko</title>
+  <style>
+    /* 顶部拖动区域，不影响下面 live2d 交互 */
+    #WENKO__CONTAINER-ROOT {
+      -webkit-app-region: drag;
+      position: fixed;
+      right: 35px;
+      width: 100%;
+      height: 66px;
+      z-index: 9999;
+      cursor: move;
+      bottom: 0;
+      width: 70px;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    function createShadowRoot() {
+      let container = document.getElementById('WENKO__CONTAINER-ROOT');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'WENKO__CONTAINER-ROOT';
+        document.body.appendChild(container);
+      }
+      let shadowRoot = container.shadowRoot;
+      if (!shadowRoot) {
+        shadowRoot = container.attachShadow({ mode: 'open' });
+      }
+      let mounted = shadowRoot.getElementById('wenko_wifu');
+      if (!mounted) {
+        mounted = document.createElement('div');
+        mounted.id = 'wenko_wifu';
+        shadowRoot.appendChild(mounted);
+      }
+      return mounted;
+    }
+
+    createShadowRoot();
+  </script>
+  <script>
+    window.WENKO_ENV = {
+      isElectron: true,
+    };
+  </script>
+  <script src="http://localhost:8080/live2d/live2d-widget/dist/autoload.js"></script>
+</body>
+</html>
