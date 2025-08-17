@@ -1,10 +1,14 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
+// app.setName('Wenko');
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 350,
     height: 400,
+    title: 'Wenko',
+    icon: path.join(__dirname, 'assets', 'favicon.ico'),
     frame: false,
     transparent: true,
     alwaysOnTop: false,
@@ -30,6 +34,10 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+if (process.platform === 'darwin') {
+  app.dock.setIcon(path.join(__dirname, 'assets', 'favicon.ico'));
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
