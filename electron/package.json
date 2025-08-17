@@ -4,10 +4,20 @@
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
-    "start": "electronmon ."
+    "start": "electronmon .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "devDependencies": {
     "electron": "^26.0.0",
+    "electron-builder": "^26.0.12",
     "electronmon": "^2.0.3"
+  },
+  "build": {
+    "appId": "com.daijinru.wenko",
+    "productName": "wenko",
+    "files": [
+      "**/*"
+    ]
   }
 }
