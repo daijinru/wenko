@@ -8,10 +8,12 @@ app/helper.py
 app/logger.py
 app/nodes.py
 app/prompts.py
+app/quickstart_falkordb.py
 app/server.py
 app/session.py
 app/stream.py
 app/types.py
+app/workflow.py
 wenko.egg-info/PKG-INFO
 wenko.egg-info/SOURCES.txt
 wenko.egg-info/dependency_links.txt

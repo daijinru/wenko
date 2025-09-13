@@ -8,6 +8,6 @@ if [ -z "$VIRTUAL_ENV" ]; then
     source venv/bin/activate
 fi
 
-pip install -r requirements.txt
+uv sync
 
-python3 main.py
+uv run main.py
