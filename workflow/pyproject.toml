@@ -1,0 +1,25 @@
+[project]
+name = "langgraph-workflow"
+version = "0.1.0"
+description = "LangGraph + FastAPI workflow system with step orchestration"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=0.2.6",
+    "langgraph-cli[inmem]>=0.1.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "httpx>=0.25.0",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.langgraph]
+studio = true

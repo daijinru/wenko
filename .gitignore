@@ -7,4 +7,5 @@ logs
 .DS_Store
 .idea
 
+.langgraph_api/
 __pycache__/
