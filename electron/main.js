@@ -1,8 +1,25 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const { ipcMain } = require('electron');
+const express = require('express');
 
 app.setName('Wenko');
+
+// 创建Express服务器提供live2d静态文件访问
+function createStaticServer() {
+  const expressApp = express();
+  const port = 8080;
+  
+  // 提供live2d目录的静态文件访问
+  expressApp.use('/live2d', express.static(path.join(__dirname, 'live2d')));
+  
+  expressApp.listen(port, () => {
+    console.log(`Static server running on http://localhost:${port}`);
+  });
+}
+
+// 启动静态文件服务器
+createStaticServer();
 
 function createWindow() {
   const mainWindow = new BrowserWindow({

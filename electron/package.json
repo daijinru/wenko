@@ -9,7 +9,6 @@
     "dist": "electron-builder"
   },
   "devDependencies": {
-    "electron": "^26.0.0",
     "electron-builder": "^26.0.12",
     "electronmon": "^2.0.3"
   },
@@ -19,5 +18,9 @@
     "files": [
       "**/*"
     ]
+  },
+  "dependencies": {
+    "electron": "^38.1.0",
+    "express": "^5.1.0"
   }
 }
