@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import uvicorn
 
 from graph import workflow_graph
+from steps import STEP_REGISTRY
 
 
 # 请求模型
@@ -35,6 +36,12 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class StepRegistryResponse(BaseModel):
+    """步骤注册表响应"""
+    steps: Dict[str, str]
+    count: int
+
+
 # 创建 FastAPI 应用
 app = FastAPI(
     title="LangGraph 工作流系统",
@@ -50,6 +57,20 @@ async def health_check():
         status="healthy",
         service="workflow-system"
     )
+
+
+@app.get("/steps", response_model=StepRegistryResponse)
+async def get_step_registry():
+    """获取步骤注册表接口"""
+    # 将步骤类转换为类名字符串
+    steps_info = {step_name: step_class.__name__ for step_name, step_class in STEP_REGISTRY.items()}
+    
+    return StepRegistryResponse(
+        steps=steps_info,
+        count=len(STEP_REGISTRY)
+    )
+
+
 
 
 @app.post("/run", response_model=WorkflowResponse)
@@ -94,6 +115,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8001,
+        port=8002,
         reload=True
     )
