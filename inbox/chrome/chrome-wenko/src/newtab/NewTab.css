@@ -1,8 +1,0 @@
-/* 隐藏滚动条，但仍可滚动 */
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-hide {
-  -ms-overflow-style: none;  /* IE 和 Edge */
-  scrollbar-width: none;  /* Firefox */
-}

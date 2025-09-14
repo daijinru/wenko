@@ -1,0 +1,51 @@
+{
+  "name": "live2d-widgets",
+  "version": "1.0.0-rc.6",
+  "description": "Live2D widget for web pages",
+  "main": "build/index.js",
+  "files": [
+    "build",
+    "!build/CubismSdkForWeb*",
+    "demo",
+    "dist",
+    "src",
+    "!src/CubismSdkForWeb*",
+    "README.en.md"
+  ],
+  "types": "build/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && rollup -c rollup.config.js",
+    "build-dev": "rollup -c rollup.config.js -w",
+    "eslint": "eslint src/",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stevenjoezhang/live2d-widget.git"
+  },
+  "keywords": [
+    "Live2D",
+    "WebGL"
+  ],
+  "author": "stevenjoezhang <stevenjoezhang@gmail.com>",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/stevenjoezhang/live2d-widget/issues"
+  },
+  "homepage": "https://github.com/stevenjoezhang/live2d-widget#readme",
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "6.7.2",
+    "vite": "^7.0.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.27.0",
+    "@rollup/plugin-alias": "5.1.1",
+    "@rollup/plugin-terser": "0.4.4",
+    "@types/node": "22.15.21",
+    "eslint": "9.27.0",
+    "rollup": "4.41.1",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.32.1"
+  }
+}
