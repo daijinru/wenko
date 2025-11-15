@@ -262,6 +262,11 @@
         steps: ''
       });
       
+      // 使用 useCallback 稳定表单更新函数，避免 Modal 重新渲染
+      const updateTemplateForm = useCallback((field, value) => {
+        setTemplateForm(prev => ({ ...prev, [field]: value }));
+      }, []);
+      
       // 步骤注册表状态
       const [steps, setSteps] = useState({});
       const [stepsLoading, setStepsLoading] = useState(false);
@@ -287,10 +292,6 @@
         checkHealth();
         loadSteps();
         loadTemplates();
-        
-        // 定期检查健康状态
-        const interval = setInterval(checkHealth, 30000);
-        return () => clearInterval(interval);
       }, [checkHealth]);
 
       // 执行工作流
@@ -432,50 +433,271 @@
         }
       };
 
+      // 分析模板步骤，推断需要的初始上下文
+      const analyzeTemplateContext = (steps) => {
+        const contextVars = {};
+        
+        steps.forEach(step => {
+          const stepType = step.type;
+          const params = step.params || {};
+          
+          // 根据步骤类型分析需要的上下文变量
+          switch (stepType) {
+            case 'GetVar':
+              if (params.key) {
+                contextVars[params.key] = 'value'; // 示例值
+              }
+              break;
+            case 'MathOp':
+              if (params.operand1_key) {
+                contextVars[params.operand1_key] = 10; // 示例数字
+              }
+              if (params.operand2_key) {
+                contextVars[params.operand2_key] = 5; // 示例数字
+              }
+              break;
+            case 'If':
+              if (params.condition_key) {
+                contextVars[params.condition_key] = true; // 示例布尔值
+              }
+              break;
+            case 'StringOp':
+              if (params.input_key) {
+                contextVars[params.input_key] = 'example text'; // 示例字符串
+              }
+              break;
+            case 'EchoInput':
+              if (params.input_key) {
+                contextVars[params.input_key] = 'input value'; // 示例值
+              }
+              break;
+            case 'TemplateReplace':
+              if (params.template_key) {
+                contextVars[params.template_key] = 'Hello {{name}}'; // 示例模板
+              }
+              // 分析模板中的占位符
+              const template = params.template || '';
+              const placeholders = template.match(/\{\{([^}]+)\}\}/g);
+              if (placeholders) {
+                placeholders.forEach(ph => {
+                  const varName = ph.replace(/\{\{|\}\}/g, '').trim();
+                  if (!contextVars[varName]) {
+                    contextVars[varName] = 'value'; // 示例值
+                  }
+                });
+              }
+              break;
+            case 'JSONExtractValues':
+              if (params.json_key) {
+                contextVars[params.json_key] = '{"key": "value"}'; // 示例JSON字符串
+              }
+              break;
+          }
+        });
+        
+        // 如果没有找到任何需要的变量，返回空对象
+        return Object.keys(contextVars).length > 0 ? contextVars : {};
+      };
+
       // 执行模板
       const executeTemplate = async (templateId) => {
-        let contextValue = '{}';
+        // 先获取模板信息
+        let template = null;
+        try {
+          const response = await fetch(`${API_BASE}/templates/${templateId}`);
+          const data = await response.json();
+          template = data.template;
+        } catch (error) {
+          message.error(`获取模板失败: ${error.message}`);
+          return;
+        }
         
-        Modal.confirm({
-          title: '执行模板',
-          content: (
-            <div>
-              <Paragraph>请输入初始上下文 (JSON格式，可选):</Paragraph>
-              <TextArea 
-                id="templateContext"
-                rows={4}
-                placeholder='{"key": "value"}'
-                defaultValue="{}"
-                onChange={(e) => { contextValue = e.target.value; }}
-              />
-            </div>
-          ),
+        // 分析模板需要的初始上下文
+        const suggestedContext = analyzeTemplateContext(template.steps || []);
+        const defaultContextValue = JSON.stringify(suggestedContext, null, 2);
+        
+        let currentContextValue = defaultContextValue;
+        let contextError = '';
+        let isValidJson = true;
+        
+        // 创建模态框内容
+        const modalContent = (
+          <div>
+            <Alert
+              message="请提供初始上下文"
+              description={`执行模板 "${template.name}" 需要提供初始上下文（JSON格式）。已根据模板步骤自动推断出建议的上下文变量。`}
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <Paragraph>
+              <Text strong>初始上下文 (JSON格式) <span style={{ color: '#ff4d4f' }}>*</span>:</Text>
+            </Paragraph>
+            <TextArea 
+              id="templateContext"
+              rows={10}
+              placeholder='{"key": "value", "number": 123}'
+              defaultValue={defaultContextValue}
+              onChange={(e) => {
+                const value = e.target.value;
+                currentContextValue = value;
+                
+                // 验证 JSON 格式
+                if (value.trim()) {
+                  try {
+                    JSON.parse(value);
+                    contextError = '';
+                    isValidJson = true;
+                    // 清除错误显示
+                    const errorEl = document.getElementById('templateContextError');
+                    if (errorEl) {
+                      errorEl.style.display = 'none';
+                    }
+                    // 清除边框颜色
+                    e.target.style.borderColor = '';
+                  } catch (err) {
+                    contextError = 'JSON 格式错误: ' + err.message;
+                    isValidJson = false;
+                    // 显示错误
+                    let errorEl = document.getElementById('templateContextError');
+                    if (!errorEl) {
+                      errorEl = document.createElement('p');
+                      errorEl.id = 'templateContextError';
+                      errorEl.style.color = '#ff4d4f';
+                      errorEl.style.marginTop = '8px';
+                      errorEl.style.marginBottom = '0px';
+                      e.target.parentNode.appendChild(errorEl);
+                    }
+                    errorEl.textContent = contextError;
+                    errorEl.style.display = 'block';
+                    // 设置边框颜色
+                    e.target.style.borderColor = '#ff4d4f';
+                  }
+                } else {
+                  contextError = '请输入初始上下文（不能为空）';
+                  isValidJson = false;
+                  const errorEl = document.getElementById('templateContextError');
+                  if (!errorEl) {
+                    errorEl = document.createElement('p');
+                    errorEl.id = 'templateContextError';
+                    errorEl.style.color = '#ff4d4f';
+                    errorEl.style.marginTop = '8px';
+                    errorEl.style.marginBottom = '0px';
+                    e.target.parentNode.appendChild(errorEl);
+                  }
+                  errorEl.textContent = contextError;
+                  errorEl.style.display = 'block';
+                  e.target.style.borderColor = '#ff4d4f';
+                }
+              }}
+              style={{ 
+                fontFamily: 'Monaco, Menlo, Courier New, monospace'
+              }}
+            />
+            <Paragraph style={{ color: '#8c8c8c', fontSize: '12px', marginTop: 8, marginBottom: 0 }}>
+              <Text strong>提示:</Text> 请输入有效的 JSON 对象来初始化工作流的上下文变量。
+              <br />
+              示例: {'{"key": "value", "number": 123, "flag": true}'}
+              <br />
+              如果不需要初始化变量，可以使用空对象: {'{}'}
+            </Paragraph>
+          </div>
+        );
+        
+        let modalInstance = null;
+        
+        modalInstance = Modal.confirm({
+          title: '执行模板 - 提供初始上下文',
+          width: 650,
+          content: modalContent,
+          okText: '执行',
+          cancelText: '取消',
           onOk: async () => {
             try {
-              const contextText = document.getElementById('templateContext')?.value?.trim() || contextValue.trim();
-              const initial_context = contextText ? JSON.parse(contextText) : {};
+              const contextText = document.getElementById('templateContext')?.value?.trim() || currentContextValue.trim();
               
-              const response = await fetch(`${API_BASE}/templates/${templateId}/execute`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ initial_context })
-              });
+              // 验证不能为空
+              if (!contextText || contextText.trim() === '') {
+                message.error('初始上下文不能为空，请输入有效的 JSON 对象（至少是 {}）');
+                return false; // 阻止关闭模态框
+              }
+              
+              // 验证 JSON 格式
+              let initial_context = {};
+              try {
+                initial_context = JSON.parse(contextText);
+              } catch (err) {
+                message.error(`JSON 格式错误: ${err.message}`);
+                return false; // 阻止关闭模态框
+              }
+              
+              // 验证必须是对象类型
+              if (typeof initial_context !== 'object' || Array.isArray(initial_context)) {
+                message.error('初始上下文必须是 JSON 对象，不能是数组或其他类型');
+                return false; // 阻止关闭模态框
+              }
+              
+              // 关闭确认对话框
+              if (modalInstance) {
+                modalInstance.destroy();
+              }
+              
+              // 显示加载提示
+              const hideLoading = message.loading('正在执行模板...', 0);
+              
+              try {
+                const response = await fetch(`${API_BASE}/templates/${templateId}/execute`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ initial_context })
+                });
 
-              const data = await response.json();
-              
-              Modal.success({
-                title: '执行结果',
-                width: 600,
-                content: (
-                  <pre style={{ background: '#f5f5f5', padding: '12px', borderRadius: '4px', overflow: 'auto', maxHeight: '400px' }}>
-                    {JSON.stringify(data, null, 2)}
-                  </pre>
-                )
-              });
+                const data = await response.json();
+                hideLoading();
+                
+                Modal.success({
+                  title: '执行结果',
+                  width: 700,
+                  content: (
+                    <div>
+                      <Paragraph>
+                        <Text strong>执行状态:</Text>{' '}
+                        <Tag color={data.success ? 'green' : 'red'}>
+                          {data.success ? '成功' : '失败'}
+                        </Tag>
+                      </Paragraph>
+                      {data.error && (
+                        <Alert 
+                          message="执行错误" 
+                          description={data.error} 
+                          type="error" 
+                          style={{ marginBottom: 16 }}
+                        />
+                      )}
+                      <Paragraph><Text strong>结果:</Text></Paragraph>
+                      <pre style={{ 
+                        background: '#f5f5f5', 
+                        padding: '12px', 
+                        borderRadius: '4px', 
+                        overflow: 'auto', 
+                        maxHeight: '400px',
+                        fontFamily: 'Monaco, Menlo, Courier New, monospace',
+                        fontSize: '12px'
+                      }}>
+                        {JSON.stringify(data, null, 2)}
+                      </pre>
+                    </div>
+                  )
+                });
+              } catch (error) {
+                hideLoading();
+                message.error(`执行失败: ${error.message}`);
+              }
             } catch (error) {
-              message.error(`执行失败: ${error.message}`);
+              message.error(`处理失败: ${error.message}`);
+              return false; // 阻止关闭模态框
             }
           }
         });
@@ -517,19 +739,27 @@
       const saveTemplate = async () => {
         if (!templateForm.name.trim()) {
           message.error('请输入模板名称');
-          return;
+          throw new Error('模板名称不能为空');
         }
 
         if (!templateForm.steps.trim()) {
           message.error('请输入步骤');
-          return;
+          throw new Error('步骤不能为空');
         }
 
         try {
           const tags = templateForm.tags.trim() 
             ? templateForm.tags.split(',').map(t => t.trim()).filter(t => t) 
             : [];
-          const steps = JSON.parse(templateForm.steps);
+          
+          // 验证步骤 JSON 格式
+          let steps;
+          try {
+            steps = JSON.parse(templateForm.steps);
+          } catch (e) {
+            message.error(`步骤 JSON 格式错误: ${e.message}`);
+            throw new Error(`步骤 JSON 格式错误: ${e.message}`);
+          }
 
           const requestBody = {
             name: templateForm.name.trim(),
@@ -563,10 +793,11 @@
           }
 
           message.success('保存成功！');
-          setTemplateDialogVisible(false);
           loadTemplates();
+          // 注意：不在这里关闭 Modal，让 onOk 处理
         } catch (error) {
           message.error(`保存失败: ${error.message}`);
+          throw error; // 重新抛出错误，让 onOk 知道保存失败
         }
       };
 
@@ -702,52 +933,6 @@
               )}
             </Spin>
           </Space>
-          
-          {/* 创建/编辑模板对话框 */}
-          <Modal
-            title={currentTemplate ? '编辑模板' : '创建模板'}
-            visible={templateDialogVisible}
-            onOk={saveTemplate}
-            onCancel={() => setTemplateDialogVisible(false)}
-            width={800}
-          >
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <div>
-                <Text strong>模板名称</Text>
-                <Input
-                  value={templateForm.name}
-                  onChange={(e) => setTemplateForm({...templateForm, name: e.target.value})}
-                  placeholder="输入模板名称"
-                />
-              </div>
-              <div>
-                <Text strong>描述</Text>
-                <Input
-                  value={templateForm.description}
-                  onChange={(e) => setTemplateForm({...templateForm, description: e.target.value})}
-                  placeholder="输入模板描述"
-                />
-              </div>
-              <div>
-                <Text strong>标签 (逗号分隔)</Text>
-                <Input
-                  value={templateForm.tags}
-                  onChange={(e) => setTemplateForm({...templateForm, tags: e.target.value})}
-                  placeholder="例如: 基础,示例"
-                />
-              </div>
-              <div>
-                <Text strong>步骤 (JSON)</Text>
-                <TextArea
-                  value={templateForm.steps}
-                  onChange={(e) => setTemplateForm({...templateForm, steps: e.target.value})}
-                  placeholder='[{"type": "EchoInput", "params": {"message": "Hello"}}]'
-                  rows={10}
-                  style={{ fontFamily: 'Monaco, Menlo, Courier New, monospace' }}
-                />
-              </div>
-            </Space>
-          </Modal>
         </div>
       );
 
@@ -810,6 +995,69 @@
               </TabPane>
             </Tabs>
           </div>
+          
+          {/* 创建/编辑模板对话框 - 移到 App 组件顶层，避免重新创建 */}
+          <Modal
+            title={currentTemplate ? '编辑模板' : '创建模板'}
+            visible={templateDialogVisible}
+            destroyOnClose={false}
+            maskClosable={false}
+            onOk={async () => {
+              // 在 Ant Design 3.x 中，onOk 如果是异步函数，需要返回 false 来阻止自动关闭
+              // 或者手动管理 Modal 的关闭
+              try {
+                await saveTemplate();
+                // 保存成功后关闭 Modal
+                setTemplateDialogVisible(false);
+              } catch (error) {
+                // 保存失败时不关闭 Modal，错误已在 saveTemplate 中处理
+                console.error('保存模板失败:', error);
+              }
+            }}
+            onCancel={() => {
+              setTemplateDialogVisible(false);
+            }}
+            width={800}
+            okText="保存"
+            cancelText="取消"
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <div>
+                <Text strong>模板名称</Text>
+                <Input
+                  value={templateForm.name}
+                  onChange={(e) => updateTemplateForm('name', e.target.value)}
+                  placeholder="输入模板名称"
+                />
+              </div>
+              <div>
+                <Text strong>描述</Text>
+                <Input
+                  value={templateForm.description}
+                  onChange={(e) => updateTemplateForm('description', e.target.value)}
+                  placeholder="输入模板描述"
+                />
+              </div>
+              <div>
+                <Text strong>标签 (逗号分隔)</Text>
+                <Input
+                  value={templateForm.tags}
+                  onChange={(e) => updateTemplateForm('tags', e.target.value)}
+                  placeholder="例如: 基础,示例"
+                />
+              </div>
+              <div>
+                <Text strong>步骤 (JSON)</Text>
+                <TextArea
+                  value={templateForm.steps}
+                  onChange={(e) => updateTemplateForm('steps', e.target.value)}
+                  placeholder='[{"type": "EchoInput", "params": {"message": "Hello"}}]'
+                  rows={10}
+                  style={{ fontFamily: 'Monaco, Menlo, Courier New, monospace' }}
+                />
+              </div>
+            </Space>
+          </Modal>
         </div>
       );
     }

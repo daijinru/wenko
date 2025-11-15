@@ -27,7 +27,21 @@ class WorkflowExecutor:
         Returns:
             执行结果字典，包含 success, result, error 字段
         """
-        context = StepContext(initial_context or {})
+        # 确保 initial_context 是一个字典，并且不包含 'initial_context' 键
+        # 避免将 initial_context 作为键添加到 context.variables 中
+        clean_initial_context = {}
+        if initial_context:
+            # 如果 initial_context 本身包含 'initial_context' 键，展开它
+            if 'initial_context' in initial_context and isinstance(initial_context['initial_context'], dict):
+                clean_initial_context = {**initial_context['initial_context']}
+                # 合并其他键（如果有）
+                for key, value in initial_context.items():
+                    if key != 'initial_context':
+                        clean_initial_context[key] = value
+            else:
+                clean_initial_context = initial_context.copy()
+        
+        context = StepContext(clean_initial_context)
         
         try:
             results = []

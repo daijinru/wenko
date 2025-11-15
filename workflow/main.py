@@ -128,89 +128,33 @@ class StepTemplateStorage(StepTemplateStorageInterface):
     
     def _load_default_templates(self):
         """加载默认模板"""
-        # 基础工作流模板
-        basic_template = StepTemplate(
+        # 字符串操作工作流模板
+        string_template = StepTemplate(
             id=str(uuid.uuid4()),
-            name="基础工作流",
-            description="包含 EchoInput、SetVar、GetVar 的基础工作流示例",
+            name="字符串操作工作流",
+            description="演示字符串处理操作的工作流示例",
             steps=[
                 {
-                    "type": "EchoInput",
+                    "type": "StringOp",
                     "params": {
-                        "message": "Hello, World!"
-                    }
-                },
-                {
-                    "type": "SetVar",
-                    "params": {
-                        "key": "greeting",
-                        "value": "Welcome to LangGraph Workflow!"
+                        "operation": "strip",
+                        "input_key": "text",
+                        "output_key": "trimmed"
                     }
                 },
                 {
                     "type": "GetVar",
                     "params": {
-                        "key": "greeting"
+                        "key": "trimmed"
                     }
                 }
             ],
-            tags=["基础", "示例"],
+            tags=["字符串", "处理"],
             created_at=datetime.now(),
             updated_at=datetime.now()
         )
         
-        # 数学计算工作流模板
-        math_template = StepTemplate(
-            id=str(uuid.uuid4()),
-            name="数学计算工作流",
-            description="包含数学运算的工作流示例",
-            steps=[
-                {
-                    "type": "SetVar",
-                    "params": {
-                        "key": "a",
-                        "value": 10
-                    }
-                },
-                {
-                    "type": "SetVar",
-                    "params": {
-                        "key": "b",
-                        "value": 5
-                    }
-                },
-                {
-                    "type": "MathOp",
-                    "params": {
-                        "operation": "add",
-                        "operand1_key": "a",
-                        "operand2_key": "b",
-                        "output_key": "sum"
-                    }
-                },
-                {
-                    "type": "MathOp",
-                    "params": {
-                        "operation": "multiply",
-                        "operand1_key": "sum",
-                        "operand2_value": 2,
-                        "output_key": "final_result"
-                    }
-                },
-                {
-                    "type": "GetVar",
-                    "params": {
-                        "key": "final_result"
-                    }
-                }
-            ],
-            tags=["数学", "计算"],
-            created_at=datetime.now(),
-            updated_at=datetime.now()
-        )
-        
-        self._templates[basic_template.id] = basic_template
-        self._templates[math_template.id] = math_template
+        self._templates[string_template.id] = string_template
     
     def create_template(self, request: CreateStepTemplateRequest) -> StepTemplate:
         """创建步骤模板"""

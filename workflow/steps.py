@@ -78,7 +78,10 @@ class SetVarStep(Step):
         key = resolved_params['key']
         
         # 支持直接设置值或从其他键复制值
+        # 注意：使用 'value' in resolved_params 检查键是否存在，而不是检查值是否为 truthy
+        # 这样可以正确处理空字符串、0、False 等 falsy 值
         if 'value' in resolved_params:
+            # 明确获取值，即使值是 None、空字符串、0、False 等 falsy 值也要设置
             value = resolved_params['value']
         elif 'from_key' in resolved_params:
             from_key = resolved_params['from_key']
@@ -88,6 +91,7 @@ class SetVarStep(Step):
         else:
             raise ValueError("SetVar step requires either 'value' or 'from_key' parameter")
         
+        # 设置值，包括空字符串、None、0、False 等所有值（总是覆盖已存在的值）
         context.set(key, value)
         return value
 
@@ -352,12 +356,16 @@ class StringOpStep(Step):
         # 获取输入字符串
         if input_key:
             text = context.get(input_key)
+            # 如果从 context 中获取的值为 None，说明键不存在
+            if text is None:
+                raise ValueError(f"Input key '{input_key}' not found in context")
         elif input_value is not None:
             text = input_value
         else:
             raise ValueError("StringOp step requires either 'input_key' or 'input_value'")
         
-        text = str(text)
+        # 转换为字符串，但如果 text 是 None，应该已经在上面的检查中抛出异常了
+        text = str(text) if text is not None else ""
         
         # 执行字符串操作
         if operation == 'upper':
@@ -390,6 +398,7 @@ class StringOpStep(Step):
         else:
             raise ValueError(f"Unsupported string operation: {operation}")
         
+        # 设置结果（总是覆盖已存在的值）
         context.set(output_key, result)
         return result
 
