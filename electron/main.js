@@ -66,11 +66,11 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
   // 处理快捷键事件: action: open
   const { action } = data;
   if (action === 'open') {
-    // 打开窗口 800 x 600
+    // 打开窗口用于 workflow API 测试
     const shortcutWindow = new BrowserWindow({
-      width: 800,
-      height: 600,
-      title: 'Wenko ShortCut',
+      width: 1200,
+      height: 800,
+      title: 'Workflow API 测试工具',
       icon: path.join(__dirname, 'assets', 'favicon.ico'),
       frame: true,
       transparent: false,
@@ -86,7 +86,7 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
         webSecurity: false  // 关闭同源策略和 CSP 检查，方便开发加载任意脚本
       }
     });
-    shortcutWindow.loadFile('index.html');
+    shortcutWindow.loadFile('workflow.html');
   } else {
     console.warn('Unknown action:', action);
   }

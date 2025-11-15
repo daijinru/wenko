@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workflow API 测试工具</title>
+  
+  <!-- Ant Design CSS (使用 3.x 版本，支持 UMD) -->
+  <link rel="stylesheet" href="https://unpkg.com/antd@3.26.20/dist/antd.css">
+  
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+
+    #root {
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .app-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+
+    .app-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 24px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .app-header h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 600;
+      color: white;
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #4ade80;
+      margin-right: 8px;
+      animation: pulse 2s infinite;
+    }
+
+    .status-indicator.offline {
+      background: #ef4444;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .app-content {
+      padding: 24px;
+    }
+
+    .template-card {
+      margin-bottom: 16px;
+    }
+
+    .template-tags {
+      margin-top: 8px;
+    }
+
+    .result-box {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .result-box pre {
+      margin: 0;
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .step-item {
+      padding: 12px;
+      background: #f5f5f5;
+      border: 1px solid #d9d9d9;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React and ReactDOM from CDN (使用 17.x 版本以兼容 Ant Design 3.x) -->
+  <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+  
+  <!-- Moment.js (Ant Design 3.x 的必需依赖) -->
+  <script src="https://unpkg.com/moment@2.29.4/min/moment.min.js"></script>
+  
+  <!-- Babel Standalone for JSX transformation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Ant Design JS (使用 3.x 版本，支持 UMD) -->
+  <script src="https://unpkg.com/antd@3.26.20/dist/antd.js"></script>
+
+  <script type="text/babel">
+    // 检查依赖是否加载
+    if (typeof React === 'undefined') {
+      throw new Error('React 未加载');
+    }
+    if (typeof ReactDOM === 'undefined') {
+      throw new Error('ReactDOM 未加载');
+    }
+    // Ant Design 3.x 使用 antd 全局变量
+    // 检查 moment.js 是否加载
+    if (typeof moment === 'undefined') {
+      console.error('Moment.js 未加载，这是 Ant Design 3.x 的必需依赖');
+      document.getElementById('root').innerHTML = `
+        <div style="padding: 40px; text-align: center;">
+          <h2>Moment.js 加载失败</h2>
+          <p>请检查网络连接和 CDN 链接。</p>
+        </div>
+      `;
+      throw new Error('Moment.js 未加载');
+    }
+    
+    // Ant Design 3.x 的全局变量
+    let antdLib = null;
+    if (typeof window.antd !== 'undefined') {
+      antdLib = window.antd;
+    }
+    
+    if (!antdLib) {
+      console.error('Ant Design 未加载。请检查 CDN 链接是否正确。');
+      console.error('可用的全局变量:', Object.keys(window).filter(k => k.toLowerCase().includes('ant')));
+      console.error('window.antd:', window.antd);
+      document.getElementById('root').innerHTML = `
+        <div style="padding: 40px; text-align: center;">
+          <h2>Ant Design 加载失败</h2>
+          <p>请检查网络连接和 CDN 链接。</p>
+          <p>确保已加载 Moment.js。</p>
+        </div>
+      `;
+      throw new Error('Ant Design 未加载');
+    }
+
+    const { useState, useEffect, useCallback } = React;
+    const { 
+      Tabs, 
+      Card, 
+      Button, 
+      Input, 
+      Checkbox, 
+      Tag, 
+      Alert, 
+      Modal, 
+      message,
+      Spin,
+      Badge,
+      Divider
+    } = antdLib;
+    
+    // Ant Design 3.x 没有 Space 和 Typography，需要创建替代方案
+    const Space = ({ children, direction = 'horizontal', style = {}, size = 'middle' }) => {
+      const isVertical = direction === 'vertical';
+      const spacing = size === 'large' ? 16 : size === 'small' ? 8 : 12;
+      const childrenArray = React.Children.toArray(children);
+      
+      return (
+        <div style={{ 
+          display: isVertical ? 'flex' : 'inline-flex', 
+          flexDirection: isVertical ? 'column' : 'row',
+          ...style 
+        }}>
+          {childrenArray.map((child, index) => (
+            <div key={index} style={isVertical ? { marginBottom: index < childrenArray.length - 1 ? spacing : 0 } : { marginRight: index < childrenArray.length - 1 ? spacing : 0 }}>
+              {child}
+            </div>
+          ))}
+        </div>
+      );
+    };
+    
+    const Typography = {
+      Title: ({ children, level = 1, ...props }) => {
+        const Tag = `h${Math.min(level, 6)}`;
+        return React.createElement(Tag, { style: { marginBottom: 16, ...props.style } }, children);
+      },
+      Text: ({ children, strong = false, ...props }) => {
+        return <span style={{ fontWeight: strong ? 'bold' : 'normal', ...props.style }}>{children}</span>;
+      },
+      Paragraph: ({ children, ...props }) => {
+        return <p style={{ marginBottom: 12, ...props.style }}>{children}</p>;
+      }
+    };
+    
+    // 确保组件存在
+    if (!Tabs || !Input) {
+      console.error('Ant Design 组件加载失败', { Tabs, Input, antdLib });
+      throw new Error('Ant Design 组件未正确加载');
+    }
+    
+    const { TabPane } = Tabs;
+    const { TextArea } = Input;
+    const { Title, Text, Paragraph } = Typography;
+    
+    // 验证组件
+    if (!TabPane || !TextArea || !Title || !Text || !Paragraph) {
+      console.error('组件解构失败', { TabPane, TextArea, Title, Text, Paragraph });
+      throw new Error('组件解构失败');
+    }
+
+    const API_BASE = 'http://localhost:8002';
+
+    function App() {
+      const [activeTab, setActiveTab] = useState('workflow');
+      const [status, setStatus] = useState({ online: false, checking: true });
+      
+      // 工作流执行状态
+      const [workflowSteps, setWorkflowSteps] = useState('');
+      const [workflowContext, setWorkflowContext] = useState('');
+      const [debugMode, setDebugMode] = useState(false);
+      const [workflowResult, setWorkflowResult] = useState(null);
+      const [workflowLoading, setWorkflowLoading] = useState(false);
+      
+      // 模板管理状态
+      const [templates, setTemplates] = useState([]);
+      const [templatesLoading, setTemplatesLoading] = useState(false);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [templateDialogVisible, setTemplateDialogVisible] = useState(false);
+      const [currentTemplate, setCurrentTemplate] = useState(null);
+      const [templateForm, setTemplateForm] = useState({
+        name: '',
+        description: '',
+        tags: '',
+        steps: ''
+      });
+      
+      // 步骤注册表状态
+      const [steps, setSteps] = useState({});
+      const [stepsLoading, setStepsLoading] = useState(false);
+      
+      // 健康检查状态
+      const [healthResult, setHealthResult] = useState(null);
+
+      // 检查服务状态
+      const checkHealth = useCallback(async () => {
+        try {
+          const response = await fetch(`${API_BASE}/health`);
+          const data = await response.json();
+          setStatus({ online: true, checking: false });
+          setHealthResult(data);
+        } catch (error) {
+          setStatus({ online: false, checking: false });
+          setHealthResult({ error: error.message });
+        }
+      }, []);
+
+      // 初始化
+      useEffect(() => {
+        checkHealth();
+        loadSteps();
+        loadTemplates();
+        
+        // 定期检查健康状态
+        const interval = setInterval(checkHealth, 30000);
+        return () => clearInterval(interval);
+      }, [checkHealth]);
+
+      // 执行工作流
+      const executeWorkflow = async () => {
+        if (!workflowSteps.trim()) {
+          message.error('请输入工作流步骤');
+          return;
+        }
+
+        setWorkflowLoading(true);
+        try {
+          const steps = JSON.parse(workflowSteps);
+          const initial_context = workflowContext.trim() ? JSON.parse(workflowContext) : {};
+
+          const response = await fetch(`${API_BASE}/run`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              steps,
+              initial_context,
+              debug_mode: debugMode
+            })
+          });
+
+          const data = await response.json();
+          setWorkflowResult(data);
+          if (data.success) {
+            message.success('工作流执行成功');
+          } else {
+            message.error('工作流执行失败');
+          }
+        } catch (error) {
+          setWorkflowResult({ error: error.message });
+          message.error(`执行失败: ${error.message}`);
+        } finally {
+          setWorkflowLoading(false);
+        }
+      };
+
+      // 加载示例
+      const loadExample = () => {
+        const example = [
+          {
+            "type": "EchoInput",
+            "params": {
+              "message": "Hello, World!"
+            }
+          },
+          {
+            "type": "SetVar",
+            "params": {
+              "key": "greeting",
+              "value": "Welcome to LangGraph Workflow!"
+            }
+          },
+          {
+            "type": "GetVar",
+            "params": {
+              "key": "greeting"
+            }
+          }
+        ];
+        
+        setWorkflowSteps(JSON.stringify(example, null, 2));
+        setWorkflowContext(JSON.stringify({test: "value"}, null, 2));
+      };
+
+      // 清空工作流
+      const clearWorkflow = () => {
+        setWorkflowSteps('');
+        setWorkflowContext('');
+        setWorkflowResult(null);
+      };
+
+      // 加载模板列表
+      const loadTemplates = async () => {
+        setTemplatesLoading(true);
+        try {
+          const response = await fetch(`${API_BASE}/templates`);
+          const data = await response.json();
+          setTemplates(data.templates || []);
+        } catch (error) {
+          message.error(`加载模板失败: ${error.message}`);
+        } finally {
+          setTemplatesLoading(false);
+        }
+      };
+
+      // 搜索模板
+      const searchTemplates = async () => {
+        if (!searchQuery.trim()) {
+          loadTemplates();
+          return;
+        }
+
+        setTemplatesLoading(true);
+        try {
+          const response = await fetch(`${API_BASE}/templates/search/${encodeURIComponent(searchQuery)}`);
+          const data = await response.json();
+          setTemplates(data.templates || []);
+        } catch (error) {
+          message.error(`搜索失败: ${error.message}`);
+        } finally {
+          setTemplatesLoading(false);
+        }
+      };
+
+      // 查看模板
+      const viewTemplate = async (templateId) => {
+        try {
+          const response = await fetch(`${API_BASE}/templates/${templateId}`);
+          const data = await response.json();
+          const template = data.template;
+          
+          Modal.info({
+            title: template.name,
+            width: 600,
+            content: (
+              <div>
+                <Paragraph><Text strong>描述:</Text> {template.description || '无'}</Paragraph>
+                <Paragraph>
+                  <Text strong>标签:</Text>{' '}
+                  {template.tags && template.tags.length > 0 
+                    ? template.tags.map(tag => <Tag key={tag}>{tag}</Tag>)
+                    : '无'}
+                </Paragraph>
+                <Divider />
+                <Paragraph><Text strong>步骤:</Text></Paragraph>
+                <pre style={{ background: '#f5f5f5', padding: '12px', borderRadius: '4px', overflow: 'auto' }}>
+                  {JSON.stringify(template.steps, null, 2)}
+                </pre>
+              </div>
+            )
+          });
+        } catch (error) {
+          message.error(`查看模板失败: ${error.message}`);
+        }
+      };
+
+      // 执行模板
+      const executeTemplate = async (templateId) => {
+        let contextValue = '{}';
+        
+        Modal.confirm({
+          title: '执行模板',
+          content: (
+            <div>
+              <Paragraph>请输入初始上下文 (JSON格式，可选):</Paragraph>
+              <TextArea 
+                id="templateContext"
+                rows={4}
+                placeholder='{"key": "value"}'
+                defaultValue="{}"
+                onChange={(e) => { contextValue = e.target.value; }}
+              />
+            </div>
+          ),
+          onOk: async () => {
+            try {
+              const contextText = document.getElementById('templateContext')?.value?.trim() || contextValue.trim();
+              const initial_context = contextText ? JSON.parse(contextText) : {};
+              
+              const response = await fetch(`${API_BASE}/templates/${templateId}/execute`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ initial_context })
+              });
+
+              const data = await response.json();
+              
+              Modal.success({
+                title: '执行结果',
+                width: 600,
+                content: (
+                  <pre style={{ background: '#f5f5f5', padding: '12px', borderRadius: '4px', overflow: 'auto', maxHeight: '400px' }}>
+                    {JSON.stringify(data, null, 2)}
+                  </pre>
+                )
+              });
+            } catch (error) {
+              message.error(`执行失败: ${error.message}`);
+            }
+          }
+        });
+      };
+
+      // 编辑模板
+      const editTemplate = async (templateId) => {
+        try {
+          const response = await fetch(`${API_BASE}/templates/${templateId}`);
+          const data = await response.json();
+          const template = data.template;
+
+          setCurrentTemplate(templateId);
+          setTemplateForm({
+            name: template.name,
+            description: template.description || '',
+            tags: template.tags ? template.tags.join(', ') : '',
+            steps: JSON.stringify(template.steps, null, 2)
+          });
+          setTemplateDialogVisible(true);
+        } catch (error) {
+          message.error(`加载模板失败: ${error.message}`);
+        }
+      };
+
+      // 显示创建模板对话框
+      const showCreateTemplate = () => {
+        setCurrentTemplate(null);
+        setTemplateForm({
+          name: '',
+          description: '',
+          tags: '',
+          steps: ''
+        });
+        setTemplateDialogVisible(true);
+      };
+
+      // 保存模板
+      const saveTemplate = async () => {
+        if (!templateForm.name.trim()) {
+          message.error('请输入模板名称');
+          return;
+        }
+
+        if (!templateForm.steps.trim()) {
+          message.error('请输入步骤');
+          return;
+        }
+
+        try {
+          const tags = templateForm.tags.trim() 
+            ? templateForm.tags.split(',').map(t => t.trim()).filter(t => t) 
+            : [];
+          const steps = JSON.parse(templateForm.steps);
+
+          const requestBody = {
+            name: templateForm.name.trim(),
+            description: templateForm.description.trim() || null,
+            steps,
+            tags: tags.length > 0 ? tags : null
+          };
+
+          let response;
+          if (currentTemplate) {
+            response = await fetch(`${API_BASE}/templates/${currentTemplate}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(requestBody)
+            });
+          } else {
+            response = await fetch(`${API_BASE}/templates`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(requestBody)
+            });
+          }
+
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '保存失败');
+          }
+
+          message.success('保存成功！');
+          setTemplateDialogVisible(false);
+          loadTemplates();
+        } catch (error) {
+          message.error(`保存失败: ${error.message}`);
+        }
+      };
+
+      // 删除模板
+      const deleteTemplate = async (templateId) => {
+        Modal.confirm({
+          title: '确认删除',
+          content: '确定要删除这个模板吗？',
+          onOk: async () => {
+            try {
+              const response = await fetch(`${API_BASE}/templates/${templateId}`, {
+                method: 'DELETE'
+              });
+
+              if (!response.ok) {
+                throw new Error('删除失败');
+              }
+
+              message.success('删除成功！');
+              loadTemplates();
+            } catch (error) {
+              message.error(`删除失败: ${error.message}`);
+            }
+          }
+        });
+      };
+
+      // 加载步骤列表
+      const loadSteps = async () => {
+        setStepsLoading(true);
+        try {
+          const response = await fetch(`${API_BASE}/steps`);
+          const data = await response.json();
+          setSteps(data.steps || {});
+        } catch (error) {
+          message.error(`加载步骤失败: ${error.message}`);
+        } finally {
+          setStepsLoading(false);
+        }
+      };
+
+      // 工作流执行标签页
+      const WorkflowTab = () => (
+        <div>
+          <Title level={4}>执行工作流</Title>
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            <div>
+              <Text strong>工作流步骤 (JSON)</Text>
+              <TextArea
+                value={workflowSteps}
+                onChange={(e) => setWorkflowSteps(e.target.value)}
+                placeholder='[{"type": "EchoInput", "params": {"message": "Hello"}}, {"type": "SetVar", "params": {"key": "test", "value": "value"}}]'
+                rows={8}
+                style={{ fontFamily: 'Monaco, Menlo, Courier New, monospace' }}
+              />
+            </div>
+            <div>
+              <Text strong>初始上下文 (JSON, 可选)</Text>
+              <TextArea
+                value={workflowContext}
+                onChange={(e) => setWorkflowContext(e.target.value)}
+                placeholder='{"key": "value"}'
+                rows={4}
+                style={{ fontFamily: 'Monaco, Menlo, Courier New, monospace' }}
+              />
+            </div>
+            <Checkbox checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)}>
+              调试模式
+            </Checkbox>
+            <Space>
+              <Button type="primary" onClick={executeWorkflow} loading={workflowLoading}>
+                执行工作流
+              </Button>
+              <Button onClick={loadExample}>加载示例</Button>
+              <Button onClick={clearWorkflow}>清空</Button>
+            </Space>
+            {workflowResult && (
+              <div className={`result-box ${workflowResult.success ? 'success' : 'error'}`}>
+                <pre>{JSON.stringify(workflowResult, null, 2)}</pre>
+              </div>
+            )}
+          </Space>
+        </div>
+      );
+
+      // 模板管理标签页
+      const TemplatesTab = () => (
+        <div>
+          <Title level={4}>模板管理</Title>
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            <Space style={{ width: '100%', marginBottom: 16 }} size="small">
+              <Input
+                style={{ flex: 1 }}
+                placeholder="搜索模板..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onPressEnter={searchTemplates}
+              />
+              <Button onClick={searchTemplates}>搜索</Button>
+              <Button onClick={loadTemplates}>刷新列表</Button>
+            </Space>
+            <Button type="primary" onClick={showCreateTemplate}>
+              创建新模板
+            </Button>
+            <Spin spinning={templatesLoading}>
+              {templates.length === 0 ? (
+                <Alert message="暂无模板" type="info" />
+              ) : (
+                <div>
+                  {templates.map(template => (
+                    <Card
+                      key={template.id}
+                      className="template-card"
+                      title={template.name}
+                      extra={
+                        <Space>
+                          <Button size="small" onClick={() => viewTemplate(template.id)}>查看</Button>
+                          <Button size="small" type="primary" onClick={() => executeTemplate(template.id)}>执行</Button>
+                          <Button size="small" onClick={() => editTemplate(template.id)}>编辑</Button>
+                          <Button size="small" danger onClick={() => deleteTemplate(template.id)}>删除</Button>
+                        </Space>
+                      }
+                    >
+                      <Paragraph>{template.description || '无描述'}</Paragraph>
+                      <div className="template-tags">
+                        {template.tags && template.tags.map(tag => (
+                          <Tag key={tag} color="blue">{tag}</Tag>
+                        ))}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </Spin>
+          </Space>
+          
+          {/* 创建/编辑模板对话框 */}
+          <Modal
+            title={currentTemplate ? '编辑模板' : '创建模板'}
+            visible={templateDialogVisible}
+            onOk={saveTemplate}
+            onCancel={() => setTemplateDialogVisible(false)}
+            width={800}
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <div>
+                <Text strong>模板名称</Text>
+                <Input
+                  value={templateForm.name}
+                  onChange={(e) => setTemplateForm({...templateForm, name: e.target.value})}
+                  placeholder="输入模板名称"
+                />
+              </div>
+              <div>
+                <Text strong>描述</Text>
+                <Input
+                  value={templateForm.description}
+                  onChange={(e) => setTemplateForm({...templateForm, description: e.target.value})}
+                  placeholder="输入模板描述"
+                />
+              </div>
+              <div>
+                <Text strong>标签 (逗号分隔)</Text>
+                <Input
+                  value={templateForm.tags}
+                  onChange={(e) => setTemplateForm({...templateForm, tags: e.target.value})}
+                  placeholder="例如: 基础,示例"
+                />
+              </div>
+              <div>
+                <Text strong>步骤 (JSON)</Text>
+                <TextArea
+                  value={templateForm.steps}
+                  onChange={(e) => setTemplateForm({...templateForm, steps: e.target.value})}
+                  placeholder='[{"type": "EchoInput", "params": {"message": "Hello"}}]'
+                  rows={10}
+                  style={{ fontFamily: 'Monaco, Menlo, Courier New, monospace' }}
+                />
+              </div>
+            </Space>
+          </Modal>
+        </div>
+      );
+
+      // 步骤注册表标签页
+      const StepsTab = () => (
+        <div>
+          <Title level={4}>步骤注册表</Title>
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            <Button onClick={loadSteps} loading={stepsLoading}>刷新步骤列表</Button>
+            <div className="steps-grid">
+              {Object.entries(steps).map(([stepName, stepClass]) => (
+                <div key={stepName} className="step-item">
+                  {stepName} ({stepClass})
+                </div>
+              ))}
+            </div>
+          </Space>
+        </div>
+      );
+
+      // 健康检查标签页
+      const HealthTab = () => (
+        <div>
+          <Title level={4}>健康检查</Title>
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            <Button type="primary" onClick={checkHealth}>检查服务状态</Button>
+            {healthResult && (
+              <div className={`result-box ${healthResult.error ? 'error' : 'success'}`}>
+                <pre>{JSON.stringify(healthResult, null, 2)}</pre>
+              </div>
+            )}
+          </Space>
+        </div>
+      );
+
+      return (
+        <div className="app-container">
+          <div className="app-header">
+            <h1>🚀 Workflow API 测试工具</h1>
+            <Space>
+              <span className={`status-indicator ${status.online ? '' : 'offline'}`}></span>
+              <Text style={{ color: 'white' }}>
+                {status.checking ? '检查中...' : (status.online ? '在线' : '离线')}
+              </Text>
+            </Space>
+          </div>
+          <div className="app-content">
+            <Tabs activeKey={activeTab} onChange={setActiveTab}>
+              <TabPane tab="工作流执行" key="workflow">
+                <WorkflowTab />
+              </TabPane>
+              <TabPane tab="模板管理" key="templates">
+                <TemplatesTab />
+              </TabPane>
+              <TabPane tab="步骤注册表" key="steps">
+                <StepsTab />
+              </TabPane>
+              <TabPane tab="健康检查" key="health">
+                <HealthTab />
+              </TabPane>
+            </Tabs>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
