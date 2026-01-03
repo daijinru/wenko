@@ -9,3 +9,5 @@ logs
 
 .langgraph_api/
 __pycache__/
+
+.trae

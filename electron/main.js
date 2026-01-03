@@ -86,7 +86,7 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
         webSecurity: false  // 关闭同源策略和 CSP 检查，方便开发加载任意脚本
       }
     });
-    shortcutWindow.loadFile('workflow.html');
+    shortcutWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   } else {
     console.warn('Unknown action:', action);
   }

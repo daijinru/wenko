@@ -5,12 +5,16 @@
   "main": "main.js",
   "scripts": {
     "start": "electronmon .",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dev": "vite",
+    "build": "vite build",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
     "electron-builder": "^26.0.12",
-    "electronmon": "^2.0.3"
+    "electronmon": "^2.0.3",
+    "vite": "^7.3.0"
   },
   "build": {
     "appId": "com.daijinru.wenko",
@@ -20,7 +24,12 @@
     ]
   },
   "dependencies": {
+    "@ant-design/icons": "^6.1.0",
+    "antd": "^4.24.16",
     "electron": "^38.1.0",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "moment": "^2.30.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   }
 }
