@@ -10,9 +10,11 @@ import {
   fa_shirt,
   fa_camera_retro,
   fa_info_circle,
-  fa_xmark
+  fa_xmark,
+  fa_plus
 } from './icons.js';
-import { showMessage, i18n } from './message.js';
+import { showMessage, showSSEMessage, i18n } from './message.js';
+import { createNewSession } from './chat.js';
 import type { Config, ModelManager } from './model.js';
 import type { Tips } from './widget.js';
 
@@ -55,6 +57,14 @@ class ToolsManager {
         icon: fa_paper_plane,
         callback: () => {
           window.electronAPI.send('wenko_shortcut', {action: 'open'});
+        }
+      },
+      newChat: {
+        icon: fa_plus,
+        callback: () => {
+          createNewSession();
+          // 显示提示消息
+          showSSEMessage('<div class="wenko-chat-system">已创建新会话</div>', 'wenko-chat-system-msg');
         }
       },
     };

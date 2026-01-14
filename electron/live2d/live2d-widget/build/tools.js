@@ -1,4 +1,6 @@
-import { fa_comment, fa_paper_plane } from './icons.js';
+import { fa_comment, fa_paper_plane, fa_plus } from './icons.js';
+import { showSSEMessage } from './message.js';
+import { createNewSession } from './chat.js';
 class ToolsManager {
     constructor(model, config, tips) {
         this.config = config;
@@ -12,6 +14,13 @@ class ToolsManager {
                 icon: fa_paper_plane,
                 callback: () => {
                     window.electronAPI.send('wenko_shortcut', { action: 'open' });
+                }
+            },
+            newChat: {
+                icon: fa_plus,
+                callback: () => {
+                    createNewSession();
+                    showSSEMessage('<div class="wenko-chat-system">已创建新会话</div>', 'wenko-chat-system-msg');
                 }
             },
         };
