@@ -59,6 +59,13 @@ function App() {
   // 健康检查状态
   const [healthResult, setHealthResult] = useState(null);
 
+  // 聊天记录状态
+  const [chatSessions, setChatSessions] = useState([]);
+  const [chatSessionsLoading, setChatSessionsLoading] = useState(false);
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [sessionMessages, setSessionMessages] = useState([]);
+  const [sessionMessagesLoading, setSessionMessagesLoading] = useState(false);
+
   // 检查服务状态
   const checkHealth = useCallback(async () => {
     try {
@@ -624,6 +631,112 @@ function App() {
     }
   };
 
+  // ============ 聊天记录相关函数 ============
+
+  // 加载聊天会话列表
+  const loadChatSessions = async () => {
+    setChatSessionsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/chat/history`);
+      const data = await response.json();
+      setChatSessions(data.sessions || []);
+    } catch (error) {
+      message.error(`加载聊天记录失败: ${error.message}`);
+    } finally {
+      setChatSessionsLoading(false);
+    }
+  };
+
+  // 查看会话详情
+  const viewSessionDetail = async (sessionId) => {
+    setSelectedSession(sessionId);
+    setSessionMessagesLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/chat/history/${sessionId}`);
+      const data = await response.json();
+      setSessionMessages(data.messages || []);
+    } catch (error) {
+      message.error(`加载会话详情失败: ${error.message}`);
+      setSessionMessages([]);
+    } finally {
+      setSessionMessagesLoading(false);
+    }
+  };
+
+  // 删除单个会话
+  const deleteChatSession = async (sessionId) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这个聊天会话吗？所有消息将被永久删除。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const response = await fetch(`${API_BASE}/chat/history/${sessionId}`, {
+            method: 'DELETE'
+          });
+
+          if (!response.ok) {
+            throw new Error('删除失败');
+          }
+
+          message.success('删除成功');
+          loadChatSessions();
+          if (selectedSession === sessionId) {
+            setSelectedSession(null);
+            setSessionMessages([]);
+          }
+        } catch (error) {
+          message.error(`删除失败: ${error.message}`);
+        }
+      }
+    });
+  };
+
+  // 清空所有聊天记录
+  const clearAllChatHistory = async () => {
+    Modal.confirm({
+      title: '确认清空',
+      content: '确定要清空所有聊天记录吗？此操作不可恢复！',
+      okText: '清空全部',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const response = await fetch(`${API_BASE}/chat/history`, {
+            method: 'DELETE'
+          });
+
+          if (!response.ok) {
+            throw new Error('清空失败');
+          }
+
+          const data = await response.json();
+          message.success(`已清空 ${data.deleted_count || 0} 个会话`);
+          setChatSessions([]);
+          setSelectedSession(null);
+          setSessionMessages([]);
+        } catch (error) {
+          message.error(`清空失败: ${error.message}`);
+        }
+      }
+    });
+  };
+
+  // 格式化时间
+  const formatTime = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   // 工作流执行标签页
   const WorkflowTab = () => (
     <div>
@@ -753,6 +866,133 @@ function App() {
     </div>
   );
 
+  // 聊天记录标签页
+  const ChatHistoryTab = () => (
+    <div>
+      <Title level={4}>聊天记录</Title>
+      <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Space>
+          <Button type="primary" onClick={loadChatSessions} loading={chatSessionsLoading}>
+            刷新列表
+          </Button>
+          <Button danger onClick={clearAllChatHistory} disabled={chatSessions.length === 0}>
+            清空所有记录
+          </Button>
+        </Space>
+
+        <div style={{ display: 'flex', gap: '16px' }}>
+          {/* 会话列表 */}
+          <div style={{ width: '40%', minWidth: '300px' }}>
+            <Title level={5}>会话列表</Title>
+            <Spin spinning={chatSessionsLoading}>
+              {chatSessions.length === 0 ? (
+                <Alert message="暂无聊天记录" type="info" />
+              ) : (
+                <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                  {chatSessions.map(session => (
+                    <Card
+                      key={session.id}
+                      size="small"
+                      style={{
+                        marginBottom: '8px',
+                        cursor: 'pointer',
+                        borderColor: selectedSession === session.id ? '#1890ff' : undefined,
+                        backgroundColor: selectedSession === session.id ? '#e6f7ff' : undefined
+                      }}
+                      onClick={() => viewSessionDetail(session.id)}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                          <Text strong style={{
+                            display: 'block',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}>
+                            {session.title || '(无标题)'}
+                          </Text>
+                          <Text type="secondary" style={{ fontSize: '12px' }}>
+                            {formatTime(session.updated_at)}
+                          </Text>
+                          <Tag color="blue" style={{ marginLeft: '8px' }}>
+                            {session.message_count} 条消息
+                          </Tag>
+                        </div>
+                        <Button
+                          size="small"
+                          danger
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteChatSession(session.id);
+                          }}
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </Spin>
+          </div>
+
+          {/* 消息详情 */}
+          <div style={{ flex: 1, minWidth: '400px' }}>
+            <Title level={5}>消息详情</Title>
+            <Spin spinning={sessionMessagesLoading}>
+              {!selectedSession ? (
+                <Alert message="请选择一个会话查看详情" type="info" />
+              ) : sessionMessages.length === 0 ? (
+                <Alert message="该会话暂无消息" type="info" />
+              ) : (
+                <div style={{
+                  maxHeight: '500px',
+                  overflowY: 'auto',
+                  padding: '12px',
+                  backgroundColor: '#fafafa',
+                  borderRadius: '4px'
+                }}>
+                  {sessionMessages.map((msg, index) => (
+                    <div
+                      key={msg.id || index}
+                      style={{
+                        marginBottom: '12px',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        backgroundColor: msg.role === 'user' ? '#e6f7ff' : '#f6ffed',
+                        borderLeft: `3px solid ${msg.role === 'user' ? '#1890ff' : '#52c41a'}`
+                      }}
+                    >
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginBottom: '4px'
+                      }}>
+                        <Tag color={msg.role === 'user' ? 'blue' : 'green'}>
+                          {msg.role === 'user' ? '用户' : 'AI'}
+                        </Tag>
+                        <Text type="secondary" style={{ fontSize: '11px' }}>
+                          {formatTime(msg.created_at)}
+                        </Text>
+                      </div>
+                      <div style={{
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        fontSize: '14px'
+                      }}>
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Spin>
+          </div>
+        </div>
+      </Space>
+    </div>
+  );
+
   return (
     <div className="app-container">
       <div className="app-header">
@@ -765,12 +1005,21 @@ function App() {
         </Space>
       </div>
       <div className="app-content">
-        <Tabs activeKey={activeTab} onChange={setActiveTab}>
+        <Tabs activeKey={activeTab} onChange={(key) => {
+          setActiveTab(key);
+          // 切换到聊天记录 Tab 时自动加载数据
+          if (key === 'chatHistory' && chatSessions.length === 0) {
+            loadChatSessions();
+          }
+        }}>
           <TabPane tab="工作流执行" key="workflow">
             <WorkflowTab />
           </TabPane>
           <TabPane tab="模板管理" key="templates">
             <TemplatesTab />
+          </TabPane>
+          <TabPane tab="聊天记录" key="chatHistory">
+            <ChatHistoryTab />
           </TabPane>
           <TabPane tab="步骤注册表" key="steps">
             <StepsTab />

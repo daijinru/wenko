@@ -18,6 +18,7 @@ import uvicorn
 
 from graph import workflow_graph
 from steps import STEP_REGISTRY
+import chat_db
 
 
 # Chat 相关配置和模型
@@ -130,6 +131,43 @@ class DeleteResponse(BaseModel):
     """删除响应"""
     success: bool
     message: str
+
+
+# 聊天记录相关模型
+class ChatSessionInfo(BaseModel):
+    """会话信息"""
+    id: str
+    created_at: str
+    updated_at: str
+    title: Optional[str] = None
+    message_count: int = 0
+
+
+class ChatMessageInfo(BaseModel):
+    """消息信息"""
+    id: int
+    session_id: str
+    role: str
+    content: str
+    created_at: str
+
+
+class ChatHistoryListResponse(BaseModel):
+    """聊天会话列表响应"""
+    sessions: List[ChatSessionInfo]
+    count: int
+
+
+class ChatSessionDetailResponse(BaseModel):
+    """会话详情响应"""
+    session: ChatSessionInfo
+    messages: List[ChatMessageInfo]
+
+
+class ChatHistoryDeleteResponse(BaseModel):
+    """删除聊天记录响应"""
+    success: bool
+    deleted_count: Optional[int] = None
 
 
 # 存储接口抽象层
@@ -286,6 +324,13 @@ app = FastAPI(
     description="基于 LangGraph 和 FastAPI 的工作流编排系统",
     version="0.1.0"
 )
+
+
+# 初始化聊天记录数据库
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时初始化数据库"""
+    chat_db.init_database()
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -451,7 +496,10 @@ async def run_workflow(request: WorkflowRequest):
 
 
 async def stream_chat_response(request: ChatRequest):
-    """流式调用 LLM API 并生成 SSE 事件"""
+    """流式调用 LLM API 并生成 SSE 事件
+
+    如果提供了 session_id，消息会自动保存到数据库。
+    """
     try:
         config = load_chat_config()
     except FileNotFoundError as e:
@@ -460,6 +508,14 @@ async def stream_chat_response(request: ChatRequest):
     except Exception as e:
         yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"配置加载失败: {str(e)}"}})}\n\n'
         return
+
+    # 如果提供了 session_id，保存用户消息到数据库
+    if request.session_id:
+        try:
+            chat_db.add_message(request.session_id, "user", request.message)
+        except Exception as e:
+            # 数据库保存失败不影响对话，仅记录日志
+            print(f"保存用户消息失败: {e}")
 
     # 构建消息列表
     messages = [{"role": "system", "content": config.system_prompt}]
@@ -488,6 +544,9 @@ async def stream_chat_response(request: ChatRequest):
         "Content-Type": "application/json"
     }
 
+    # 用于收集完整的助手响应
+    assistant_response = ""
+
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
@@ -511,9 +570,17 @@ async def stream_chat_response(request: ChatRequest):
                             delta = chunk.get("choices", [{}])[0].get("delta", {})
                             content = delta.get("content", "")
                             if content:
+                                assistant_response += content
                                 yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": content}})}\n\n'
                         except json.JSONDecodeError:
                             continue
+
+        # 如果提供了 session_id 且有响应，保存助手消息到数据库
+        if request.session_id and assistant_response:
+            try:
+                chat_db.add_message(request.session_id, "assistant", assistant_response)
+            except Exception as e:
+                print(f"保存助手消息失败: {e}")
 
         yield f'event: done\ndata: {json.dumps({"type": "done"})}\n\n'
 
@@ -537,6 +604,95 @@ async def chat(request: ChatRequest):
             "X-Accel-Buffering": "no"
         }
     )
+
+
+# ============ 聊天历史记录 API ============
+
+@app.get("/chat/history", response_model=ChatHistoryListResponse)
+async def get_chat_history(limit: int = 100, offset: int = 0):
+    """获取聊天会话列表
+
+    返回所有会话，按 updated_at 降序排列。
+    """
+    try:
+        sessions = chat_db.list_sessions(limit=limit, offset=offset)
+        session_list = [
+            ChatSessionInfo(
+                id=s["id"],
+                created_at=s["created_at"],
+                updated_at=s["updated_at"],
+                title=s.get("title"),
+                message_count=s.get("message_count", 0)
+            )
+            for s in sessions
+        ]
+        return ChatHistoryListResponse(sessions=session_list, count=len(session_list))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取会话列表失败: {str(e)}")
+
+
+@app.get("/chat/history/{session_id}", response_model=ChatSessionDetailResponse)
+async def get_chat_session(session_id: str):
+    """获取特定会话的详情和消息列表"""
+    try:
+        result = chat_db.get_session_with_messages(session_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="会话不存在")
+
+        session = result["session"]
+        messages = result["messages"]
+
+        # 计算消息数
+        message_count = len(messages)
+
+        session_info = ChatSessionInfo(
+            id=session["id"],
+            created_at=session["created_at"],
+            updated_at=session["updated_at"],
+            title=session.get("title"),
+            message_count=message_count
+        )
+
+        message_list = [
+            ChatMessageInfo(
+                id=m["id"],
+                session_id=m["session_id"],
+                role=m["role"],
+                content=m["content"],
+                created_at=m["created_at"]
+            )
+            for m in messages
+        ]
+
+        return ChatSessionDetailResponse(session=session_info, messages=message_list)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取会话详情失败: {str(e)}")
+
+
+@app.delete("/chat/history/{session_id}", response_model=ChatHistoryDeleteResponse)
+async def delete_chat_session(session_id: str):
+    """删除特定会话及其所有消息"""
+    try:
+        success = chat_db.delete_session(session_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        return ChatHistoryDeleteResponse(success=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除会话失败: {str(e)}")
+
+
+@app.delete("/chat/history", response_model=ChatHistoryDeleteResponse)
+async def clear_chat_history():
+    """清空所有聊天记录"""
+    try:
+        deleted_count = chat_db.delete_all_sessions()
+        return ChatHistoryDeleteResponse(success=True, deleted_count=deleted_count)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清空聊天记录失败: {str(e)}")
 
 
 if __name__ == "__main__":

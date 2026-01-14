@@ -1,6 +1,9 @@
 /**
  * @file Chat module for Live2D AI conversation.
  * @module chat
+ *
+ * Uses localStorage to persist session_id across page reloads.
+ * Messages are saved to backend SQLite database when session_id is provided.
  */
 
 // @ts-ignore
@@ -9,6 +12,8 @@ import { showSSEMessage } from './message.js';
 
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const MAX_HISTORY_LENGTH = 10;
+const SESSION_ID_KEY = 'wenko-chat-session-id';
+const HISTORY_KEY = 'wenko-chat-history';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -16,14 +21,53 @@ export interface ChatMessage {
 }
 
 /**
- * ChatHistoryManager - 管理对话历史
+ * 生成 UUID v4
+ */
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+/**
+ * SessionManager - 管理会话 ID
+ */
+class SessionManager {
+  getSessionId(): string {
+    let sessionId = localStorage.getItem(SESSION_ID_KEY);
+    if (!sessionId) {
+      sessionId = generateUUID();
+      localStorage.setItem(SESSION_ID_KEY, sessionId);
+    }
+    return sessionId;
+  }
+
+  createNewSession(): string {
+    const sessionId = generateUUID();
+    localStorage.setItem(SESSION_ID_KEY, sessionId);
+    // 清除本地历史记录
+    localStorage.removeItem(HISTORY_KEY);
+    return sessionId;
+  }
+
+  clearSession(): void {
+    localStorage.removeItem(SESSION_ID_KEY);
+    localStorage.removeItem(HISTORY_KEY);
+  }
+}
+
+/**
+ * ChatHistoryManager - 管理本地对话历史（用于发送给 LLM 的上下文）
+ *
+ * 注意：消息同时会保存到后端数据库（通过 session_id）
+ * 本地历史仅用于构建 LLM 请求的 history 参数
  */
 class ChatHistoryManager {
-  private storageKey = 'wenko-chat-history';
-
   getHistory(): ChatMessage[] {
     try {
-      const data = sessionStorage.getItem(this.storageKey);
+      const data = localStorage.getItem(HISTORY_KEY);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
@@ -40,17 +84,32 @@ class ChatHistoryManager {
       history.splice(0, history.length - maxMessages);
     }
 
-    sessionStorage.setItem(this.storageKey, JSON.stringify(history));
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
   }
 
   clearHistory(): void {
-    sessionStorage.removeItem(this.storageKey);
+    localStorage.removeItem(HISTORY_KEY);
   }
 }
 
+const sessionManager = new SessionManager();
 const historyManager = new ChatHistoryManager();
 
 let isLoading = false;
+
+/**
+ * 获取当前会话 ID
+ */
+export function getSessionId(): string {
+  return sessionManager.getSessionId();
+}
+
+/**
+ * 创建新会话
+ */
+export function createNewSession(): string {
+  return sessionManager.createNewSession();
+}
 
 /**
  * 发送对话消息并处理 SSE 流式响应
@@ -66,7 +125,10 @@ export function sendChatMessage(
 
   isLoading = true;
 
-  // 添加用户消息到历史
+  // 获取当前会话 ID
+  const sessionId = sessionManager.getSessionId();
+
+  // 添加用户消息到本地历史
   historyManager.addMessage({ role: 'user', content: message });
 
   let assistantResponse = '';
@@ -78,6 +140,7 @@ export function sendChatMessage(
     },
     body: JSON.stringify({
       message: message,
+      session_id: sessionId,
       history: historyManager.getHistory().slice(0, -1), // 不包含刚添加的用户消息
     }),
     onopen: (res: Response) => {
@@ -93,7 +156,7 @@ export function sendChatMessage(
             onChunk(data.payload.content);
           }
         } else if (event.event === 'done') {
-          // 添加助手响应到历史
+          // 添加助手响应到本地历史
           if (assistantResponse) {
             historyManager.addMessage({ role: 'assistant', content: assistantResponse });
           }
@@ -111,7 +174,7 @@ export function sendChatMessage(
     },
     onclose: () => {
       if (isLoading) {
-        // 添加助手响应到历史
+        // 添加助手响应到本地历史
         if (assistantResponse) {
           historyManager.addMessage({ role: 'assistant', content: assistantResponse });
         }
@@ -135,10 +198,11 @@ export function isChatLoading(): boolean {
 }
 
 /**
- * 清除对话历史
+ * 清除对话历史并创建新会话
  */
 export function clearChatHistory(): void {
   historyManager.clearHistory();
+  sessionManager.createNewSession();
 }
 
 /**

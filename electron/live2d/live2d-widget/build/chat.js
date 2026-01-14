@@ -2,13 +2,39 @@ import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
 import { showSSEMessage } from './message.js';
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const MAX_HISTORY_LENGTH = 10;
-class ChatHistoryManager {
-    constructor() {
-        this.storageKey = 'wenko-chat-history';
+const SESSION_ID_KEY = 'wenko-chat-session-id';
+const HISTORY_KEY = 'wenko-chat-history';
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+class SessionManager {
+    getSessionId() {
+        let sessionId = localStorage.getItem(SESSION_ID_KEY);
+        if (!sessionId) {
+            sessionId = generateUUID();
+            localStorage.setItem(SESSION_ID_KEY, sessionId);
+        }
+        return sessionId;
     }
+    createNewSession() {
+        const sessionId = generateUUID();
+        localStorage.setItem(SESSION_ID_KEY, sessionId);
+        localStorage.removeItem(HISTORY_KEY);
+        return sessionId;
+    }
+    clearSession() {
+        localStorage.removeItem(SESSION_ID_KEY);
+        localStorage.removeItem(HISTORY_KEY);
+    }
+}
+class ChatHistoryManager {
     getHistory() {
         try {
-            const data = sessionStorage.getItem(this.storageKey);
+            const data = localStorage.getItem(HISTORY_KEY);
             return data ? JSON.parse(data) : [];
         }
         catch (_a) {
@@ -22,20 +48,28 @@ class ChatHistoryManager {
         if (history.length > maxMessages) {
             history.splice(0, history.length - maxMessages);
         }
-        sessionStorage.setItem(this.storageKey, JSON.stringify(history));
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
     }
     clearHistory() {
-        sessionStorage.removeItem(this.storageKey);
+        localStorage.removeItem(HISTORY_KEY);
     }
 }
+const sessionManager = new SessionManager();
 const historyManager = new ChatHistoryManager();
 let isLoading = false;
+export function getSessionId() {
+    return sessionManager.getSessionId();
+}
+export function createNewSession() {
+    return sessionManager.createNewSession();
+}
 export function sendChatMessage(message, onChunk, onDone, onError) {
     if (isLoading)
         return;
     if (!message.trim())
         return;
     isLoading = true;
+    const sessionId = sessionManager.getSessionId();
     historyManager.addMessage({ role: 'user', content: message });
     let assistantResponse = '';
     fetchEventSource(CHAT_API_URL, {
@@ -45,6 +79,7 @@ export function sendChatMessage(message, onChunk, onDone, onError) {
         },
         body: JSON.stringify({
             message: message,
+            session_id: sessionId,
             history: historyManager.getHistory().slice(0, -1),
         }),
         onopen: (res) => {
@@ -101,6 +136,7 @@ export function isChatLoading() {
 }
 export function clearChatHistory() {
     historyManager.clearHistory();
+    sessionManager.createNewSession();
 }
 export function createChatInput(shadowRoot) {
     const container = document.createElement('div');
