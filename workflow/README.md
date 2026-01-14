@@ -73,6 +73,60 @@ uv run langgraph dev
 - `GET /health` - 健康检查
 - `GET /steps` - 获取步骤注册表
 
+### AI 对话接口
+- `POST /chat` - AI 对话（SSE 流式响应）
+
+## AI 对话功能配置
+
+### 配置文件
+
+1. 复制示例配置文件:
+```bash
+cp chat_config.example.json chat_config.json
+```
+
+2. 编辑 `chat_config.json`，填写您的 API 配置:
+```json
+{
+  "api_base": "https://api.openai.com/v1",
+  "api_key": "your-api-key-here",
+  "model": "gpt-4o-mini",
+  "system_prompt": "你是一个友好的 AI 助手。",
+  "max_tokens": 1024,
+  "temperature": 0.7
+}
+```
+
+### 支持的 LLM 服务商
+
+| 服务商 | API Base URL |
+|--------|-------------|
+| OpenAI | `https://api.openai.com/v1` |
+| DeepSeek | `https://api.deepseek.com/v1` |
+| Azure OpenAI | `https://{your-resource}.openai.azure.com/openai/deployments/{deployment-id}` |
+
+### 请求格式
+
+```json
+{
+  "message": "你好",
+  "history": [
+    {"role": "user", "content": "之前的问题"},
+    {"role": "assistant", "content": "之前的回答"}
+  ]
+}
+```
+
+### 响应格式（SSE）
+
+```
+event: text
+data: {"type": "text", "payload": {"content": "响应片段"}}
+
+event: done
+data: {"type": "done"}
+```
+
 ## 测试工具
 
 项目提供了 Web 测试界面，可通过 Electron 应用访问：

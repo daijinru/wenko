@@ -10,4 +10,7 @@ logs
 .langgraph_api/
 __pycache__/
 
+# Chat config (contains API keys)
+workflow/chat_config.json
+
 .trae

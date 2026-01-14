@@ -4,16 +4,59 @@
 """
 
 import asyncio
+import json
+import os
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import httpx
 import uvicorn
 
 from graph import workflow_graph
 from steps import STEP_REGISTRY
+
+
+# Chat 相关配置和模型
+class ChatMessage(BaseModel):
+    """对话消息"""
+    role: str  # 'user' | 'assistant'
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """对话请求"""
+    message: str
+    session_id: Optional[str] = None
+    history: Optional[List[ChatMessage]] = None
+
+
+class ChatConfig(BaseModel):
+    """对话配置"""
+    api_base: str = "https://api.openai.com/v1"
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    system_prompt: str = "你是一个友好的 AI 助手。"
+    max_tokens: int = 1024
+    temperature: float = 0.7
+
+
+def load_chat_config() -> ChatConfig:
+    """加载对话配置文件"""
+    config_path = os.path.join(os.path.dirname(__file__), "chat_config.json")
+
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f"配置文件不存在: {config_path}。请复制 chat_config.example.json 为 chat_config.json 并填写 API Key。"
+        )
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_data = json.load(f)
+
+    return ChatConfig(**config_data)
 
 
 # 请求模型
@@ -381,10 +424,10 @@ async def run_workflow(request: WorkflowRequest):
             "result": {},
             "error": None
         }
-        
+
         # 执行工作流
         result = await workflow_graph.ainvoke(state)
-        
+
         # 返回结果
         if result["error"]:
             return WorkflowResponse(
@@ -398,13 +441,102 @@ async def run_workflow(request: WorkflowRequest):
                 result=result["result"]["result"],
                 error=result["result"]["error"]
             )
-            
+
     except Exception as e:
         return WorkflowResponse(
             success=False,
             result=None,
             error=f"Unexpected error: {str(e)}"
         )
+
+
+async def stream_chat_response(request: ChatRequest):
+    """流式调用 LLM API 并生成 SSE 事件"""
+    try:
+        config = load_chat_config()
+    except FileNotFoundError as e:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": str(e)}})}\n\n'
+        return
+    except Exception as e:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"配置加载失败: {str(e)}"}})}\n\n'
+        return
+
+    # 构建消息列表
+    messages = [{"role": "system", "content": config.system_prompt}]
+
+    # 添加历史消息
+    if request.history:
+        for msg in request.history:
+            messages.append({"role": msg.role, "content": msg.content})
+
+    # 添加当前用户消息
+    messages.append({"role": "user", "content": request.message})
+
+    # 调用 OpenAI 兼容 API
+    api_url = f"{config.api_base.rstrip('/')}/chat/completions"
+
+    request_body = {
+        "model": config.model,
+        "messages": messages,
+        "max_tokens": config.max_tokens,
+        "temperature": config.temperature,
+        "stream": True
+    }
+
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                api_url,
+                json=request_body,
+                headers=headers
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"API 请求失败: {response.status_code} - {error_text.decode()}"}})}\n\n'
+                    return
+
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": content}})}\n\n'
+                        except json.JSONDecodeError:
+                            continue
+
+        yield f'event: done\ndata: {json.dumps({"type": "done"})}\n\n'
+
+    except httpx.TimeoutException:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": "API 请求超时"}})}\n\n'
+    except httpx.ConnectError:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": "无法连接到 API 服务器"}})}\n\n'
+    except Exception as e:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"请求错误: {str(e)}"}})}\n\n'
+
+
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    """对话接口 - 返回 SSE 流式响应"""
+    return StreamingResponse(
+        stream_chat_response(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 if __name__ == "__main__":

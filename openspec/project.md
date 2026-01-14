@@ -116,12 +116,18 @@ Wenko 是一个工作流编排系统，用于定义和执行自动化工作流�
 ## External Dependencies
 
 ### 必需服务
-- Python 后端服务 (默认端口: 8080)
+- Python 后端服务 (默认端口: 8002)
 
 ### 可选服务
 - Ollama (本地 LLM 推理)
 - Docker (容器化部署)
 
+### 远程 LLM API（AI 对话功能）
+- 支持 OpenAI 兼容接口（OpenAI、DeepSeek、Azure OpenAI 等）
+- 配置文件: `workflow/chat_config.json`（git 忽略，保护 API Key）
+- 示例配置: `workflow/chat_config.example.json`
+
 ### Live2D
 - Live2D Cubism SDK Web
 - 模型文件存放在 `/electron/public/live2d/`
+- 支持 AI 对话功能（通过 Chat API）
