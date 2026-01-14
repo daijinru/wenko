@@ -1,3 +1,0 @@
-[submodule "electron/live2d/live2d-widget"]
-	path = electron/live2d/live2d-widget
-	url = https://github.com/daijinru/live2d-widget.git
