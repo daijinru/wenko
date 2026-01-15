@@ -5,12 +5,19 @@
 
 import asyncio
 import json
+import logging
 import os
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import httpx
@@ -322,19 +329,25 @@ class StepTemplateStorage(StepTemplateStorageInterface):
 template_storage = StepTemplateStorage()
 
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时初始化数据库
+    chat_db.init_database()
+    yield
+    # 关闭时的清理操作（如需要）
+
+
 # 创建 FastAPI 应用
 app = FastAPI(
     title="LangGraph 工作流系统",
     description="基于 LangGraph 和 FastAPI 的工作流编排系统",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan
 )
-
-
-# 初始化聊天记录数据库
-@app.on_event("startup")
-async def startup_event():
-    """应用启动时初始化数据库"""
-    chat_db.init_database()
 
 
 @app.get("/health", response_model=HealthResponse)

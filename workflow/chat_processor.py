@@ -27,6 +27,7 @@ from response_strategy import (
 # ============ Configuration ============
 
 # Environment variable to toggle memory/emotion system
+# Default to True - set USE_MEMORY_EMOTION_SYSTEM=false to disable
 USE_MEMORY_EMOTION_SYSTEM = os.environ.get("USE_MEMORY_EMOTION_SYSTEM", "true").lower() == "true"
 
 # Confidence threshold for emotion degradation
@@ -35,51 +36,32 @@ EMOTION_CONFIDENCE_THRESHOLD = 0.5
 
 # ============ Prompt Templates ============
 
-CHAT_PROMPT_TEMPLATE = """你是一个 AI 助手。请严格按照以下格式输出 JSON 响应。
+CHAT_PROMPT_TEMPLATE = """你是一个友好的 AI 助手。
 
-## 输入信息
-- 用户消息: {user_message}
+用户消息: {user_message}
+
+上下文信息:
 - 工作记忆: {working_memory_summary}
-- 相关长期记忆: {relevant_long_term_memory}
+- 相关记忆: {relevant_long_term_memory}
 
-## 任务 1: 情绪识别
-分析用户消息的情绪状态。可选的情绪类型包括:
-- neutral (无明显情绪)
-- happy, excited, grateful, curious (积极情绪)
-- sad, anxious, frustrated, confused (消极情绪)
-- help_seeking, info_seeking, validation_seeking (寻求型)
-
-## 任务 2: 生成回复
-按照以下策略参数生成回复：
+回复要求:
 {strategy_prompt}
 
-## 任务 3: 记忆更新 (可选)
-如果用户明确表达了偏好、重要事实或习惯模式，建议存储到长期记忆。
+你必须以纯 JSON 格式回复，不要包含任何其他文字或 markdown 标记。JSON 格式如下:
+{{"emotion":{{"primary":"neutral","category":"neutral","confidence":0.8,"indicators":[]}},"response":"你的回复内容","memory_update":{{"should_store":false,"entries":[]}}}}
 
-## 输出格式 (严格 JSON)
-```json
-{{
-  "emotion": {{
-    "primary": "<emotion_type>",
-    "category": "<positive|negative|neutral|seeking>",
-    "confidence": <0.0-1.0>,
-    "indicators": ["<indicator1>", "<indicator2>"]
-  }},
-  "response": "<your response text>",
-  "memory_update": {{
-    "should_store": <true|false>,
-    "entries": [
-      {{
-        "category": "<preference|fact|pattern>",
-        "key": "<memory_key>",
-        "value": "<memory_value>"
-      }}
-    ]
-  }}
-}}
-```
+emotion.primary 可选值: neutral, happy, excited, grateful, curious, sad, anxious, frustrated, confused, help_seeking, info_seeking, validation_seeking
+emotion.category 可选值: neutral, positive, negative, seeking
 
-重要: 只输出 JSON，不要有其他内容。response 字段中直接写回复文本。"""
+重要：如果用户表达了偏好、个人信息或重要事实，必须在 memory_update 中保存。
+- should_store 设为 true
+- entries 中添加条目，key 和 value 必须使用中文
+- category 可选: preference(偏好), fact(事实), pattern(习惯)
+
+示例：用户说"我叫小明，喜欢用Python"，应保存:
+{{"should_store":true,"entries":[{{"category":"fact","key":"用户姓名","value":"小明"}},{{"category":"preference","key":"编程语言偏好","value":"Python"}}]}}
+
+现在请直接输出 JSON:"""
 
 
 SIMPLE_SYSTEM_PROMPT = """你是一个友好的 AI 助手。"""
@@ -130,6 +112,9 @@ def build_chat_context(session_id: str, user_message: str) -> ChatContext:
     Returns:
         ChatContext with all relevant information
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Get or create working memory
     working_memory = memory_manager.get_or_create_working_memory(session_id)
 
@@ -139,12 +124,20 @@ def build_chat_context(session_id: str, user_message: str) -> ChatContext:
         working_memory=working_memory,
     )
 
+    # Debug: log retrieved memories
+    if relevant_memories:
+        logger.info(f"[Memory] 检索到 {len(relevant_memories)} 条相关记忆:")
+        for r in relevant_memories:
+            logger.info(f"  - [{r.memory.category}] {r.memory.key}: {r.memory.value} (score={r.score:.2f})")
+    else:
+        keywords = memory_manager.extract_keywords(user_message)
+        logger.info(f"[Memory] 未检索到相关记忆。提取的关键词: {keywords}")
+
     # Get previous emotion for strategy selection
     previous_emotion = working_memory.last_emotion
 
     # Select strategy based on previous emotion (two-phase strategy)
     if previous_emotion:
-        from emotion_detector import EmotionResult
         prev_emotion_result = EmotionResult(primary=previous_emotion)
         strategy = select_strategy(prev_emotion_result)
     else:
@@ -310,6 +303,9 @@ def _store_suggested_memories(
     Returns:
         List of stored memory info
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     stored = []
 
     for entry in entries:
@@ -327,10 +323,12 @@ def _store_suggested_memories(
                 "category": memory.category,
                 "key": memory.key,
             })
+            logger.info(f"[Memory] 保存记忆: [{memory.category}] {memory.key}: {memory.value}")
         except Exception as e:
-            # Log but don't fail on memory storage errors
-            import logging
-            logging.warning(f"Failed to store memory: {e}")
+            logger.warning(f"Failed to store memory: {e}")
+
+    if not entries:
+        logger.info("[Memory] LLM 未建议保存任何记忆")
 
     return stored
 
@@ -375,9 +373,9 @@ def build_memory_aware_messages(context: ChatContext) -> List[Dict[str, str]]:
 
     # For memory-aware mode, we use a structured prompt that expects JSON output
     # The user message is already included in the system prompt
+    # Use a minimal user message to trigger JSON output
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": "请根据上述信息生成 JSON 格式的响应。"},
     ]
 
 

@@ -178,6 +178,41 @@ def parse_memory_update_from_dict(data: Dict[str, Any]) -> MemoryUpdateSuggestio
     )
 
 
+def _extract_json_from_text(text: str) -> Optional[str]:
+    """Try to extract JSON object from text that may contain markdown or other content.
+
+    Args:
+        text: Raw text that may contain JSON
+
+    Returns:
+        Extracted JSON string or None if not found
+    """
+    import re
+
+    # Try to find JSON in markdown code blocks first
+    # Match ```json ... ``` or ``` ... ```
+    code_block_pattern = r'```(?:json)?\s*([\s\S]*?)```'
+    matches = re.findall(code_block_pattern, text)
+    for match in matches:
+        match = match.strip()
+        if match.startswith('{'):
+            return match
+
+    # Try to find raw JSON object
+    # Look for content between first { and last }
+    first_brace = text.find('{')
+    last_brace = text.rfind('}')
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        potential_json = text[first_brace:last_brace + 1]
+        try:
+            json.loads(potential_json)
+            return potential_json
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
 def parse_llm_output(json_str: str) -> LLMOutputResult:
     """Parse complete LLM output JSON.
 
@@ -208,16 +243,38 @@ def parse_llm_output(json_str: str) -> LLMOutputResult:
     default_emotion = EmotionResult()
     default_memory_update = MemoryUpdateSuggestion()
 
+    # Handle empty input
+    if not json_str or not json_str.strip():
+        logger.warning("Empty LLM output received")
+        return LLMOutputResult(
+            emotion=default_emotion,
+            response="",
+            memory_update=default_memory_update,
+            raw_output=json_str,
+            parse_error="Empty output",
+        )
+
+    # Try direct JSON parse first
+    data = None
     try:
         data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse LLM output as JSON: {e}")
+    except json.JSONDecodeError:
+        # Try to extract JSON from text (may have markdown wrapping)
+        extracted = _extract_json_from_text(json_str)
+        if extracted:
+            try:
+                data = json.loads(extracted)
+            except json.JSONDecodeError:
+                pass
+
+    if data is None:
+        logger.warning(f"Failed to parse LLM output as JSON, using raw text as response")
         return LLMOutputResult(
             emotion=default_emotion,
             response=json_str,  # Use raw output as response
             memory_update=default_memory_update,
             raw_output=json_str,
-            parse_error=f"JSON parse error: {str(e)}",
+            parse_error="JSON parse error",
         )
 
     # Parse emotion
