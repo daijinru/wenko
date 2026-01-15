@@ -19,6 +19,10 @@ import uvicorn
 from graph import workflow_graph
 from steps import STEP_REGISTRY
 import chat_db
+import memory_manager
+import chat_processor
+from emotion_detector import EmotionResult
+from response_strategy import select_strategy, get_tone_description
 
 
 # Chat 相关配置和模型
@@ -499,6 +503,7 @@ async def stream_chat_response(request: ChatRequest):
     """流式调用 LLM API 并生成 SSE 事件
 
     如果提供了 session_id，消息会自动保存到数据库。
+    支持记忆和情绪系统（可通过 USE_MEMORY_EMOTION_SYSTEM 环境变量开关）。
     """
     try:
         config = load_chat_config()
@@ -509,24 +514,37 @@ async def stream_chat_response(request: ChatRequest):
         yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"配置加载失败: {str(e)}"}})}\n\n'
         return
 
+    # 确定 session_id
+    session_id = request.session_id or str(uuid.uuid4())
+
     # 如果提供了 session_id，保存用户消息到数据库
     if request.session_id:
         try:
             chat_db.add_message(request.session_id, "user", request.message)
         except Exception as e:
-            # 数据库保存失败不影响对话，仅记录日志
             print(f"保存用户消息失败: {e}")
 
+    # 检查是否启用记忆/情绪系统
+    use_memory_system = chat_processor.is_memory_emotion_enabled()
+
     # 构建消息列表
-    messages = [{"role": "system", "content": config.system_prompt}]
+    chat_context = None
+    if use_memory_system:
+        try:
+            # 构建带记忆的上下文
+            chat_context = chat_processor.build_chat_context(session_id, request.message)
+            messages = chat_processor.build_memory_aware_messages(chat_context)
+        except Exception as e:
+            print(f"构建记忆上下文失败，回退到简单模式: {e}")
+            use_memory_system = False
 
-    # 添加历史消息
-    if request.history:
-        for msg in request.history:
-            messages.append({"role": msg.role, "content": msg.content})
-
-    # 添加当前用户消息
-    messages.append({"role": "user", "content": request.message})
+    if not use_memory_system:
+        # 简单模式：使用配置的 system_prompt
+        messages = [{"role": "system", "content": config.system_prompt}]
+        if request.history:
+            for msg in request.history:
+                messages.append({"role": msg.role, "content": msg.content})
+        messages.append({"role": "user", "content": request.message})
 
     # 调用 OpenAI 兼容 API
     api_url = f"{config.api_base.rstrip('/')}/chat/completions"
@@ -546,6 +564,7 @@ async def stream_chat_response(request: ChatRequest):
 
     # 用于收集完整的助手响应
     assistant_response = ""
+    detected_emotion = None
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -571,14 +590,38 @@ async def stream_chat_response(request: ChatRequest):
                             content = delta.get("content", "")
                             if content:
                                 assistant_response += content
-                                yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": content}})}\n\n'
+                                # 在记忆模式下，先收集完整响应再解析
+                                if not use_memory_system:
+                                    yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": content}})}\n\n'
                         except json.JSONDecodeError:
                             continue
 
-        # 如果提供了 session_id 且有响应，保存助手消息到数据库
-        if request.session_id and assistant_response:
+        # 处理完整响应
+        final_response = assistant_response
+        if use_memory_system and assistant_response and chat_context:
             try:
-                chat_db.add_message(request.session_id, "assistant", assistant_response)
+                # 解析 LLM 的 JSON 输出
+                chat_result = chat_processor.process_llm_response(assistant_response, chat_context)
+                final_response = chat_result.response
+                detected_emotion = chat_result.emotion
+
+                # 发送解析后的响应文本
+                yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
+
+                # 发送情绪信息
+                if detected_emotion:
+                    yield f'event: emotion\ndata: {json.dumps({"type": "emotion", "payload": {"primary": detected_emotion.primary, "category": detected_emotion.category, "confidence": detected_emotion.confidence}})}\n\n'
+
+            except Exception as e:
+                print(f"解析 LLM 响应失败: {e}")
+                # 回退：直接使用原始响应
+                final_response = chat_processor.extract_response_text(assistant_response)
+                yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
+
+        # 保存助手消息到数据库
+        if request.session_id and final_response:
+            try:
+                chat_db.add_message(request.session_id, "assistant", final_response)
             except Exception as e:
                 print(f"保存助手消息失败: {e}")
 
@@ -693,6 +736,307 @@ async def clear_chat_history():
         return ChatHistoryDeleteResponse(success=True, deleted_count=deleted_count)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"清空聊天记录失败: {str(e)}")
+
+
+# ============ Memory Management API ============
+
+class MemoryEntryInfo(BaseModel):
+    """记忆条目信息"""
+    id: str
+    session_id: Optional[str] = None
+    category: str
+    key: str
+    value: Any
+    confidence: float
+    source: str
+    created_at: str
+    last_accessed: str
+    access_count: int
+
+
+class MemoryEntryCreateRequest(BaseModel):
+    """创建记忆条目请求"""
+    category: str
+    key: str
+    value: Any
+    confidence: float = 0.9
+    source: str = "user_stated"
+
+
+class MemoryEntryUpdateRequest(BaseModel):
+    """更新记忆条目请求"""
+    key: Optional[str] = None
+    value: Optional[Any] = None
+    category: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+class MemoryListResponse(BaseModel):
+    """记忆列表响应"""
+    memories: List[MemoryEntryInfo]
+    total: int
+
+
+class MemoryBatchDeleteRequest(BaseModel):
+    """批量删除请求"""
+    ids: List[str]
+
+
+class MemoryBatchDeleteResponse(BaseModel):
+    """批量删除响应"""
+    success: bool
+    deleted_count: int
+
+
+class MemoryImportRequest(BaseModel):
+    """导入记忆请求"""
+    memories: List[MemoryEntryCreateRequest]
+    mode: str = "skip"  # skip | overwrite | merge
+
+
+class MemoryImportResponse(BaseModel):
+    """导入记忆响应"""
+    success: bool
+    imported_count: int
+    skipped_count: int
+
+
+class WorkingMemoryInfo(BaseModel):
+    """工作记忆信息"""
+    session_id: str
+    current_topic: Optional[str] = None
+    context_variables: Dict[str, Any] = {}
+    turn_count: int
+    last_emotion: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+def _memory_entry_to_info(entry: memory_manager.MemoryEntry) -> MemoryEntryInfo:
+    """Convert MemoryEntry to MemoryEntryInfo."""
+    return MemoryEntryInfo(
+        id=entry.id,
+        session_id=entry.session_id,
+        category=entry.category,
+        key=entry.key,
+        value=entry.value,
+        confidence=entry.confidence,
+        source=entry.source,
+        created_at=entry.created_at.isoformat(),
+        last_accessed=entry.last_accessed.isoformat(),
+        access_count=entry.access_count,
+    )
+
+
+@app.get("/memory/long-term", response_model=MemoryListResponse)
+async def list_long_term_memories(
+    category: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    order_by: str = "last_accessed",
+):
+    """获取长期记忆列表
+
+    支持按类别筛选和分页。
+    """
+    try:
+        entries = memory_manager.list_memory_entries(
+            category=category,
+            limit=limit,
+            offset=offset,
+            order_by=order_by,
+        )
+        total = memory_manager.count_memory_entries(category=category)
+
+        memories = [_memory_entry_to_info(e) for e in entries]
+        return MemoryListResponse(memories=memories, total=total)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取记忆列表失败: {str(e)}")
+
+
+@app.get("/memory/long-term/{memory_id}", response_model=MemoryEntryInfo)
+async def get_long_term_memory(memory_id: str):
+    """获取特定长期记忆详情"""
+    try:
+        entry = memory_manager.get_memory_entry(memory_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="记忆不存在")
+        return _memory_entry_to_info(entry)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取记忆失败: {str(e)}")
+
+
+@app.post("/memory/long-term", response_model=MemoryEntryInfo)
+async def create_long_term_memory(request: MemoryEntryCreateRequest):
+    """手动创建长期记忆条目"""
+    try:
+        entry = memory_manager.create_memory_entry(
+            category=request.category,
+            key=request.key,
+            value=request.value,
+            confidence=request.confidence,
+            source=request.source,
+        )
+        return _memory_entry_to_info(entry)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"创建记忆失败: {str(e)}")
+
+
+@app.put("/memory/long-term/{memory_id}", response_model=MemoryEntryInfo)
+async def update_long_term_memory(memory_id: str, request: MemoryEntryUpdateRequest):
+    """更新长期记忆条目"""
+    try:
+        entry = memory_manager.update_memory_entry(
+            memory_id=memory_id,
+            key=request.key,
+            value=request.value,
+            category=request.category,
+            confidence=request.confidence,
+        )
+        if not entry:
+            raise HTTPException(status_code=404, detail="记忆不存在")
+        return _memory_entry_to_info(entry)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"更新记忆失败: {str(e)}")
+
+
+@app.delete("/memory/long-term/{memory_id}", response_model=DeleteResponse)
+async def delete_long_term_memory(memory_id: str):
+    """删除特定长期记忆"""
+    try:
+        success = memory_manager.delete_memory_entry(memory_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="记忆不存在")
+        return DeleteResponse(success=True, message="记忆删除成功")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除记忆失败: {str(e)}")
+
+
+@app.delete("/memory/long-term", response_model=MemoryBatchDeleteResponse)
+async def clear_all_long_term_memories():
+    """清空所有长期记忆"""
+    try:
+        deleted_count = memory_manager.delete_all_memories()
+        return MemoryBatchDeleteResponse(success=True, deleted_count=deleted_count)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清空记忆失败: {str(e)}")
+
+
+@app.post("/memory/long-term/batch-delete", response_model=MemoryBatchDeleteResponse)
+async def batch_delete_long_term_memories(request: MemoryBatchDeleteRequest):
+    """批量删除长期记忆"""
+    try:
+        deleted_count = 0
+        for memory_id in request.ids:
+            if memory_manager.delete_memory_entry(memory_id):
+                deleted_count += 1
+        return MemoryBatchDeleteResponse(success=True, deleted_count=deleted_count)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"批量删除失败: {str(e)}")
+
+
+@app.get("/memory/long-term/export")
+async def export_long_term_memories():
+    """导出所有长期记忆为 JSON"""
+    try:
+        entries = memory_manager.list_memory_entries(limit=10000)
+        export_data = {
+            "version": "1.0",
+            "exported_at": datetime.now().isoformat(),
+            "memories": [
+                {
+                    "category": e.category,
+                    "key": e.key,
+                    "value": e.value,
+                    "confidence": e.confidence,
+                    "source": e.source,
+                }
+                for e in entries
+            ]
+        }
+        return export_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导出记忆失败: {str(e)}")
+
+
+@app.post("/memory/long-term/import", response_model=MemoryImportResponse)
+async def import_long_term_memories(request: MemoryImportRequest):
+    """导入长期记忆
+
+    mode:
+    - skip: 跳过已存在的（按 key 判断）
+    - overwrite: 覆盖已存在的
+    - merge: 合并（更新 confidence 为较高值）
+    """
+    try:
+        imported_count = 0
+        skipped_count = 0
+
+        # Get existing keys for duplicate detection
+        existing = memory_manager.list_memory_entries(limit=10000)
+        existing_keys = {e.key: e for e in existing}
+
+        for mem in request.memories:
+            if mem.key in existing_keys:
+                if request.mode == "skip":
+                    skipped_count += 1
+                    continue
+                elif request.mode == "overwrite":
+                    memory_manager.delete_memory_entry(existing_keys[mem.key].id)
+                elif request.mode == "merge":
+                    existing_entry = existing_keys[mem.key]
+                    memory_manager.update_memory_entry(
+                        existing_entry.id,
+                        value=mem.value,
+                        confidence=max(existing_entry.confidence, mem.confidence),
+                    )
+                    imported_count += 1
+                    continue
+
+            memory_manager.create_memory_entry(
+                category=mem.category,
+                key=mem.key,
+                value=mem.value,
+                confidence=mem.confidence,
+                source=mem.source,
+            )
+            imported_count += 1
+
+        return MemoryImportResponse(
+            success=True,
+            imported_count=imported_count,
+            skipped_count=skipped_count,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"导入记忆失败: {str(e)}")
+
+
+@app.get("/memory/working/{session_id}", response_model=WorkingMemoryInfo)
+async def get_working_memory(session_id: str):
+    """获取会话的工作记忆"""
+    try:
+        wm = memory_manager.get_working_memory(session_id)
+        if not wm:
+            raise HTTPException(status_code=404, detail="工作记忆不存在")
+        return WorkingMemoryInfo(
+            session_id=wm.session_id,
+            current_topic=wm.current_topic,
+            context_variables=wm.context_variables,
+            turn_count=wm.turn_count,
+            last_emotion=wm.last_emotion,
+            created_at=wm.created_at.isoformat(),
+            updated_at=wm.updated_at.isoformat(),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取工作记忆失败: {str(e)}")
 
 
 if __name__ == "__main__":

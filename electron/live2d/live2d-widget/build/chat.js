@@ -4,6 +4,21 @@ const CHAT_API_URL = 'http://localhost:8002/chat';
 const MAX_HISTORY_LENGTH = 10;
 const SESSION_ID_KEY = 'wenko-chat-session-id';
 const HISTORY_KEY = 'wenko-chat-history';
+const EMOTION_DISPLAY = {
+    neutral: { label: 'Neutral', color: '#9ca3af' },
+    happy: { label: 'Happy', color: '#22c55e' },
+    excited: { label: 'Excited', color: '#f59e0b' },
+    grateful: { label: 'Grateful', color: '#ec4899' },
+    curious: { label: 'Curious', color: '#8b5cf6' },
+    sad: { label: 'Sad', color: '#3b82f6' },
+    anxious: { label: 'Anxious', color: '#ef4444' },
+    frustrated: { label: 'Frustrated', color: '#f97316' },
+    confused: { label: 'Confused', color: '#6366f1' },
+    help_seeking: { label: 'Help', color: '#14b8a6' },
+    info_seeking: { label: 'Info', color: '#0ea5e9' },
+    validation_seeking: { label: 'Validation', color: '#a855f7' },
+};
+let currentEmotion = null;
 function generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
         const r = Math.random() * 16 | 0;
@@ -63,7 +78,7 @@ export function getSessionId() {
 export function createNewSession() {
     return sessionManager.createNewSession();
 }
-export function sendChatMessage(message, onChunk, onDone, onError) {
+export function sendChatMessage(message, onChunk, onDone, onError, onEmotion) {
     if (isLoading)
         return;
     if (!message.trim())
@@ -95,6 +110,17 @@ export function sendChatMessage(message, onChunk, onDone, onError) {
                     if (data.type === 'text' && ((_a = data.payload) === null || _a === void 0 ? void 0 : _a.content)) {
                         assistantResponse += data.payload.content;
                         onChunk(data.payload.content);
+                    }
+                }
+                else if (event.event === 'emotion') {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'emotion' && data.payload) {
+                        currentEmotion = {
+                            primary: data.payload.primary,
+                            category: data.payload.category,
+                            confidence: data.payload.confidence,
+                        };
+                        onEmotion === null || onEmotion === void 0 ? void 0 : onEmotion(currentEmotion);
                     }
                 }
                 else if (event.event === 'done') {
@@ -185,4 +211,55 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+export function getCurrentEmotion() {
+    return currentEmotion;
+}
+export function getEmotionDisplay(emotion) {
+    return EMOTION_DISPLAY[emotion] || { label: emotion, color: '#9ca3af' };
+}
+export function createEmotionIndicator(shadowRoot) {
+    const container = document.createElement('div');
+    container.id = 'wenko-emotion-indicator';
+    container.className = 'wenko-emotion-indicator';
+    container.style.cssText = `
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 100;
+    transition: all 0.3s ease;
+  `;
+    container.innerHTML = `
+    <span class="emotion-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #9ca3af;"></span>
+    <span class="emotion-label">Neutral</span>
+    <span class="emotion-confidence" style="opacity: 0.6; font-size: 10px;"></span>
+  `;
+    return container;
+}
+export function updateEmotionIndicator(container, emotion) {
+    const display = getEmotionDisplay(emotion.primary);
+    const dot = container.querySelector('.emotion-dot');
+    const label = container.querySelector('.emotion-label');
+    const confidence = container.querySelector('.emotion-confidence');
+    if (dot) {
+        dot.style.background = display.color;
+    }
+    if (label) {
+        label.textContent = display.label;
+    }
+    if (confidence) {
+        confidence.textContent = `${Math.round(emotion.confidence * 100)}%`;
+    }
+    container.style.display = 'flex';
+}
+export function hideEmotionIndicator(container) {
+    container.style.display = 'none';
 }

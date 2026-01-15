@@ -20,6 +20,30 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface EmotionInfo {
+  primary: string;
+  category: string;
+  confidence: number;
+}
+
+// Emotion display configuration
+const EMOTION_DISPLAY: Record<string, { label: string; color: string }> = {
+  neutral: { label: 'Neutral', color: '#9ca3af' },
+  happy: { label: 'Happy', color: '#22c55e' },
+  excited: { label: 'Excited', color: '#f59e0b' },
+  grateful: { label: 'Grateful', color: '#ec4899' },
+  curious: { label: 'Curious', color: '#8b5cf6' },
+  sad: { label: 'Sad', color: '#3b82f6' },
+  anxious: { label: 'Anxious', color: '#ef4444' },
+  frustrated: { label: 'Frustrated', color: '#f97316' },
+  confused: { label: 'Confused', color: '#6366f1' },
+  help_seeking: { label: 'Help', color: '#14b8a6' },
+  info_seeking: { label: 'Info', color: '#0ea5e9' },
+  validation_seeking: { label: 'Validation', color: '#a855f7' },
+};
+
+let currentEmotion: EmotionInfo | null = null;
+
 /**
  * 生成 UUID v4
  */
@@ -118,7 +142,8 @@ export function sendChatMessage(
   message: string,
   onChunk: (text: string) => void,
   onDone?: () => void,
-  onError?: (error: string) => void
+  onError?: (error: string) => void,
+  onEmotion?: (emotion: EmotionInfo) => void
 ): void {
   if (isLoading) return;
   if (!message.trim()) return;
@@ -154,6 +179,17 @@ export function sendChatMessage(
           if (data.type === 'text' && data.payload?.content) {
             assistantResponse += data.payload.content;
             onChunk(data.payload.content);
+          }
+        } else if (event.event === 'emotion') {
+          // Handle emotion event
+          const data = JSON.parse(event.data);
+          if (data.type === 'emotion' && data.payload) {
+            currentEmotion = {
+              primary: data.payload.primary,
+              category: data.payload.category,
+              confidence: data.payload.confidence,
+            };
+            onEmotion?.(currentEmotion);
           }
         } else if (event.event === 'done') {
           // 添加助手响应到本地历史
@@ -269,4 +305,79 @@ function escapeHtml(text: string): string {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+/**
+ * 获取当前检测到的情绪
+ */
+export function getCurrentEmotion(): EmotionInfo | null {
+  return currentEmotion;
+}
+
+/**
+ * 获取情绪显示配置
+ */
+export function getEmotionDisplay(emotion: string): { label: string; color: string } {
+  return EMOTION_DISPLAY[emotion] || { label: emotion, color: '#9ca3af' };
+}
+
+/**
+ * 创建情绪指示器 UI 组件
+ */
+export function createEmotionIndicator(shadowRoot: ShadowRoot): HTMLElement {
+  const container = document.createElement('div');
+  container.id = 'wenko-emotion-indicator';
+  container.className = 'wenko-emotion-indicator';
+  container.style.cssText = `
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 100;
+    transition: all 0.3s ease;
+  `;
+
+  container.innerHTML = `
+    <span class="emotion-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #9ca3af;"></span>
+    <span class="emotion-label">Neutral</span>
+    <span class="emotion-confidence" style="opacity: 0.6; font-size: 10px;"></span>
+  `;
+
+  return container;
+}
+
+/**
+ * 更新情绪指示器显示
+ */
+export function updateEmotionIndicator(container: HTMLElement, emotion: EmotionInfo): void {
+  const display = getEmotionDisplay(emotion.primary);
+  const dot = container.querySelector('.emotion-dot') as HTMLElement;
+  const label = container.querySelector('.emotion-label') as HTMLElement;
+  const confidence = container.querySelector('.emotion-confidence') as HTMLElement;
+
+  if (dot) {
+    dot.style.background = display.color;
+  }
+  if (label) {
+    label.textContent = display.label;
+  }
+  if (confidence) {
+    confidence.textContent = `${Math.round(emotion.confidence * 100)}%`;
+  }
+
+  container.style.display = 'flex';
+}
+
+/**
+ * 隐藏情绪指示器
+ */
+export function hideEmotionIndicator(container: HTMLElement): void {
+  container.style.display = 'none';
 }
