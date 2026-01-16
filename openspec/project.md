@@ -2,10 +2,10 @@
 
 ## Purpose
 
-Wenko 是一个工作流编排系统，用于定义和执行自动化工作流。项目目标：
+Wenko 是一个情感记忆 AI 系统，专注于提供智能对话、情感检测和记忆管理功能。项目目标：
 
-1. 提供可视化的工作流编排能力
-2. 支持灵活的步骤定义和条件控制
+1. 提供具有情感感知能力的 AI 对话
+2. 支持长期记忆管理，让 AI 记住用户偏好和事实
 3. 通过 Electron 桌面应用提供用户友好的界面
 4. 集成 Live2D 虚拟形象增强用户体验
 
@@ -22,7 +22,7 @@ Wenko 是一个工作流编排系统，用于定义和执行自动化工作流�
 ### Python 后端 (`/workflow/`)
 - **运行时**: Python 3.10+
 - **Web 框架**: FastAPI + Uvicorn
-- **工作流引擎**: LangGraph
+- **数据库**: SQLite (聊天记录和记忆存储)
 - **数据验证**: Pydantic
 - **HTTP 客户端**: httpx
 - **包管理**: uv / hatch
@@ -48,17 +48,14 @@ Wenko 是一个工作流编排系统，用于定义和执行自动化工作流�
 #### 前后端分离
 - Electron 前端通过 HTTP 与 Python 后端通信
 - REST API 风格接口
+- SSE (Server-Sent Events) 用于流式对话响应
 
-#### 工作流引擎
-- 步骤 (Step) 是基本执行单元
-- 使用 `step_registry` 注册可用步骤
-- 支持条件分支 (if/then/else)
-- 上下文 (Context) 在步骤间共享状态
-
-#### 模板系统
-- 模板存储在 JSON 文件中 (`templates.json`)
-- 支持模板的 CRUD 操作
-- 模板可直接执行
+#### 核心模块
+- `chat_processor.py` - 聊天处理与 LLM 集成
+- `emotion_detector.py` - 情绪检测解析
+- `response_strategy.py` - 响应策略选择
+- `memory_manager.py` - 记忆管理系统
+- `chat_db.py` - SQLite 数据库管理
 
 ### Testing Strategy
 - Python 后端：待完善测试覆盖
@@ -73,54 +70,30 @@ Wenko 是一个工作流编排系统，用于定义和执行自动化工作流�
 
 ## Domain Context
 
-### 工作流 (Workflow)
-一个工作流由多个步骤 (Steps) 组成，按顺序或条件执行。
+### 情感检测 (Emotion Detection)
+系统能够检测用户消息中的情感，并据此调整响应策略。
 
-### 步骤 (Step)
-基本执行单元，每个步骤有：
-- `step`: 步骤类型 (如 `EchoInput`, `FetchURL`)
-- `id`: 唯一标识符
-- `input`: 输入参数 (可选)
-- `output_var`: 输出变量名 (可选)
+### 记忆系统 (Memory System)
+- **长期记忆**: 存储用户偏好、事实和行为模式
+- **工作记忆**: 会话级别的上下文信息
 
-### 可用步骤类型
-| 步骤 | 描述 |
+### 记忆类别
+| 类别 | 描述 |
 |------|------|
-| `EchoInput` | 回显输入内容 |
-| `SetVar` | 设置变量 |
-| `GetVar` | 获取变量 |
-| `FetchURL` | HTTP 请求 |
-| `ParseJSON` | 解析 JSON |
-| `JSONLookup` | JSON 路径查询 |
-| `JSONExtractValues` | 提取 JSON 值 |
-| `TemplateReplace` | 模板字符串替换 |
-| `MultilineToSingleLine` | 多行转单行 |
-| `OutputResult` | 输出结果 |
-| `CopyVar` | 复制变量 |
-
-### 条件控制
-```json
-{
-  "if": { "var": "condition", "equals": true },
-  "then": [/* steps */],
-  "else": [/* steps */]
-}
-```
+| `preference` | 用户偏好（如喜欢的语言、话题） |
+| `fact` | 用户相关事实（如姓名、职业） |
+| `pattern` | 行为模式（如对话风格） |
 
 ## Important Constraints
 
 1. **跨平台兼容**: Electron 应用需支持 macOS、Windows
-2. **本地优先**: 工作流执行在本地进行，不依赖云服务
-3. **可扩展性**: 新步骤类型可以轻松添加到注册表
+2. **本地优先**: 数据存储在本地，保护用户隐私
+3. **LLM 无关性**: 支持多种 OpenAI 兼容的 LLM 服务
 
 ## External Dependencies
 
 ### 必需服务
 - Python 后端服务 (默认端口: 8002)
-
-### 可选服务
-- Ollama (本地 LLM 推理)
-- Docker (容器化部署)
 
 ### 远程 LLM API（AI 对话功能）
 - 支持 OpenAI 兼容接口（OpenAI、DeepSeek、Azure OpenAI 等）

@@ -1,14 +1,13 @@
-# LangGraph 工作流系统
+# 情感记忆 AI 系统
 
-一个基于 LangGraph 和 FastAPI 的工作流编排系统，支持多种步骤类型和条件控制逻辑。
+一个基于 FastAPI 的情感感知 AI 对话系统，支持情感检测、长期记忆管理和智能响应策略。
 
 ## 功能特性
 
-- 🔄 **步骤编排**：支持 11 种基础步骤类型
-- 🎯 **条件控制**：If/Then/Else 条件分支逻辑
-- 📝 **变量管理**：上下文变量设置和占位符替换
-- 🚀 **FastAPI 接口**：RESTful API 服务
-- 🎨 **LangGraph Studio**：可视化工作流开发
+- **AI 对话**: 流式对话接口 (SSE)，支持多种 LLM 服务
+- **情感检测**: 自动识别用户消息中的情感
+- **记忆管理**: 长期记忆存储和检索
+- **会话管理**: 聊天记录持久化
 
 ## 快速开始
 
@@ -30,51 +29,42 @@ uv run python main.py
 - 手动清理：`lsof -ti :8002 | xargs kill -9`
 - 或修改 `main.py` 中的端口号
 
-### 启动 LangGraph Studio
-```bash
-uv run langgraph dev
-```
+## 核心模块
 
-## 支持的步骤类型
-
-1. **EchoInput** - 回显输入
-2. **SetVar** - 设置变量
-3. **GetVar** - 获取变量
-4. **FetchURL** - HTTP 请求
-5. **ParseJSON** - JSON 解析
-6. **JSONLookup** - JSON 查找
-7. **JSONExtractValues** - JSON 值提取
-8. **TemplateReplace** - 模板替换
-9. **MultilineToSingleLine** - 多行转单行
-10. **OutputResult** - 输出结果
-11. **CopyVar** - 复制变量
-
-## 条件控制
-
-- **If** - 条件判断
-- **Then** - 条件为真时执行
-- **Else** - 条件为假时执行
+| 模块 | 描述 |
+|------|------|
+| `main.py` | FastAPI 主应用入口 |
+| `chat_processor.py` | 聊天处理与 LLM 集成 |
+| `emotion_detector.py` | 情绪检测解析 |
+| `response_strategy.py` | 响应策略选择 |
+| `memory_manager.py` | 长期记忆管理 |
+| `chat_db.py` | SQLite 数据库管理 |
 
 ## API 接口
 
-### 工作流执行
-- `POST /run` - 执行工作流
-
-### 模板管理
-- `POST /templates` - 创建模板
-- `GET /templates` - 列出模板
-- `GET /templates/{id}` - 获取模板
-- `PUT /templates/{id}` - 更新模板
-- `DELETE /templates/{id}` - 删除模板
-- `GET /templates/search/{query}` - 搜索模板
-- `POST /templates/{id}/execute` - 执行模板
-
 ### 系统接口
 - `GET /health` - 健康检查
-- `GET /steps` - 获取步骤注册表
 
 ### AI 对话接口
 - `POST /chat` - AI 对话（SSE 流式响应）
+
+### 聊天记录接口
+- `GET /chat/history` - 获取会话列表
+- `GET /chat/history/{session_id}` - 获取会话详情
+- `DELETE /chat/history/{session_id}` - 删除会话
+- `DELETE /chat/history` - 清空所有会话
+
+### 记忆管理接口
+- `GET /memory/long-term` - 获取记忆列表
+- `GET /memory/long-term/{id}` - 获取记忆详情
+- `POST /memory/long-term` - 创建记忆
+- `PUT /memory/long-term/{id}` - 更新记忆
+- `DELETE /memory/long-term/{id}` - 删除记忆
+- `DELETE /memory/long-term` - 清空所有记忆
+- `POST /memory/long-term/batch-delete` - 批量删除
+- `GET /memory/long-term/export` - 导出记忆
+- `POST /memory/long-term/import` - 导入记忆
+- `GET /memory/working/{session_id}` - 获取工作记忆
 
 ## AI 对话功能配置
 
@@ -110,6 +100,7 @@ cp chat_config.example.json chat_config.json
 ```json
 {
   "message": "你好",
+  "session_id": "optional-session-id",
   "history": [
     {"role": "user", "content": "之前的问题"},
     {"role": "assistant", "content": "之前的回答"}
@@ -123,16 +114,25 @@ cp chat_config.example.json chat_config.json
 event: text
 data: {"type": "text", "payload": {"content": "响应片段"}}
 
+event: emotion
+data: {"type": "emotion", "payload": {"primary": "happy", "category": "positive", "confidence": 0.85}}
+
 event: done
 data: {"type": "done"}
 ```
 
-## 测试工具
+## 记忆系统
 
-项目提供了 Web 测试界面，可通过 Electron 应用访问：
-- 工作流执行测试
-- 模板管理（创建、编辑、删除、搜索）
-- 步骤注册表查看
-- 服务健康检查
+### 记忆类别
+
+| 类别 | 描述 | 示例 |
+|------|------|------|
+| `preference` | 用户偏好 | 喜欢的编程语言、话题 |
+| `fact` | 用户事实 | 姓名、职业、所在城市 |
+| `pattern` | 行为模式 | 对话风格、常用表达 |
+
+### 环境变量
+
+- `USE_MEMORY_EMOTION_SYSTEM=true` - 启用记忆和情绪系统（默认禁用）
 
 服务默认运行在 `http://localhost:8002`
