@@ -25,6 +25,13 @@ import uvicorn
 import chat_db
 import memory_manager
 import chat_processor
+import hitl_handler
+from hitl_schema import (
+    HITLAction,
+    HITLRequest,
+    HITLResponseData,
+    HITLResponseResult,
+)
 
 
 # Chat 相关配置和模型
@@ -244,6 +251,8 @@ async def stream_chat_response(request: ChatRequest):
 
         # 处理完整响应
         final_response = assistant_response
+        hitl_request = None
+
         if use_memory_system and assistant_response and chat_context:
             try:
                 # 解析 LLM 的 JSON 输出
@@ -251,12 +260,55 @@ async def stream_chat_response(request: ChatRequest):
                 final_response = chat_result.response
                 detected_emotion = chat_result.emotion
 
+                # 检查是否有 HITL 请求
+                if chat_processor.is_hitl_enabled():
+                    print(f"[HITL] Checking for HITL in response (length={len(assistant_response)})")
+                    hitl_request = hitl_handler.extract_hitl_from_llm_response(assistant_response)
+                    if hitl_request:
+                        print(f"[HITL] Found HITL request: id={hitl_request.id}, title={hitl_request.title}, fields={len(hitl_request.fields)}")
+                        # 存储 HITL 请求以便后续响应
+                        hitl_handler.store_hitl_request(hitl_request, session_id)
+                    else:
+                        print("[HITL] No HITL request found in response")
+
                 # 发送解析后的响应文本
                 yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
 
                 # 发送情绪信息
                 if detected_emotion:
                     yield f'event: emotion\ndata: {json.dumps({"type": "emotion", "payload": {"primary": detected_emotion.primary, "category": detected_emotion.category, "confidence": detected_emotion.confidence}})}\n\n'
+
+                # 发送 HITL 请求事件
+                if hitl_request:
+                    print(f"[HITL] Sending HITL SSE event for request {hitl_request.id}")
+                    hitl_payload = {
+                        "id": hitl_request.id,
+                        "type": hitl_request.type,
+                        "title": hitl_request.title,
+                        "description": hitl_request.description,
+                        "fields": [
+                            {
+                                "name": f.name,
+                                "type": f.type.value,
+                                "label": f.label,
+                                "required": f.required,
+                                "placeholder": f.placeholder,
+                                "default": f.default,
+                                "options": [{"value": o.value, "label": o.label} for o in f.options] if f.options else None,
+                                "min": f.min,
+                                "max": f.max,
+                                "step": f.step,
+                            }
+                            for f in hitl_request.fields
+                        ],
+                        "actions": {
+                            "approve": {"label": hitl_request.actions.approve.label, "style": hitl_request.actions.approve.style.value},
+                            "edit": {"label": hitl_request.actions.edit.label, "style": hitl_request.actions.edit.style.value},
+                            "reject": {"label": hitl_request.actions.reject.label, "style": hitl_request.actions.reject.style.value},
+                        },
+                        "session_id": session_id,
+                    }
+                    yield f'event: hitl\ndata: {json.dumps({"type": "hitl", "payload": hitl_payload})}\n\n'
 
             except Exception as e:
                 print(f"解析 LLM 响应失败: {e}")
@@ -725,6 +777,80 @@ async def delete_working_memory(session_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"清除工作记忆失败: {str(e)}")
+
+
+# ============ HITL API ============
+
+class HITLRespondRequest(BaseModel):
+    """HITL 响应请求"""
+    request_id: str
+    session_id: str
+    action: str  # approve | edit | reject
+    data: Optional[Dict[str, Any]] = None
+
+
+class HITLRespondResponse(BaseModel):
+    """HITL 响应结果"""
+    success: bool
+    next_action: str = "continue"
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
+@app.post("/hitl/respond", response_model=HITLRespondResponse)
+async def hitl_respond(request: HITLRespondRequest):
+    """处理用户对 HITL 请求的响应
+
+    用户可以选择 approve（批准）、edit（编辑后提交）或 reject（拒绝/跳过）。
+    """
+    try:
+        # 转换 action 字符串为枚举
+        try:
+            action = HITLAction(request.action)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"无效的 action: {request.action}，必须是 approve/edit/reject"
+            )
+
+        # 构建响应数据
+        response_data = HITLResponseData(
+            request_id=request.request_id,
+            session_id=request.session_id,
+            action=action,
+            data=request.data,
+        )
+
+        # 处理响应
+        result = hitl_handler.process_hitl_response(response_data)
+
+        return HITLRespondResponse(
+            success=result.success,
+            next_action=result.next_action,
+            message=result.message,
+            error=result.error,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"处理 HITL 响应失败: {str(e)}")
+
+
+@app.get("/hitl/status/{request_id}")
+async def hitl_status(request_id: str):
+    """检查 HITL 请求状态"""
+    request_data = hitl_handler.get_hitl_request(request_id)
+    if request_data is None:
+        return {"exists": False, "expired": True}
+
+    request, session_id, expires_at = request_data
+    return {
+        "exists": True,
+        "expired": False,
+        "session_id": session_id,
+        "title": request.title,
+        "expires_at": expires_at.isoformat(),
+    }
 
 
 if __name__ == "__main__":

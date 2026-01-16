@@ -30,6 +30,10 @@ from response_strategy import (
 # Default to True - set USE_MEMORY_EMOTION_SYSTEM=false to disable
 USE_MEMORY_EMOTION_SYSTEM = os.environ.get("USE_MEMORY_EMOTION_SYSTEM", "true").lower() == "true"
 
+# Environment variable to toggle HITL system
+# Default to True - set USE_HITL_SYSTEM=false to disable
+USE_HITL_SYSTEM = os.environ.get("USE_HITL_SYSTEM", "true").lower() == "true"
+
 # Confidence threshold for emotion degradation
 EMOTION_CONFIDENCE_THRESHOLD = 0.5
 
@@ -61,7 +65,55 @@ emotion.category 可选值: neutral, positive, negative, seeking
 示例：用户说"我叫小明，喜欢用Python"，应保存:
 {{"should_store":true,"entries":[{{"category":"fact","key":"用户姓名","value":"小明"}},{{"category":"preference","key":"编程语言偏好","value":"Python"}}]}}
 
+{hitl_instruction}
+
 现在请直接输出 JSON:"""
+
+
+# ============ HITL Instruction Template ============
+
+HITL_INSTRUCTION = """
+人机交互表单 (HITL):
+当你需要向用户收集结构化信息或确认操作时，可以在 JSON 响应中包含 hitl_request 字段。
+
+hitl_request 格式:
+{{
+  "hitl_request": {{
+    "type": "form",
+    "title": "表单标题",
+    "description": "可选的描述文字",
+    "fields": [
+      {{
+        "name": "字段名",
+        "type": "select|multiselect|text|textarea|radio|checkbox|number|slider",
+        "label": "显示标签",
+        "required": true/false,
+        "options": [{{"value": "值", "label": "显示文字"}}]  // select/radio/checkbox 需要
+      }}
+    ],
+    "context": {{
+      "intent": "collect_preference",
+      "memory_category": "preference"
+    }}
+  }}
+}}
+
+示例：询问用户喜欢的运动
+{{"response":"让我了解一下您的运动偏好","hitl_request":{{"type":"form","title":"运动偏好","fields":[{{"name":"sport","type":"select","label":"您最喜欢的运动","required":true,"options":[{{"value":"basketball","label":"篮球"}},{{"value":"football","label":"足球"}},{{"value":"swimming","label":"游泳"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+
+仅在以下情况使用 hitl_request:
+1. 需要收集用户偏好或个人信息，且有明确的选项
+2. 执行重要操作前需要用户确认
+3. 存在多个选项需要用户选择
+4. 用户明确要求选择或投票
+
+不要在以下情况使用:
+1. 简单的是/否问题（直接问即可）
+2. 开放性问题
+3. 用户已经给出了明确答案
+"""
+
+HITL_INSTRUCTION_DISABLED = ""
 
 
 SIMPLE_SYSTEM_PROMPT = """你是一个友好的 AI 助手。"""
@@ -216,11 +268,15 @@ def build_system_prompt(context: ChatContext) -> str:
     relevant_memory_str = format_relevant_memories(context.relevant_memories)
     strategy_prompt = build_strategy_prompt(context.strategy)
 
+    # Include HITL instruction if enabled
+    hitl_instruction = HITL_INSTRUCTION if USE_HITL_SYSTEM else HITL_INSTRUCTION_DISABLED
+
     return CHAT_PROMPT_TEMPLATE.format(
         user_message=context.user_message,
         working_memory_summary=working_memory_summary,
         relevant_long_term_memory=relevant_memory_str,
         strategy_prompt=strategy_prompt,
+        hitl_instruction=hitl_instruction,
     )
 
 
@@ -388,6 +444,15 @@ def is_memory_emotion_enabled() -> bool:
         True if enabled
     """
     return USE_MEMORY_EMOTION_SYSTEM
+
+
+def is_hitl_enabled() -> bool:
+    """Check if HITL system is enabled.
+
+    Returns:
+        True if enabled
+    """
+    return USE_HITL_SYSTEM
 
 
 def extract_response_text(llm_output: str) -> str:
