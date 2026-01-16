@@ -12,5 +12,7 @@ __pycache__/
 
 # Chat config (contains API keys)
 workflow/chat_config.json
+# Chat databases
+chat_history.db
 
 .trae
