@@ -44,6 +44,19 @@ function App() {
     value: '',
     confidence: 0.8
   });
+  // 工作记忆下探状态
+  const [expandedWorkingMemory, setExpandedWorkingMemory] = useState(null);
+  const [expandedMessages, setExpandedMessages] = useState([]);
+  const [expandedMessagesLoading, setExpandedMessagesLoading] = useState(false);
+  // 单条消息保存到长期记忆
+  const [messageTransferDialogVisible, setMessageTransferDialogVisible] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState(null);
+  const [messageTransferForm, setMessageTransferForm] = useState({
+    category: 'fact',
+    key: '',
+    value: '',
+    confidence: 0.8
+  });
 
   // 长期记忆状态
   const [memories, setMemories] = useState([]);
@@ -239,6 +252,68 @@ function App() {
       if (!response.ok) throw new Error('保存失败');
       message.success('已保存到长期记忆');
       setTransferDialogVisible(false);
+    } catch (error) {
+      message.error(error.message);
+    }
+  };
+
+  // 工作记忆下探 - 加载会话消息
+  const toggleExpandWorkingMemory = async (sessionId) => {
+    if (expandedWorkingMemory === sessionId) {
+      // 收起
+      setExpandedWorkingMemory(null);
+      setExpandedMessages([]);
+      return;
+    }
+    // 展开并加载消息
+    setExpandedWorkingMemory(sessionId);
+    setExpandedMessagesLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/chat/history/${sessionId}`);
+      const data = await response.json();
+      setExpandedMessages(data.messages || []);
+    } catch (error) {
+      message.error(`加载会话消息失败: ${error.message}`);
+      setExpandedMessages([]);
+    } finally {
+      setExpandedMessagesLoading(false);
+    }
+  };
+
+  // 打开单条消息保存到长期记忆对话框
+  const openMessageTransferDialog = (msg) => {
+    setSelectedMessage(msg);
+    setMessageTransferForm({
+      category: 'fact',
+      key: msg.role === 'user' ? '用户输入' : 'AI回复',
+      value: msg.content,
+      confidence: 0.8
+    });
+    setMessageTransferDialogVisible(true);
+  };
+
+  // 保存单条消息到长期记忆
+  const saveMessageToLongTermMemory = async () => {
+    if (!messageTransferForm.key.trim()) {
+      message.error('请输入记忆键名');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE}/memory/long-term`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: messageTransferForm.category,
+          key: messageTransferForm.key,
+          value: messageTransferForm.value,
+          confidence: messageTransferForm.confidence,
+          source: 'user_stated'
+        })
+      });
+      if (!response.ok) throw new Error('保存失败');
+      message.success('消息已保存到长期记忆');
+      setMessageTransferDialogVisible(false);
+      setSelectedMessage(null);
     } catch (error) {
       message.error(error.message);
     }
@@ -511,11 +586,21 @@ function App() {
                       borderLeft: `3px solid ${msg.role === 'user' ? '#3366cc' : '#339933'}`
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                       <Tag color={msg.role === 'user' ? 'blue' : 'green'}>
                         {msg.role === 'user' ? '用户' : 'AI'}
                       </Tag>
-                      <span style={{ fontSize: '10px', color: '#666' }}>{formatTime(msg.created_at)}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '10px', color: '#666' }}>{formatTime(msg.created_at)}</span>
+                        <Button
+                          size="small"
+                          type="link"
+                          style={{ fontSize: '10px', padding: 0 }}
+                          onClick={() => openMessageTransferDialog(msg)}
+                        >
+                          保存为记忆
+                        </Button>
+                      </div>
                     </div>
                     <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '12px' }}>
                       {msg.content}
@@ -550,7 +635,21 @@ function App() {
             {workingMemories.map(wm => (
               <div key={wm.session_id} className="memory-item">
                 <div className="memory-item-header">
-                  <span className="memory-item-key">会话: {wm.session_id.substring(0, 8)}...</span>
+                  <Button
+                    size="small"
+                    type="text"
+                    onClick={() => toggleExpandWorkingMemory(wm.session_id)}
+                    style={{ padding: '0 4px', marginRight: '4px' }}
+                  >
+                    {expandedWorkingMemory === wm.session_id ? '▼' : '▶'}
+                  </Button>
+                  <span
+                    className="memory-item-key"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => toggleExpandWorkingMemory(wm.session_id)}
+                  >
+                    会话: {wm.session_id.substring(0, 8)}...
+                  </span>
                   {wm.last_emotion && <Tag color="cyan">{wm.last_emotion}</Tag>}
                   <Tag color="blue">轮次: {wm.turn_count}</Tag>
                   <div className="memory-item-actions">
@@ -577,6 +676,59 @@ function App() {
                     <div className="memory-item-value">
                       {JSON.stringify(wm.context_variables, null, 2)}
                     </div>
+                  </div>
+                )}
+
+                {/* 下探: 展开显示会话消息列表 */}
+                {expandedWorkingMemory === wm.session_id && (
+                  <div className="working-memory-drilldown" style={{ marginTop: '12px', paddingLeft: '20px' }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '11px', color: '#666' }}>
+                      会话消息 (点击单条消息可保存到长期记忆)
+                    </div>
+                    <Spin spinning={expandedMessagesLoading}>
+                      {expandedMessages.length === 0 ? (
+                        <Alert message="该会话暂无消息" type="info" style={{ fontSize: '11px' }} />
+                      ) : (
+                        <div className="classic-inset" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                          {expandedMessages.map((msg, index) => (
+                            <div
+                              key={msg.id || index}
+                              className="drilldown-message"
+                              style={{
+                                marginBottom: '6px',
+                                padding: '6px 8px',
+                                background: msg.role === 'user' ? '#e6f0ff' : '#e6ffe6',
+                                borderLeft: `3px solid ${msg.role === 'user' ? '#3366cc' : '#339933'}`,
+                                cursor: 'pointer',
+                                transition: 'background 0.2s'
+                              }}
+                              onClick={() => openMessageTransferDialog(msg)}
+                              title="点击保存到长期记忆"
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                <Tag color={msg.role === 'user' ? 'blue' : 'green'} style={{ fontSize: '10px' }}>
+                                  {msg.role === 'user' ? '用户' : 'AI'}
+                                </Tag>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span style={{ fontSize: '10px', color: '#666' }}>{formatTime(msg.created_at)}</span>
+                                  <Button
+                                    size="small"
+                                    type="link"
+                                    style={{ fontSize: '10px', padding: 0 }}
+                                    onClick={(e) => { e.stopPropagation(); openMessageTransferDialog(msg); }}
+                                  >
+                                    保存
+                                  </Button>
+                                </div>
+                              </div>
+                              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '11px' }}>
+                                {msg.content.length > 200 ? msg.content.substring(0, 200) + '...' : msg.content}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Spin>
                   </div>
                 )}
               </div>
@@ -819,6 +971,72 @@ function App() {
             max="100"
             value={transferForm.confidence * 100}
             onChange={(e) => setTransferForm(prev => ({ ...prev, confidence: parseInt(e.target.value) / 100 }))}
+            style={{ width: '100%' }}
+          />
+        </div>
+      </Modal>
+
+      {/* 单条消息保存到长期记忆对话框 */}
+      <Modal
+        title="保存消息到长期记忆"
+        visible={messageTransferDialogVisible}
+        destroyOnClose={false}
+        maskClosable={false}
+        onOk={saveMessageToLongTermMemory}
+        onCancel={() => { setMessageTransferDialogVisible(false); setSelectedMessage(null); }}
+        width={500}
+        okText="保存"
+        cancelText="取消"
+      >
+        {selectedMessage && (
+          <div style={{ marginBottom: '12px', padding: '8px', background: '#f5f5f5', borderRadius: '4px' }}>
+            <Tag color={selectedMessage.role === 'user' ? 'blue' : 'green'}>
+              {selectedMessage.role === 'user' ? '用户消息' : 'AI回复'}
+            </Tag>
+            <span style={{ fontSize: '10px', color: '#666', marginLeft: '8px' }}>
+              {formatTime(selectedMessage.created_at)}
+            </span>
+          </div>
+        )}
+        <div className="classic-field-group">
+          <label className="classic-field-label">类别</label>
+          <Space>
+            {['preference', 'fact', 'pattern'].map(cat => (
+              <Button
+                key={cat}
+                type={messageTransferForm.category === cat ? 'primary' : 'default'}
+                size="small"
+                onClick={() => setMessageTransferForm(prev => ({ ...prev, category: cat }))}
+              >
+                {cat === 'preference' ? '偏好' : cat === 'fact' ? '事实' : '模式'}
+              </Button>
+            ))}
+          </Space>
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">键名 (Key)</label>
+          <Input
+            value={messageTransferForm.key}
+            onChange={(e) => setMessageTransferForm(prev => ({ ...prev, key: e.target.value }))}
+            placeholder="例如: 用户偏好, 重要事实"
+          />
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">值 (Value)</label>
+          <TextArea
+            value={messageTransferForm.value}
+            onChange={(e) => setMessageTransferForm(prev => ({ ...prev, value: e.target.value }))}
+            rows={4}
+          />
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">置信度: {Math.round(messageTransferForm.confidence * 100)}%</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={messageTransferForm.confidence * 100}
+            onChange={(e) => setMessageTransferForm(prev => ({ ...prev, confidence: parseInt(e.target.value) / 100 }))}
             style={{ width: '100%' }}
           />
         </div>

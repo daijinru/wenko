@@ -70,7 +70,7 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
     const shortcutWindow = new BrowserWindow({
       width: 1200,
       height: 800,
-      title: 'Workflow API 测试工具',
+      title: '记忆宫殿',
       icon: path.join(__dirname, 'assets', 'favicon.ico'),
       frame: true,
       transparent: false,
