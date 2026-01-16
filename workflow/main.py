@@ -663,6 +663,34 @@ async def import_long_term_memories(request: MemoryImportRequest):
         raise HTTPException(status_code=400, detail=f"导入记忆失败: {str(e)}")
 
 
+class WorkingMemoryListResponse(BaseModel):
+    """工作记忆列表响应"""
+    memories: List[WorkingMemoryInfo]
+    total: int
+
+
+@app.get("/memory/working", response_model=WorkingMemoryListResponse)
+async def list_working_memories(limit: int = 100):
+    """获取所有活跃的工作记忆列表"""
+    try:
+        memories = memory_manager.list_working_memories(limit=limit)
+        result = [
+            WorkingMemoryInfo(
+                session_id=wm.session_id,
+                current_topic=wm.current_topic,
+                context_variables=wm.context_variables,
+                turn_count=wm.turn_count,
+                last_emotion=wm.last_emotion,
+                created_at=wm.created_at.isoformat(),
+                updated_at=wm.updated_at.isoformat(),
+            )
+            for wm in memories
+        ]
+        return WorkingMemoryListResponse(memories=result, total=len(result))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取工作记忆列表失败: {str(e)}")
+
+
 @app.get("/memory/working/{session_id}", response_model=WorkingMemoryInfo)
 async def get_working_memory(session_id: str):
     """获取会话的工作记忆"""
@@ -683,6 +711,20 @@ async def get_working_memory(session_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取工作记忆失败: {str(e)}")
+
+
+@app.delete("/memory/working/{session_id}", response_model=DeleteResponse)
+async def delete_working_memory(session_id: str):
+    """清除指定会话的工作记忆"""
+    try:
+        success = memory_manager.delete_working_memory(session_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="工作记忆不存在")
+        return DeleteResponse(success=True, message="工作记忆已清除")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清除工作记忆失败: {str(e)}")
 
 
 if __name__ == "__main__":

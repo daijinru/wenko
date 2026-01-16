@@ -13,7 +13,7 @@ import {
   Space,
   Typography
 } from 'antd';
-import 'antd/dist/antd.css'; // Import Antd CSS
+import 'antd/dist/antd.css';
 import './App.css';
 
 const { TabPane } = Tabs;
@@ -33,7 +33,19 @@ function App() {
   const [sessionMessages, setSessionMessages] = useState([]);
   const [sessionMessagesLoading, setSessionMessagesLoading] = useState(false);
 
-  // 记忆管理状态
+  // 工作记忆状态
+  const [workingMemories, setWorkingMemories] = useState([]);
+  const [workingMemoriesLoading, setWorkingMemoriesLoading] = useState(false);
+  const [selectedWorkingMemory, setSelectedWorkingMemory] = useState(null);
+  const [transferDialogVisible, setTransferDialogVisible] = useState(false);
+  const [transferForm, setTransferForm] = useState({
+    category: 'fact',
+    key: '',
+    value: '',
+    confidence: 0.8
+  });
+
+  // 长期记忆状态
   const [memories, setMemories] = useState([]);
   const [memoriesTotal, setMemoriesTotal] = useState(0);
   const [memoriesLoading, setMemoriesLoading] = useState(false);
@@ -66,7 +78,6 @@ function App() {
 
   // ============ 聊天记录相关函数 ============
 
-  // 加载聊天会话列表
   const loadChatSessions = async () => {
     setChatSessionsLoading(true);
     try {
@@ -80,7 +91,6 @@ function App() {
     }
   };
 
-  // 查看会话详情
   const viewSessionDetail = async (sessionId) => {
     setSelectedSession(sessionId);
     setSessionMessagesLoading(true);
@@ -96,7 +106,6 @@ function App() {
     }
   };
 
-  // 删除单个会话
   const deleteChatSession = async (sessionId) => {
     Modal.confirm({
       title: '确认删除',
@@ -109,11 +118,7 @@ function App() {
           const response = await fetch(`${API_BASE}/chat/history/${sessionId}`, {
             method: 'DELETE'
           });
-
-          if (!response.ok) {
-            throw new Error('删除失败');
-          }
-
+          if (!response.ok) throw new Error('删除失败');
           message.success('删除成功');
           loadChatSessions();
           if (selectedSession === sessionId) {
@@ -127,7 +132,6 @@ function App() {
     });
   };
 
-  // 清空所有聊天记录
   const clearAllChatHistory = async () => {
     Modal.confirm({
       title: '确认清空',
@@ -137,14 +141,8 @@ function App() {
       cancelText: '取消',
       onOk: async () => {
         try {
-          const response = await fetch(`${API_BASE}/chat/history`, {
-            method: 'DELETE'
-          });
-
-          if (!response.ok) {
-            throw new Error('清空失败');
-          }
-
+          const response = await fetch(`${API_BASE}/chat/history`, { method: 'DELETE' });
+          if (!response.ok) throw new Error('清空失败');
           const data = await response.json();
           message.success(`已清空 ${data.deleted_count || 0} 个会话`);
           setChatSessions([]);
@@ -157,7 +155,6 @@ function App() {
     });
   };
 
-  // 格式化时间
   const formatTime = (isoString) => {
     if (!isoString) return '';
     const date = new Date(isoString);
@@ -170,20 +167,93 @@ function App() {
     });
   };
 
-  // ============ 记忆管理函数 ============
+  // ============ 工作记忆相关函数 ============
 
-  // 加载记忆列表
+  const loadWorkingMemories = async () => {
+    setWorkingMemoriesLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/memory/working`);
+      if (!response.ok) throw new Error('获取工作记忆列表失败');
+      const data = await response.json();
+      setWorkingMemories(data.memories || []);
+    } catch (error) {
+      message.error(error.message);
+    } finally {
+      setWorkingMemoriesLoading(false);
+    }
+  };
+
+  const clearWorkingMemory = async (sessionId) => {
+    Modal.confirm({
+      title: '确认清除',
+      content: '确定要清除这个会话的工作记忆吗？',
+      okText: '清除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const response = await fetch(`${API_BASE}/memory/working/${sessionId}`, {
+            method: 'DELETE'
+          });
+          if (!response.ok) throw new Error('清除失败');
+          message.success('工作记忆已清除');
+          loadWorkingMemories();
+          if (selectedWorkingMemory?.session_id === sessionId) {
+            setSelectedWorkingMemory(null);
+          }
+        } catch (error) {
+          message.error(`清除失败: ${error.message}`);
+        }
+      }
+    });
+  };
+
+  const openTransferDialog = (workingMemory) => {
+    setTransferForm({
+      category: 'fact',
+      key: workingMemory.current_topic ? 'topic_interest' : 'session_info',
+      value: workingMemory.current_topic || JSON.stringify(workingMemory.context_variables, null, 2),
+      confidence: 0.8
+    });
+    setSelectedWorkingMemory(workingMemory);
+    setTransferDialogVisible(true);
+  };
+
+  const transferToLongTermMemory = async () => {
+    if (!transferForm.key.trim()) {
+      message.error('请输入记忆键名');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE}/memory/long-term`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: transferForm.category,
+          key: transferForm.key,
+          value: transferForm.value,
+          confidence: transferForm.confidence,
+          source: 'user_stated'
+        })
+      });
+      if (!response.ok) throw new Error('保存失败');
+      message.success('已保存到长期记忆');
+      setTransferDialogVisible(false);
+    } catch (error) {
+      message.error(error.message);
+    }
+  };
+
+  // ============ 长期记忆相关函数 ============
+
   const loadMemories = async (category = '') => {
     setMemoriesLoading(true);
     try {
       const params = new URLSearchParams();
       if (category) params.append('category', category);
       params.append('limit', '100');
-
       const response = await fetch(`${API_BASE}/memory/long-term?${params}`);
-      if (!response.ok) {
-        throw new Error('获取记忆列表失败');
-      }
+      if (!response.ok) throw new Error('获取记忆列表失败');
       const data = await response.json();
       setMemories(data.memories || []);
       setMemoriesTotal(data.total || 0);
@@ -194,7 +264,6 @@ function App() {
     }
   };
 
-  // 创建记忆
   const createMemory = async () => {
     try {
       const response = await fetch(`${API_BASE}/memory/long-term`, {
@@ -208,11 +277,7 @@ function App() {
           source: 'user_stated'
         })
       });
-
-      if (!response.ok) {
-        throw new Error('创建记忆失败');
-      }
-
+      if (!response.ok) throw new Error('创建记忆失败');
       message.success('记忆创建成功');
       setMemoryDialogVisible(false);
       loadMemories(memoryFilter.category);
@@ -221,10 +286,8 @@ function App() {
     }
   };
 
-  // 更新记忆
   const updateMemory = async () => {
     if (!currentMemory) return;
-
     try {
       const response = await fetch(`${API_BASE}/memory/long-term/${currentMemory.id}`, {
         method: 'PUT',
@@ -236,11 +299,7 @@ function App() {
           confidence: memoryForm.confidence
         })
       });
-
-      if (!response.ok) {
-        throw new Error('更新记忆失败');
-      }
-
+      if (!response.ok) throw new Error('更新记忆失败');
       message.success('记忆更新成功');
       setMemoryDialogVisible(false);
       setCurrentMemory(null);
@@ -250,7 +309,6 @@ function App() {
     }
   };
 
-  // 删除单条记忆
   const deleteMemory = (memoryId) => {
     Modal.confirm({
       title: '确认删除',
@@ -263,11 +321,7 @@ function App() {
           const response = await fetch(`${API_BASE}/memory/long-term/${memoryId}`, {
             method: 'DELETE'
           });
-
-          if (!response.ok) {
-            throw new Error('删除失败');
-          }
-
+          if (!response.ok) throw new Error('删除失败');
           message.success('记忆已删除');
           loadMemories(memoryFilter.category);
         } catch (error) {
@@ -277,13 +331,11 @@ function App() {
     });
   };
 
-  // 批量删除记忆
   const batchDeleteMemories = () => {
     if (selectedMemoryIds.length === 0) {
       message.warning('请先选择要删除的记忆');
       return;
     }
-
     Modal.confirm({
       title: '确认批量删除',
       content: `确定要删除选中的 ${selectedMemoryIds.length} 条记忆吗？`,
@@ -297,11 +349,7 @@ function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ids: selectedMemoryIds })
           });
-
-          if (!response.ok) {
-            throw new Error('批量删除失败');
-          }
-
+          if (!response.ok) throw new Error('批量删除失败');
           const data = await response.json();
           message.success(`已删除 ${data.deleted_count} 条记忆`);
           setSelectedMemoryIds([]);
@@ -313,7 +361,6 @@ function App() {
     });
   };
 
-  // 清空所有记忆
   const clearAllMemories = () => {
     Modal.confirm({
       title: '确认清空',
@@ -323,14 +370,8 @@ function App() {
       cancelText: '取消',
       onOk: async () => {
         try {
-          const response = await fetch(`${API_BASE}/memory/long-term`, {
-            method: 'DELETE'
-          });
-
-          if (!response.ok) {
-            throw new Error('清空失败');
-          }
-
+          const response = await fetch(`${API_BASE}/memory/long-term`, { method: 'DELETE' });
+          if (!response.ok) throw new Error('清空失败');
           const data = await response.json();
           message.success(`已清空 ${data.deleted_count} 条记忆`);
           setMemories([]);
@@ -342,14 +383,10 @@ function App() {
     });
   };
 
-  // 导出记忆
   const exportMemories = async () => {
     try {
       const response = await fetch(`${API_BASE}/memory/long-term/export`);
-      if (!response.ok) {
-        throw new Error('导出失败');
-      }
-
+      if (!response.ok) throw new Error('导出失败');
       const data = await response.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -364,19 +401,12 @@ function App() {
     }
   };
 
-  // 打开创建记忆对话框
   const openCreateMemoryDialog = () => {
     setCurrentMemory(null);
-    setMemoryForm({
-      category: 'fact',
-      key: '',
-      value: '',
-      confidence: 0.9
-    });
+    setMemoryForm({ category: 'fact', key: '', value: '', confidence: 0.9 });
     setMemoryDialogVisible(true);
   };
 
-  // 打开编辑记忆对话框
   const openEditMemoryDialog = (memory) => {
     setCurrentMemory(memory);
     setMemoryForm({
@@ -388,13 +418,11 @@ function App() {
     setMemoryDialogVisible(true);
   };
 
-  // 保存记忆（创建或更新）
   const saveMemory = async () => {
     if (!memoryForm.key.trim()) {
       message.error('请输入记忆键名');
       return;
     }
-
     if (currentMemory) {
       await updateMemory();
     } else {
@@ -402,7 +430,6 @@ function App() {
     }
   };
 
-  // 获取类别标签颜色
   const getCategoryColor = (category) => {
     switch (category) {
       case 'preference': return 'blue';
@@ -412,273 +439,239 @@ function App() {
     }
   };
 
-  // 聊天记录标签页
+  // ============ 聊天记录标签页 ============
   const ChatHistoryTab = () => (
     <div>
-      <Title level={4}>聊天记录</Title>
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
-        <Space>
-          <Button type="primary" onClick={loadChatSessions} loading={chatSessionsLoading}>
-            刷新列表
-          </Button>
-          <Button danger onClick={clearAllChatHistory} disabled={chatSessions.length === 0}>
-            清空所有记录
-          </Button>
-        </Space>
+      <h4 className="classic-section-title">聊天记录</h4>
+      <div className="classic-toolbar">
+        <Button type="primary" size="small" onClick={loadChatSessions} loading={chatSessionsLoading}>
+          刷新列表
+        </Button>
+        <Button size="small" danger onClick={clearAllChatHistory} disabled={chatSessions.length === 0}>
+          清空所有记录
+        </Button>
+      </div>
 
-        <div style={{ display: 'flex', gap: '16px' }}>
-          {/* 会话列表 */}
-          <div style={{ width: '40%', minWidth: '300px' }}>
-            <Title level={5}>会话列表</Title>
-            <Spin spinning={chatSessionsLoading}>
-              {chatSessions.length === 0 ? (
-                <Alert message="暂无聊天记录" type="info" />
-              ) : (
-                <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                  {chatSessions.map(session => (
-                    <Card
-                      key={session.id}
-                      size="small"
-                      style={{
-                        marginBottom: '8px',
-                        cursor: 'pointer',
-                        borderColor: selectedSession === session.id ? '#1890ff' : undefined,
-                        backgroundColor: selectedSession === session.id ? '#e6f7ff' : undefined
-                      }}
-                      onClick={() => viewSessionDetail(session.id)}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1, overflow: 'hidden' }}>
-                          <Text strong style={{
-                            display: 'block',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis'
-                          }}>
-                            {session.title || '(无标题)'}
-                          </Text>
-                          <Text type="secondary" style={{ fontSize: '12px' }}>
-                            {formatTime(session.updated_at)}
-                          </Text>
-                          <Tag color="blue" style={{ marginLeft: '8px' }}>
-                            {session.message_count} 条消息
-                          </Tag>
+      <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+        <div style={{ width: '40%', minWidth: '280px' }}>
+          <h5 className="classic-section-title">会话列表</h5>
+          <Spin spinning={chatSessionsLoading}>
+            {chatSessions.length === 0 ? (
+              <Alert message="暂无聊天记录" type="info" />
+            ) : (
+              <div className="classic-list" style={{ maxHeight: '450px' }}>
+                {chatSessions.map(session => (
+                  <div
+                    key={session.id}
+                    className={`classic-list-row ${selectedSession === session.id ? 'selected' : ''}`}
+                    onClick={() => viewSessionDetail(session.id)}
+                    style={{ display: 'block', padding: '8px' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {session.title || '(无标题)'}
                         </div>
-                        <Button
-                          size="small"
-                          danger
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteChatSession(session.id);
-                          }}
-                        >
-                          删除
-                        </Button>
+                        <div style={{ fontSize: '10px', marginTop: '2px' }}>
+                          <span>{formatTime(session.updated_at)}</span>
+                          <Tag color="blue" style={{ marginLeft: '6px' }}>{session.message_count} 条</Tag>
+                        </div>
                       </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </Spin>
-          </div>
-
-          {/* 消息详情 */}
-          <div style={{ flex: 1, minWidth: '400px' }}>
-            <Title level={5}>消息详情</Title>
-            <Spin spinning={sessionMessagesLoading}>
-              {!selectedSession ? (
-                <Alert message="请选择一个会话查看详情" type="info" />
-              ) : sessionMessages.length === 0 ? (
-                <Alert message="该会话暂无消息" type="info" />
-              ) : (
-                <div style={{
-                  maxHeight: '500px',
-                  overflowY: 'auto',
-                  padding: '12px',
-                  backgroundColor: '#fafafa',
-                  borderRadius: '4px'
-                }}>
-                  {sessionMessages.map((msg, index) => (
-                    <div
-                      key={msg.id || index}
-                      style={{
-                        marginBottom: '12px',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        backgroundColor: msg.role === 'user' ? '#e6f7ff' : '#f6ffed',
-                        borderLeft: `3px solid ${msg.role === 'user' ? '#1890ff' : '#52c41a'}`
-                      }}
-                    >
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        marginBottom: '4px'
-                      }}>
-                        <Tag color={msg.role === 'user' ? 'blue' : 'green'}>
-                          {msg.role === 'user' ? '用户' : 'AI'}
-                        </Tag>
-                        <Text type="secondary" style={{ fontSize: '11px' }}>
-                          {formatTime(msg.created_at)}
-                        </Text>
-                      </div>
-                      <div style={{
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        fontSize: '14px'
-                      }}>
-                        {msg.content}
-                      </div>
+                      <Button
+                        size="small"
+                        danger
+                        onClick={(e) => { e.stopPropagation(); deleteChatSession(session.id); }}
+                      >
+                        删除
+                      </Button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </Spin>
-          </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Spin>
         </div>
-      </Space>
+
+        <div style={{ flex: 1, minWidth: '350px' }}>
+          <h5 className="classic-section-title">消息详情</h5>
+          <Spin spinning={sessionMessagesLoading}>
+            {!selectedSession ? (
+              <Alert message="请选择一个会话查看详情" type="info" />
+            ) : sessionMessages.length === 0 ? (
+              <Alert message="该会话暂无消息" type="info" />
+            ) : (
+              <div className="classic-inset" style={{ maxHeight: '450px', overflowY: 'auto' }}>
+                {sessionMessages.map((msg, index) => (
+                  <div
+                    key={msg.id || index}
+                    style={{
+                      marginBottom: '8px',
+                      padding: '6px 8px',
+                      background: msg.role === 'user' ? '#e6f0ff' : '#e6ffe6',
+                      borderLeft: `3px solid ${msg.role === 'user' ? '#3366cc' : '#339933'}`
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <Tag color={msg.role === 'user' ? 'blue' : 'green'}>
+                        {msg.role === 'user' ? '用户' : 'AI'}
+                      </Tag>
+                      <span style={{ fontSize: '10px', color: '#666' }}>{formatTime(msg.created_at)}</span>
+                    </div>
+                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '12px' }}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Spin>
+        </div>
+      </div>
     </div>
   );
 
-  // 记忆管理标签页
-  const MemoryTab = () => (
+  // ============ 工作记忆标签页 ============
+  const WorkingMemoryTab = () => (
     <div>
-      <Title level={4}>记忆管理</Title>
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
-        {/* 工具栏 */}
-        <Space wrap>
-          <Button type="primary" onClick={() => loadMemories(memoryFilter.category)} loading={memoriesLoading}>
-            刷新列表
-          </Button>
-          <Button onClick={openCreateMemoryDialog}>
-            添加记忆
-          </Button>
-          <Button onClick={exportMemories}>
-            导出 JSON
-          </Button>
-          <Button danger onClick={batchDeleteMemories} disabled={selectedMemoryIds.length === 0}>
-            批量删除 ({selectedMemoryIds.length})
-          </Button>
-          <Button danger onClick={clearAllMemories} disabled={memories.length === 0}>
-            清空所有
-          </Button>
-        </Space>
+      <h4 className="classic-section-title">工作记忆</h4>
+      <div className="classic-toolbar">
+        <Button type="primary" size="small" onClick={loadWorkingMemories} loading={workingMemoriesLoading}>
+          刷新列表
+        </Button>
+      </div>
 
-        {/* 筛选器 */}
-        <Space>
-          <Text>类别筛选:</Text>
-          <Button
-            type={memoryFilter.category === '' ? 'primary' : 'default'}
-            size="small"
-            onClick={() => {
-              setMemoryFilter(prev => ({ ...prev, category: '' }));
-              loadMemories('');
-            }}
-          >
-            全部
-          </Button>
-          <Button
-            type={memoryFilter.category === 'preference' ? 'primary' : 'default'}
-            size="small"
-            onClick={() => {
-              setMemoryFilter(prev => ({ ...prev, category: 'preference' }));
-              loadMemories('preference');
-            }}
-          >
-            偏好
-          </Button>
-          <Button
-            type={memoryFilter.category === 'fact' ? 'primary' : 'default'}
-            size="small"
-            onClick={() => {
-              setMemoryFilter(prev => ({ ...prev, category: 'fact' }));
-              loadMemories('fact');
-            }}
-          >
-            事实
-          </Button>
-          <Button
-            type={memoryFilter.category === 'pattern' ? 'primary' : 'default'}
-            size="small"
-            onClick={() => {
-              setMemoryFilter(prev => ({ ...prev, category: 'pattern' }));
-              loadMemories('pattern');
-            }}
-          >
-            模式
-          </Button>
-          <Text type="secondary" style={{ marginLeft: '16px' }}>
-            共 {memoriesTotal} 条记忆
-          </Text>
-        </Space>
-
-        {/* 记忆列表 */}
-        <Spin spinning={memoriesLoading}>
-          {memories.length === 0 ? (
-            <Alert message="暂无记忆数据" type="info" />
-          ) : (
-            <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-              {memories.map(memory => (
-                <Card
-                  key={memory.id}
-                  size="small"
-                  style={{ marginBottom: '8px' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <Checkbox
-                      checked={selectedMemoryIds.includes(memory.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedMemoryIds(prev => [...prev, memory.id]);
-                        } else {
-                          setSelectedMemoryIds(prev => prev.filter(id => id !== memory.id));
-                        }
-                      }}
-                      style={{ marginRight: '12px', marginTop: '4px' }}
-                    />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <Tag color={getCategoryColor(memory.category)}>{memory.category}</Tag>
-                        <Text strong>{memory.key}</Text>
-                        <Tag color="cyan">置信度: {Math.round(memory.confidence * 100)}%</Tag>
-                        <Tag>{memory.source}</Tag>
-                      </div>
-                      <div style={{
-                        padding: '8px',
-                        backgroundColor: '#f5f5f5',
-                        borderRadius: '4px',
-                        marginBottom: '4px'
-                      }}>
-                        <Text style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                          {typeof memory.value === 'object' ? JSON.stringify(memory.value, null, 2) : memory.value}
-                        </Text>
-                      </div>
-                      <Space size="small">
-                        <Text type="secondary" style={{ fontSize: '11px' }}>
-                          访问 {memory.access_count} 次
-                        </Text>
-                        <Text type="secondary" style={{ fontSize: '11px' }}>
-                          创建: {formatTime(memory.created_at)}
-                        </Text>
-                        <Text type="secondary" style={{ fontSize: '11px' }}>
-                          最后访问: {formatTime(memory.last_accessed)}
-                        </Text>
-                      </Space>
-                    </div>
-                    <Space>
-                      <Button size="small" onClick={() => openEditMemoryDialog(memory)}>
-                        编辑
-                      </Button>
-                      <Button size="small" danger onClick={() => deleteMemory(memory.id)}>
-                        删除
-                      </Button>
-                    </Space>
+      <Spin spinning={workingMemoriesLoading}>
+        {workingMemories.length === 0 ? (
+          <div className="working-memory-empty" style={{ marginTop: '12px' }}>
+            <Alert message="暂无活跃会话" type="info" />
+          </div>
+        ) : (
+          <div className="classic-list" style={{ maxHeight: '500px', marginTop: '12px' }}>
+            {workingMemories.map(wm => (
+              <div key={wm.session_id} className="memory-item">
+                <div className="memory-item-header">
+                  <span className="memory-item-key">会话: {wm.session_id.substring(0, 8)}...</span>
+                  {wm.last_emotion && <Tag color="cyan">{wm.last_emotion}</Tag>}
+                  <Tag color="blue">轮次: {wm.turn_count}</Tag>
+                  <div className="memory-item-actions">
+                    <Button size="small" onClick={() => openTransferDialog(wm)}>
+                      保存到长期记忆
+                    </Button>
+                    <Button size="small" danger onClick={() => clearWorkingMemory(wm.session_id)}>
+                      清除
+                    </Button>
                   </div>
-                </Card>
-              ))}
-            </div>
-          )}
-        </Spin>
-      </Space>
+                </div>
+
+                <div className="working-memory-info" style={{ marginTop: '8px' }}>
+                  <span className="working-memory-info-label">当前话题:</span>
+                  <span className="working-memory-info-value">{wm.current_topic || '(无)'}</span>
+
+                  <span className="working-memory-info-label">更新时间:</span>
+                  <span className="working-memory-info-value">{formatTime(wm.updated_at)}</span>
+                </div>
+
+                {Object.keys(wm.context_variables || {}).length > 0 && (
+                  <div style={{ marginTop: '8px' }}>
+                    <span className="working-memory-info-label">上下文变量:</span>
+                    <div className="memory-item-value">
+                      {JSON.stringify(wm.context_variables, null, 2)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Spin>
+    </div>
+  );
+
+  // ============ 长期记忆标签页 ============
+  const LongTermMemoryTab = () => (
+    <div>
+      <h4 className="classic-section-title">长期记忆</h4>
+      <div className="classic-toolbar">
+        <Button type="primary" size="small" onClick={() => loadMemories(memoryFilter.category)} loading={memoriesLoading}>
+          刷新列表
+        </Button>
+        <Button size="small" onClick={openCreateMemoryDialog}>添加记忆</Button>
+        <Button size="small" onClick={exportMemories}>导出 JSON</Button>
+        <div className="classic-toolbar-separator" />
+        <Button size="small" danger onClick={batchDeleteMemories} disabled={selectedMemoryIds.length === 0}>
+          批量删除 ({selectedMemoryIds.length})
+        </Button>
+        <Button size="small" danger onClick={clearAllMemories} disabled={memories.length === 0}>
+          清空所有
+        </Button>
+      </div>
+
+      <div className="classic-filter-bar">
+        <span className="classic-filter-label">类别:</span>
+        <div className="classic-filter-buttons">
+          {[
+            { key: '', label: '全部' },
+            { key: 'preference', label: '偏好' },
+            { key: 'fact', label: '事实' },
+            { key: 'pattern', label: '模式' }
+          ].map(item => (
+            <button
+              key={item.key}
+              className={`classic-filter-button ${memoryFilter.category === item.key ? 'active' : ''}`}
+              onClick={() => {
+                setMemoryFilter(prev => ({ ...prev, category: item.key }));
+                loadMemories(item.key);
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#666' }}>
+          共 {memoriesTotal} 条记忆
+        </span>
+      </div>
+
+      <Spin spinning={memoriesLoading}>
+        {memories.length === 0 ? (
+          <Alert message="暂无记忆数据" type="info" />
+        ) : (
+          <div className="classic-list" style={{ maxHeight: '400px' }}>
+            {memories.map(memory => (
+              <div key={memory.id} className="memory-item">
+                <div className="memory-item-header">
+                  <Checkbox
+                    checked={selectedMemoryIds.includes(memory.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedMemoryIds(prev => [...prev, memory.id]);
+                      } else {
+                        setSelectedMemoryIds(prev => prev.filter(id => id !== memory.id));
+                      }
+                    }}
+                  />
+                  <Tag color={getCategoryColor(memory.category)}>{memory.category}</Tag>
+                  <span className="memory-item-key">{memory.key}</span>
+                  <Tag color="cyan">置信度: {Math.round(memory.confidence * 100)}%</Tag>
+                  <span className="classic-tag classic-tag-info">{memory.source}</span>
+                  <div className="memory-item-actions">
+                    <Button size="small" onClick={() => openEditMemoryDialog(memory)}>编辑</Button>
+                    <Button size="small" danger onClick={() => deleteMemory(memory.id)}>删除</Button>
+                  </div>
+                </div>
+                <div className="memory-item-value">
+                  {typeof memory.value === 'object' ? JSON.stringify(memory.value, null, 2) : memory.value}
+                </div>
+                <div className="memory-item-meta">
+                  <span>访问 {memory.access_count} 次</span>
+                  <span>创建: {formatTime(memory.created_at)}</span>
+                  <span>最后访问: {formatTime(memory.last_accessed)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Spin>
     </div>
   );
 
@@ -688,102 +681,147 @@ function App() {
         <h1>Emotion & Memory System</h1>
         <Space>
           <span className={`status-indicator ${status.online ? '' : 'offline'}`}></span>
-          <Text style={{ color: 'white' }}>
+          <span style={{ fontSize: '11px' }}>
             {status.checking ? '检查中...' : (status.online ? '在线' : '离线')}
-          </Text>
+          </span>
         </Space>
       </div>
       <div className="app-content">
         <Tabs activeKey={activeTab} onChange={(key) => {
           setActiveTab(key);
-          // 切换到聊天记录 Tab 时自动加载数据
           if (key === 'chatHistory' && chatSessions.length === 0) {
             loadChatSessions();
           }
-          // 切换到记忆管理 Tab 时自动加载数据
-          if (key === 'memory' && memories.length === 0) {
+          if (key === 'workingMemory' && workingMemories.length === 0) {
+            loadWorkingMemories();
+          }
+          if (key === 'longTermMemory' && memories.length === 0) {
             loadMemories('');
           }
         }}>
-          <TabPane tab="聊天记录" key="chatHistory">
+          <TabPane tab="聊天历史" key="chatHistory">
             <ChatHistoryTab />
           </TabPane>
-          <TabPane tab="记忆管理" key="memory">
-            <MemoryTab />
+          <TabPane tab="工作记忆" key="workingMemory">
+            <WorkingMemoryTab />
+          </TabPane>
+          <TabPane tab="长期记忆" key="longTermMemory">
+            <LongTermMemoryTab />
           </TabPane>
         </Tabs>
       </div>
 
-      {/* 创建/编辑记忆对话框 */}
+      {/* 创建/编辑长期记忆对话框 */}
       <Modal
         title={currentMemory ? '编辑记忆' : '添加记忆'}
         visible={memoryDialogVisible}
         destroyOnClose={false}
         maskClosable={false}
         onOk={saveMemory}
-        onCancel={() => {
-          setMemoryDialogVisible(false);
-          setCurrentMemory(null);
-        }}
-        width={600}
+        onCancel={() => { setMemoryDialogVisible(false); setCurrentMemory(null); }}
+        width={500}
         okText="保存"
         cancelText="取消"
       >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <div>
-            <Text strong>类别</Text>
-            <div style={{ marginTop: '8px' }}>
+        <div className="classic-field-group">
+          <label className="classic-field-label">类别</label>
+          <Space>
+            {['preference', 'fact', 'pattern'].map(cat => (
               <Button
-                type={memoryForm.category === 'preference' ? 'primary' : 'default'}
-                onClick={() => setMemoryForm(prev => ({ ...prev, category: 'preference' }))}
-                style={{ marginRight: '8px' }}
+                key={cat}
+                type={memoryForm.category === cat ? 'primary' : 'default'}
+                size="small"
+                onClick={() => setMemoryForm(prev => ({ ...prev, category: cat }))}
               >
-                偏好 (preference)
+                {cat === 'preference' ? '偏好' : cat === 'fact' ? '事实' : '模式'}
               </Button>
+            ))}
+          </Space>
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">键名 (Key)</label>
+          <Input
+            value={memoryForm.key}
+            onChange={(e) => setMemoryForm(prev => ({ ...prev, key: e.target.value }))}
+            placeholder="例如: preferred_language, name"
+          />
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">值 (Value)</label>
+          <TextArea
+            value={memoryForm.value}
+            onChange={(e) => setMemoryForm(prev => ({ ...prev, value: e.target.value }))}
+            placeholder="输入记忆内容"
+            rows={3}
+          />
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">置信度: {Math.round(memoryForm.confidence * 100)}%</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={memoryForm.confidence * 100}
+            onChange={(e) => setMemoryForm(prev => ({ ...prev, confidence: parseInt(e.target.value) / 100 }))}
+            style={{ width: '100%' }}
+          />
+        </div>
+      </Modal>
+
+      {/* 工作记忆转存对话框 */}
+      <Modal
+        title="保存到长期记忆"
+        visible={transferDialogVisible}
+        destroyOnClose={false}
+        maskClosable={false}
+        onOk={transferToLongTermMemory}
+        onCancel={() => setTransferDialogVisible(false)}
+        width={500}
+        okText="保存"
+        cancelText="取消"
+      >
+        <div className="classic-field-group">
+          <label className="classic-field-label">类别</label>
+          <Space>
+            {['preference', 'fact', 'pattern'].map(cat => (
               <Button
-                type={memoryForm.category === 'fact' ? 'primary' : 'default'}
-                onClick={() => setMemoryForm(prev => ({ ...prev, category: 'fact' }))}
-                style={{ marginRight: '8px' }}
+                key={cat}
+                type={transferForm.category === cat ? 'primary' : 'default'}
+                size="small"
+                onClick={() => setTransferForm(prev => ({ ...prev, category: cat }))}
               >
-                事实 (fact)
+                {cat === 'preference' ? '偏好' : cat === 'fact' ? '事实' : '模式'}
               </Button>
-              <Button
-                type={memoryForm.category === 'pattern' ? 'primary' : 'default'}
-                onClick={() => setMemoryForm(prev => ({ ...prev, category: 'pattern' }))}
-              >
-                模式 (pattern)
-              </Button>
-            </div>
-          </div>
-          <div>
-            <Text strong>键名 (Key)</Text>
-            <Input
-              value={memoryForm.key}
-              onChange={(e) => setMemoryForm(prev => ({ ...prev, key: e.target.value }))}
-              placeholder="例如: preferred_language, name, coding_style"
-            />
-          </div>
-          <div>
-            <Text strong>值 (Value)</Text>
-            <TextArea
-              value={memoryForm.value}
-              onChange={(e) => setMemoryForm(prev => ({ ...prev, value: e.target.value }))}
-              placeholder="输入记忆内容"
-              rows={4}
-            />
-          </div>
-          <div>
-            <Text strong>置信度: {Math.round(memoryForm.confidence * 100)}%</Text>
-            <Input
-              type="range"
-              min="0"
-              max="100"
-              value={memoryForm.confidence * 100}
-              onChange={(e) => setMemoryForm(prev => ({ ...prev, confidence: parseInt(e.target.value) / 100 }))}
-              style={{ width: '100%' }}
-            />
-          </div>
-        </Space>
+            ))}
+          </Space>
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">键名 (Key)</label>
+          <Input
+            value={transferForm.key}
+            onChange={(e) => setTransferForm(prev => ({ ...prev, key: e.target.value }))}
+            placeholder="例如: topic_interest"
+          />
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">值 (Value)</label>
+          <TextArea
+            value={transferForm.value}
+            onChange={(e) => setTransferForm(prev => ({ ...prev, value: e.target.value }))}
+            rows={4}
+          />
+        </div>
+        <div className="classic-field-group">
+          <label className="classic-field-label">置信度: {Math.round(transferForm.confidence * 100)}%</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={transferForm.confidence * 100}
+            onChange={(e) => setTransferForm(prev => ({ ...prev, confidence: parseInt(e.target.value) / 100 }))}
+            style={{ width: '100%' }}
+          />
+        </div>
       </Modal>
     </div>
   );

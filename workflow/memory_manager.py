@@ -340,6 +340,47 @@ def cleanup_expired_working_memory(timeout_minutes: int = 30) -> int:
         return cursor.rowcount
 
 
+def list_working_memories(limit: int = 100) -> List[WorkingMemory]:
+    """List all active working memory entries.
+
+    Args:
+        limit: Maximum number of entries to return
+
+    Returns:
+        List of WorkingMemory objects
+    """
+    with chat_db.get_connection() as conn:
+        cursor = conn.execute("""
+            SELECT session_id, current_topic, context_variables,
+                   turn_count, last_emotion, created_at, updated_at
+            FROM working_memory
+            ORDER BY updated_at DESC
+            LIMIT ?
+        """, (limit,))
+        rows = cursor.fetchall()
+
+    result = []
+    for row in rows:
+        ctx_vars = {}
+        if row[2]:
+            try:
+                ctx_vars = json.loads(row[2])
+            except (json.JSONDecodeError, TypeError):
+                ctx_vars = {}
+
+        result.append(WorkingMemory(
+            session_id=row[0],
+            current_topic=row[1],
+            context_variables=ctx_vars,
+            turn_count=row[3] or 0,
+            last_emotion=row[4],
+            created_at=datetime.fromisoformat(row[5]) if row[5] else datetime.now(),
+            updated_at=datetime.fromisoformat(row[6]) if row[6] else datetime.now(),
+        ))
+
+    return result
+
+
 # ============ Long-term Memory Operations ============
 
 def create_memory_entry(
