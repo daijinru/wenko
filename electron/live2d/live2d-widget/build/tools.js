@@ -1,15 +1,10 @@
-import { fa_comment, fa_paper_plane, fa_plus } from './icons.js';
+import { fa_paper_plane, fa_plus } from './icons.js';
 import { showSSEMessage } from './message.js';
 import { createNewSession } from './chat.js';
 class ToolsManager {
     constructor(model, config, tips) {
         this.config = config;
         this.tools = {
-            comment: {
-                icon: fa_comment,
-                callback: async () => {
-                }
-            },
             plane: {
                 icon: fa_paper_plane,
                 callback: () => {

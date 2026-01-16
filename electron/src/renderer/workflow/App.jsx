@@ -534,7 +534,7 @@ function App() {
             {chatSessions.length === 0 ? (
               <Alert message="暂无聊天记录" type="info" />
             ) : (
-              <div className="classic-list" style={{ maxHeight: '450px' }}>
+              <div className="classic-list" style={{}}>
                 {chatSessions.map(session => (
                   <div
                     key={session.id}
@@ -575,7 +575,7 @@ function App() {
             ) : sessionMessages.length === 0 ? (
               <Alert message="该会话暂无消息" type="info" />
             ) : (
-              <div className="classic-inset" style={{ maxHeight: '450px', overflowY: 'auto' }}>
+              <div className="classic-inset" style={{}}>
                 {sessionMessages.map((msg, index) => (
                   <div
                     key={msg.id || index}
@@ -631,7 +631,7 @@ function App() {
             <Alert message="暂无活跃会话" type="info" />
           </div>
         ) : (
-          <div className="classic-list" style={{ maxHeight: '500px', marginTop: '12px' }}>
+          <div className="classic-list" style={{ marginTop: '12px' }}>
             {workingMemories.map(wm => (
               <div key={wm.session_id} className="memory-item">
                 <div className="memory-item-header">
@@ -788,7 +788,7 @@ function App() {
         {memories.length === 0 ? (
           <Alert message="暂无记忆数据" type="info" />
         ) : (
-          <div className="classic-list" style={{ maxHeight: '400px' }}>
+          <div className="classic-list" style={{}}>
             {memories.map(memory => (
               <div key={memory.id} className="memory-item">
                 <div className="memory-item-header">

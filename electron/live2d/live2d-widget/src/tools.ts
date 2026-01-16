@@ -47,12 +47,11 @@ class ToolsManager {
   constructor(model: ModelManager, config: Config, tips: Tips) {
     this.config = config;
     this.tools = {
-      comment: {
-        icon: fa_comment,
-        callback: async () => {
-          // Add hitokoto.cn API
-        }
-      },
+      // comment: {
+      //   icon: fa_comment,
+      //   callback: async () => {
+      //   }
+      // },
       plane: {
         icon: fa_paper_plane,
         callback: () => {

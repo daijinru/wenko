@@ -42,11 +42,11 @@ body {
   background: var(--classic-bg);
   min-height: 100vh;
   color: var(--classic-text);
+  overflow: hidden;
 }
 
 #root {
   min-height: 100vh;
-  padding: 12px;
 }
 
 /* ============================================
@@ -54,7 +54,6 @@ body {
    ============================================ */
 
 .app-container {
-  max-width: 1400px;
   margin: 0 auto;
   background: var(--classic-bg);
   border: 2px solid;
@@ -69,6 +68,8 @@ body {
    ============================================ */
 
 .app-header {
+  -webkit-app-region: drag;
+
   background: linear-gradient(
     to bottom,
     var(--classic-bg-light) 0%,
@@ -126,7 +127,8 @@ body {
 .app-content {
   padding: 12px;
   background: var(--classic-window-content);
-  min-height: 500px;
+  height: calc(100vh - 33px);
+  overflow: auto;
 }
 
 /* ============================================
