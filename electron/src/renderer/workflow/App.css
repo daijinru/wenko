@@ -756,6 +756,10 @@ body {
   border-radius: 0 !important;
 }
 
+.ant-tabs-tab+.ant-tabs-tab {
+  margin: 0 0 0 8px;
+}
+
 .ant-tabs-tab:hover {
   background: var(--classic-bg-light) !important;
 }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>记忆宫殿</title>
+  <title>Memory Palace</title>
   
   <!-- Ant Design CSS (使用 3.x 版本，支持 UMD) -->
   <link rel="stylesheet" href="https://unpkg.com/antd@3.26.20/dist/antd.css">
@@ -971,7 +971,7 @@
       return (
         <div className="app-container">
           <div className="app-header">
-            <h1>🚀 记忆宫殿</h1>
+            <h1>🚀 Memory Palace</h1>
             <Space>
               <span className={`status-indicator ${status.online ? '' : 'offline'}`}></span>
               <Text style={{ color: 'white' }}>

@@ -70,7 +70,7 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
     const shortcutWindow = new BrowserWindow({
       width: 1200,
       height: 800,
-      title: '记忆宫殿',
+      title: 'Memory Palace',
       icon: path.join(__dirname, 'assets', 'favicon.ico'),
       titleBarStyle: 'hidden',
       trafficLightPosition: { x: 10, y: 6 },
