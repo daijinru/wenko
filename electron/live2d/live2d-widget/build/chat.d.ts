@@ -51,6 +51,12 @@ export interface HITLResult {
     data?: Record<string, any>;
     result?: any;
 }
+export interface HITLContinuationData {
+    request_title: string;
+    action: string;
+    form_data?: Record<string, any>;
+    field_labels: Record<string, string>;
+}
 export declare function getSessionId(): string;
 export declare function createNewSession(): string;
 export declare function sendChatMessage(message: string, onChunk: (text: string) => void, onDone?: () => void, onError?: (error: string) => void, onEmotion?: (emotion: EmotionInfo) => void, onHITL?: (hitlRequest: HITLRequest) => void): void;
@@ -71,3 +77,4 @@ export declare function submitHITLResponse(requestId: string, sessionId: string,
 export declare function createHITLForm(hitlRequest: HITLRequest, onComplete?: (result: HITLResult) => void): HTMLElement;
 export declare function createHITLFormHtml(hitlRequest: HITLRequest): string;
 export declare function bindHITLFormEvents(hitlRequest: HITLRequest, onComplete?: (result: HITLResult) => void): void;
+export declare function triggerHITLContinuation(sessionId: string, continuationData: HITLContinuationData, onChunk: (text: string) => void, onDone?: () => void, onError?: (error: string) => void, onHITL?: (hitlRequest: HITLRequest) => void): void;

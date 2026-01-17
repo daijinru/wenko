@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 import memory_manager
 from hitl_schema import (
     HITLAction,
+    HITLContinuationData,
     HITLRequest,
     HITLResponseData,
     HITLResponseResult,
@@ -130,21 +131,39 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
             error="会话不匹配",
         )
 
+    # Build field labels mapping for continuation context
+    field_labels = {field.name: field.label for field in request.fields}
+
     # Handle based on action
     if response.action == HITLAction.REJECT:
-        # User rejected, just clean up
+        # User rejected, build continuation data
         remove_hitl_request(response.request_id)
         logger.info(f"[HITL] User rejected request {response.request_id}")
+        continuation_data = HITLContinuationData(
+            request_title=request.title,
+            action="reject",
+            form_data=None,
+            field_labels=field_labels,
+        )
         return HITLResponseResult(
             success=True,
             next_action="continue",
             message="已跳过",
+            continuation_data=continuation_data,
         )
 
     if response.action in (HITLAction.APPROVE, HITLAction.EDIT):
         # Process the form data
         result = _process_form_data(request, response.data, session_id)
         remove_hitl_request(response.request_id)
+        # Add continuation data to result
+        if result.success:
+            result.continuation_data = HITLContinuationData(
+                request_title=request.title,
+                action="approve",
+                form_data=response.data,
+                field_labels=field_labels,
+            )
         return result
 
     return HITLResponseResult(
@@ -261,3 +280,42 @@ def extract_hitl_from_llm_response(response_text: str) -> Optional[HITLRequest]:
     except Exception as e:
         logger.warning(f"[HITL] Failed to parse HITL request: {e}")
         return None
+
+
+def build_continuation_context(continuation_data: HITLContinuationData) -> str:
+    """Build context string for LLM continuation based on user's HITL response.
+
+    Args:
+        continuation_data: Data from HITL response
+
+    Returns:
+        Formatted context string for LLM prompt
+    """
+    if continuation_data.action == "reject":
+        return f"""用户刚才跳过了表单 "{continuation_data.request_title}"。
+用户选择不填写此表单。请根据用户的选择适当调整对话，可以换一种方式提问、跳过该话题或表达理解。"""
+
+    # Action is approve
+    if not continuation_data.form_data:
+        return f"""用户确认了表单 "{continuation_data.request_title}"，但未填写任何数据。"""
+
+    # Format the form data with labels
+    data_lines = []
+    for field_name, value in continuation_data.form_data.items():
+        label = continuation_data.field_labels.get(field_name, field_name)
+        if isinstance(value, list):
+            value_str = ", ".join(str(v) for v in value)
+        else:
+            value_str = str(value)
+        if value_str:  # Only include non-empty values
+            data_lines.append(f"- {label}: {value_str}")
+
+    if not data_lines:
+        return f"""用户确认了表单 "{continuation_data.request_title}"，但未填写任何数据。"""
+
+    data_str = "\n".join(data_lines)
+    return f"""用户刚才通过表单提交了以下信息:
+表单标题: {continuation_data.request_title}
+{data_str}
+
+请根据用户的选择继续对话。"""

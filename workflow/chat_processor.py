@@ -471,3 +471,82 @@ def extract_response_text(llm_output: str) -> str:
         return data.get("response", llm_output)
     except json.JSONDecodeError:
         return llm_output
+
+
+# ============ HITL Continuation ============
+
+HITL_CONTINUATION_PROMPT_TEMPLATE = """你是一个友好的 AI 助手。
+
+{hitl_context}
+
+上下文信息:
+- 工作记忆: {working_memory_summary}
+- 相关记忆: {relevant_long_term_memory}
+
+回复要求:
+{strategy_prompt}
+
+你必须以纯 JSON 格式回复，不要包含任何其他文字或 markdown 标记。JSON 格式如下:
+{{"emotion":{{"primary":"neutral","category":"neutral","confidence":0.8,"indicators":[]}},"response":"你的回复内容","memory_update":{{"should_store":false,"entries":[]}}}}
+
+emotion.primary 可选值: neutral, happy, excited, grateful, curious, sad, anxious, frustrated, confused, help_seeking, info_seeking, validation_seeking
+emotion.category 可选值: neutral, positive, negative, seeking
+
+重要：如果用户表达了偏好、个人信息或重要事实，必须在 memory_update 中保存。
+- should_store 设为 true
+- entries 中添加条目，key 和 value 必须使用中文
+- category 可选: preference(偏好), fact(事实), pattern(习惯)
+
+{hitl_instruction}
+
+现在请直接输出 JSON:"""
+
+
+def build_hitl_continuation_prompt(
+    session_id: str,
+    hitl_context: str,
+) -> str:
+    """Build prompt for HITL continuation.
+
+    Args:
+        session_id: Session UUID
+        hitl_context: Context string from build_continuation_context()
+
+    Returns:
+        Complete prompt for LLM
+    """
+    # Get working memory
+    working_memory = memory_manager.get_or_create_working_memory(session_id)
+
+    # Get relevant memories (using hitl_context as query for relevance)
+    relevant_memories = memory_manager.retrieve_relevant_memories(
+        hitl_context,
+        working_memory=working_memory,
+    )
+
+    # Format memory summaries
+    working_memory_summary = format_working_memory_summary(working_memory)
+    relevant_memory_str = format_relevant_memories(relevant_memories)
+
+    # Get strategy based on previous emotion
+    previous_emotion = working_memory.last_emotion
+    if previous_emotion:
+        from emotion_detector import EmotionResult
+        prev_emotion_result = EmotionResult(primary=previous_emotion)
+        strategy = select_strategy(prev_emotion_result)
+    else:
+        from emotion_detector import EmotionResult
+        strategy = select_strategy(EmotionResult(primary="neutral"))
+
+    strategy_prompt = build_strategy_prompt(strategy)
+
+    # Include HITL instruction if enabled
+    hitl_instruction = HITL_INSTRUCTION if USE_HITL_SYSTEM else HITL_INSTRUCTION_DISABLED
+
+    return HITL_CONTINUATION_PROMPT_TEMPLATE.format(
+        hitl_context=hitl_context,
+        working_memory_summary=working_memory_summary,
+        relevant_long_term_memory=relevant_memory_str,
+        strategy_prompt=strategy_prompt,
+        hitl_instruction=hitl_instruction,
+    )

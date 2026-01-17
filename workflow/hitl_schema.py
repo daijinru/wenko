@@ -101,12 +101,21 @@ class HITLResponseData(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
+class HITLContinuationData(BaseModel):
+    """Data for HITL continuation to pass to LLM."""
+    request_title: str
+    action: str  # approve | reject
+    form_data: Optional[Dict[str, Any]] = None
+    field_labels: Dict[str, str] = {}  # field_name -> label mapping
+
+
 class HITLResponseResult(BaseModel):
     """Result of processing HITL response."""
     success: bool
     next_action: str = "continue"  # continue | complete
     message: Optional[str] = None
     error: Optional[str] = None
+    continuation_data: Optional[HITLContinuationData] = None
 
 
 def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[HITLRequest]:

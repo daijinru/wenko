@@ -789,12 +789,21 @@ class HITLRespondRequest(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
+class HITLContinuationDataResponse(BaseModel):
+    """HITL continuation data for frontend"""
+    request_title: str
+    action: str
+    form_data: Optional[Dict[str, Any]] = None
+    field_labels: Dict[str, str] = {}
+
+
 class HITLRespondResponse(BaseModel):
     """HITL 响应结果"""
     success: bool
     next_action: str = "continue"
     message: Optional[str] = None
     error: Optional[str] = None
+    continuation_data: Optional[HITLContinuationDataResponse] = None
 
 
 @app.post("/hitl/respond", response_model=HITLRespondResponse)
@@ -824,11 +833,22 @@ async def hitl_respond(request: HITLRespondRequest):
         # 处理响应
         result = hitl_handler.process_hitl_response(response_data)
 
+        # Convert continuation_data if present
+        continuation_data_response = None
+        if result.continuation_data:
+            continuation_data_response = HITLContinuationDataResponse(
+                request_title=result.continuation_data.request_title,
+                action=result.continuation_data.action,
+                form_data=result.continuation_data.form_data,
+                field_labels=result.continuation_data.field_labels,
+            )
+
         return HITLRespondResponse(
             success=result.success,
             next_action=result.next_action,
             message=result.message,
             error=result.error,
+            continuation_data=continuation_data_response,
         )
     except HTTPException:
         raise
@@ -851,6 +871,185 @@ async def hitl_status(request_id: str):
         "title": request.title,
         "expires_at": expires_at.isoformat(),
     }
+
+
+class HITLContinueRequest(BaseModel):
+    """HITL 继续请求"""
+    session_id: str
+    continuation_data: HITLContinuationDataResponse
+
+
+async def stream_hitl_continuation(request: HITLContinueRequest):
+    """流式调用 LLM API 继续 HITL 后的对话
+
+    使用 continuation_data 构建上下文，调用 LLM 继续对话。
+    """
+    try:
+        config = load_chat_config()
+    except FileNotFoundError as e:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": str(e)}})}\n\n'
+        return
+    except Exception as e:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"配置加载失败: {str(e)}"}})}\n\n'
+        return
+
+    session_id = request.session_id
+
+    # Build continuation context from the HITL response data
+    from hitl_schema import HITLContinuationData
+    continuation_data = HITLContinuationData(
+        request_title=request.continuation_data.request_title,
+        action=request.continuation_data.action,
+        form_data=request.continuation_data.form_data,
+        field_labels=request.continuation_data.field_labels,
+    )
+    hitl_context = hitl_handler.build_continuation_context(continuation_data)
+
+    # Build the continuation prompt
+    system_prompt = chat_processor.build_hitl_continuation_prompt(session_id, hitl_context)
+
+    # Prepare messages for LLM
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Call LLM API
+    api_url = f"{config.api_base.rstrip('/')}/chat/completions"
+
+    request_body = {
+        "model": config.model,
+        "messages": messages,
+        "max_tokens": config.max_tokens,
+        "temperature": config.temperature,
+        "stream": True
+    }
+
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json"
+    }
+
+    assistant_response = ""
+    detected_emotion = None
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                api_url,
+                json=request_body,
+                headers=headers
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"API 请求失败: {response.status_code} - {error_text.decode()}"}})}\n\n'
+                    return
+
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                assistant_response += content
+                        except json.JSONDecodeError:
+                            continue
+
+        # Process the complete response
+        final_response = assistant_response
+        hitl_request = None
+
+        if assistant_response:
+            try:
+                # Parse LLM's JSON output
+                chat_context = chat_processor.build_chat_context(session_id, hitl_context)
+                chat_result = chat_processor.process_llm_response(assistant_response, chat_context)
+                final_response = chat_result.response
+                detected_emotion = chat_result.emotion
+
+                # Check for HITL request (chained HITL support)
+                if chat_processor.is_hitl_enabled():
+                    hitl_request = hitl_handler.extract_hitl_from_llm_response(assistant_response)
+                    if hitl_request:
+                        hitl_handler.store_hitl_request(hitl_request, session_id)
+
+                # Send parsed response text
+                yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
+
+                # Send emotion info
+                if detected_emotion:
+                    yield f'event: emotion\ndata: {json.dumps({"type": "emotion", "payload": {"primary": detected_emotion.primary, "category": detected_emotion.category, "confidence": detected_emotion.confidence}})}\n\n'
+
+                # Send HITL request event (for chained HITL)
+                if hitl_request:
+                    hitl_payload = {
+                        "id": hitl_request.id,
+                        "type": hitl_request.type,
+                        "title": hitl_request.title,
+                        "description": hitl_request.description,
+                        "fields": [
+                            {
+                                "name": f.name,
+                                "type": f.type.value,
+                                "label": f.label,
+                                "required": f.required,
+                                "placeholder": f.placeholder,
+                                "default": f.default,
+                                "options": [{"value": o.value, "label": o.label} for o in f.options] if f.options else None,
+                                "min": f.min,
+                                "max": f.max,
+                                "step": f.step,
+                            }
+                            for f in hitl_request.fields
+                        ],
+                        "actions": {
+                            "approve": {"label": hitl_request.actions.approve.label, "style": hitl_request.actions.approve.style.value},
+                            "edit": {"label": hitl_request.actions.edit.label, "style": hitl_request.actions.edit.style.value},
+                            "reject": {"label": hitl_request.actions.reject.label, "style": hitl_request.actions.reject.style.value},
+                        },
+                        "session_id": session_id,
+                    }
+                    yield f'event: hitl\ndata: {json.dumps({"type": "hitl", "payload": hitl_payload})}\n\n'
+
+            except Exception as e:
+                print(f"解析 LLM continuation 响应失败: {e}")
+                final_response = chat_processor.extract_response_text(assistant_response)
+                yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
+
+        # Save assistant message to database
+        if final_response:
+            try:
+                chat_db.add_message(session_id, "assistant", final_response)
+            except Exception as e:
+                print(f"保存助手消息失败: {e}")
+
+        yield f'event: done\ndata: {json.dumps({"type": "done"})}\n\n'
+
+    except httpx.TimeoutException:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": "API 请求超时"}})}\n\n'
+    except httpx.ConnectError:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": "无法连接到 API 服务器"}})}\n\n'
+    except Exception as e:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"请求错误: {str(e)}"}})}\n\n'
+
+
+@app.post("/hitl/continue")
+async def hitl_continue(request: HITLContinueRequest):
+    """HITL 继续对话接口 - 返回 SSE 流式响应
+
+    在用户响应 HITL 表单后，自动调用此接口继续对话。
+    """
+    return StreamingResponse(
+        stream_hitl_continuation(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 if __name__ == "__main__":

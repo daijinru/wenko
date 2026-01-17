@@ -2,6 +2,7 @@ import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
 import { showSSEMessage } from './message.js';
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const HITL_API_URL = 'http://localhost:8002/hitl/respond';
+const HITL_CONTINUE_API_URL = 'http://localhost:8002/hitl/continue';
 const MAX_HISTORY_LENGTH = 10;
 const SESSION_ID_KEY = 'wenko-chat-session-id';
 const HISTORY_KEY = 'wenko-chat-history';
@@ -570,6 +571,8 @@ export function createHITLFormHtml(hitlRequest) {
     hitlLog('CREATE_INLINE_FORM', { id: hitlRequest.id, fields: (_a = hitlRequest.fields) === null || _a === void 0 ? void 0 : _a.length });
     let fieldsHtml = '';
     (_b = hitlRequest.fields) === null || _b === void 0 ? void 0 : _b.forEach(field => {
+        var _a, _b, _c, _d;
+        hitlLog('RENDER_FIELD', { name: field.name, type: field.type, label: field.label, hasOptions: !!field.options });
         let fieldHtml = '';
         if (field.type === 'select' && field.options) {
             const optionsHtml = field.options.map(opt => `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join('');
@@ -598,6 +601,34 @@ export function createHITLFormHtml(hitlRequest) {
             fieldHtml = `
         <textarea class="hitl-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;resize:vertical;min-height:40px;"></textarea>
+      `;
+        }
+        else if (field.type === 'date') {
+            fieldHtml = `
+        <input type="date" class="hitl-field" data-field="${escapeHtml(field.name)}"
+          style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
+      `;
+        }
+        else if (field.type === 'slider' || (field.type === 'number' && field.min !== undefined && field.max !== undefined)) {
+            const min = (_a = field.min) !== null && _a !== void 0 ? _a : 0;
+            const max = (_b = field.max) !== null && _b !== void 0 ? _b : 100;
+            const step = (_c = field.step) !== null && _c !== void 0 ? _c : 1;
+            const defaultVal = (_d = field.default) !== null && _d !== void 0 ? _d : min;
+            fieldHtml = `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" class="hitl-field hitl-slider" data-field="${escapeHtml(field.name)}"
+            min="${min}" max="${max}" step="${step}" value="${defaultVal}"
+            style="flex:1;">
+          <span class="hitl-slider-value" style="min-width:30px;text-align:right;font-size:11px;">${defaultVal}</span>
+        </div>
+      `;
+        }
+        else if (field.type === 'boolean') {
+            fieldHtml = `
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+          <input type="checkbox" class="hitl-field hitl-boolean" data-field="${escapeHtml(field.name)}" style="margin:0;">
+          <span>${escapeHtml(field.placeholder || '是')}</span>
+        </label>
       `;
         }
         else {
@@ -640,6 +671,43 @@ export function createHITLFormHtml(hitlRequest) {
     </div>
   `;
 }
+function showHITLError(formContainer, errorMessage) {
+    var _a;
+    const existingError = formContainer.querySelector('.hitl-error-msg');
+    if (existingError) {
+        existingError.remove();
+    }
+    const errorEl = document.createElement('div');
+    errorEl.className = 'hitl-error-msg';
+    errorEl.style.cssText = `
+    color: #dc2626;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  `;
+    errorEl.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+    </svg>
+    <span>${escapeHtml(errorMessage)}</span>
+  `;
+    const actionsDiv = formContainer.querySelector('div:last-child');
+    if (actionsDiv) {
+        (_a = actionsDiv.parentNode) === null || _a === void 0 ? void 0 : _a.insertBefore(errorEl, actionsDiv);
+    }
+    else {
+        formContainer.appendChild(errorEl);
+    }
+    setTimeout(() => {
+        errorEl.remove();
+    }, 5000);
+}
 export function bindHITLFormEvents(hitlRequest, onComplete) {
     var _a, _b;
     const shadowRoot = (_a = document.getElementById('WENKO__CONTAINER-ROOT')) === null || _a === void 0 ? void 0 : _a.shadowRoot;
@@ -655,8 +723,15 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
     hitlLog('BIND_EVENTS_START', { id: hitlRequest.id });
     const formData = {};
     (_b = hitlRequest.fields) === null || _b === void 0 ? void 0 : _b.forEach(field => {
+        var _a, _b;
         if (field.type === 'checkbox') {
             formData[field.name] = [];
+        }
+        else if (field.type === 'boolean') {
+            formData[field.name] = false;
+        }
+        else if (field.type === 'slider' || (field.type === 'number' && field.min !== undefined)) {
+            formData[field.name] = (_b = (_a = field.default) !== null && _a !== void 0 ? _a : field.min) !== null && _b !== void 0 ? _b : 0;
         }
     });
     const fields = formContainer.querySelectorAll('.hitl-field');
@@ -681,21 +756,43 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
                 };
             }
             else if (input.type === 'checkbox') {
-                input.onchange = () => {
-                    if (input.checked) {
-                        if (!formData[fieldName].includes(input.value)) {
-                            formData[fieldName].push(input.value);
+                if (el.classList.contains('hitl-boolean')) {
+                    input.onchange = () => {
+                        formData[fieldName] = input.checked;
+                        hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+                    };
+                }
+                else {
+                    input.onchange = () => {
+                        if (!Array.isArray(formData[fieldName])) {
+                            formData[fieldName] = [];
                         }
-                    }
-                    else {
-                        formData[fieldName] = formData[fieldName].filter((v) => v !== input.value);
+                        if (input.checked) {
+                            if (!formData[fieldName].includes(input.value)) {
+                                formData[fieldName].push(input.value);
+                            }
+                        }
+                        else {
+                            formData[fieldName] = formData[fieldName].filter((v) => v !== input.value);
+                        }
+                        hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+                    };
+                }
+            }
+            else if (input.type === 'range') {
+                input.oninput = () => {
+                    var _a;
+                    formData[fieldName] = parseFloat(input.value);
+                    const valueDisplay = (_a = el.parentElement) === null || _a === void 0 ? void 0 : _a.querySelector('.hitl-slider-value');
+                    if (valueDisplay) {
+                        valueDisplay.textContent = input.value;
                     }
                     hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
                 };
             }
             else {
                 input.oninput = () => {
-                    formData[fieldName] = input.value;
+                    formData[fieldName] = input.type === 'number' ? parseFloat(input.value) || input.value : input.value;
                 };
             }
         }
@@ -707,6 +804,29 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
     });
     const approveBtn = formContainer.querySelector('.hitl-btn-approve');
     const rejectBtn = formContainer.querySelector('.hitl-btn-reject');
+    const handleContinuation = (continuationData) => {
+        var _a;
+        hitlLog('AUTO_CONTINUATION_TRIGGERED', continuationData);
+        const fieldLabels = {};
+        (_a = hitlRequest.fields) === null || _a === void 0 ? void 0 : _a.forEach(field => {
+            fieldLabels[field.name] = field.label;
+        });
+        continuationData.field_labels = fieldLabels;
+        triggerHITLContinuation(hitlRequest.session_id, continuationData, (chunk) => {
+            showSSEMessage(chunk, 'wenko-chat-response');
+        }, () => {
+            hitlLog('AUTO_CONTINUATION_DONE');
+        }, (error) => {
+            showSSEMessage(`<div class="wenko-chat-error">错误: ${escapeHtml(error)}</div>`, 'wenko-chat-error-msg');
+        }, (newHitlRequest) => {
+            hitlLog('CHAINED_HITL_REQUEST', { id: newHitlRequest.id, title: newHitlRequest.title });
+            const formHtml = createHITLFormHtml(newHitlRequest);
+            showSSEMessage(formHtml, 'wenko-hitl-form');
+            setTimeout(() => {
+                bindHITLFormEvents(newHitlRequest, onComplete);
+            }, 50);
+        });
+    };
     if (approveBtn) {
         approveBtn.onclick = async () => {
             hitlLog('ACTION_APPROVE', { requestId: hitlRequest.id, formData });
@@ -714,8 +834,18 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
             rejectBtn.disabled = true;
             try {
                 const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'approve', formData);
+                if (!result.success && result.error) {
+                    hitlLog('VALIDATION_ERROR', { error: result.error });
+                    showHITLError(formContainer, result.error);
+                    approveBtn.disabled = false;
+                    rejectBtn.disabled = false;
+                    return;
+                }
                 formContainer.remove();
                 onComplete === null || onComplete === void 0 ? void 0 : onComplete({ action: 'approve', data: formData, result });
+                if (result.continuation_data) {
+                    handleContinuation(result.continuation_data);
+                }
             }
             catch (e) {
                 console.error('Approve failed:', e);
@@ -730,9 +860,12 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
             approveBtn.disabled = true;
             rejectBtn.disabled = true;
             try {
-                await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'reject', null);
+                const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'reject', null);
                 formContainer.remove();
-                onComplete === null || onComplete === void 0 ? void 0 : onComplete({ action: 'reject' });
+                onComplete === null || onComplete === void 0 ? void 0 : onComplete({ action: 'reject', result });
+                if (result.continuation_data) {
+                    handleContinuation(result.continuation_data);
+                }
             }
             catch (e) {
                 console.error('Reject failed:', e);
@@ -742,4 +875,107 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
         };
     }
     hitlLog('BIND_EVENTS_DONE', { id: hitlRequest.id });
+}
+export function triggerHITLContinuation(sessionId, continuationData, onChunk, onDone, onError, onHITL) {
+    hitlLog('CONTINUATION_START', { sessionId, continuationData });
+    if (isLoading) {
+        hitlLog('CONTINUATION_BLOCKED', 'Already loading');
+        return;
+    }
+    isLoading = true;
+    showSSEMessage('<div class="wenko-chat-loading">AI 思考中...</div>', 'wenko-chat-loading-msg');
+    let assistantResponse = '';
+    const removeLoadingIndicator = () => {
+        var _a;
+        const shadowRoot = (_a = document.getElementById('WENKO__CONTAINER-ROOT')) === null || _a === void 0 ? void 0 : _a.shadowRoot;
+        const loadingEl = shadowRoot === null || shadowRoot === void 0 ? void 0 : shadowRoot.querySelector('.wenko-chat-loading');
+        if (loadingEl) {
+            loadingEl.remove();
+        }
+    };
+    fetchEventSource(HITL_CONTINUE_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: sessionId,
+            continuation_data: continuationData,
+        }),
+        openWhenHidden: true,
+        onopen: async (res) => {
+            hitlLog('CONTINUATION_SSE_OPEN', { status: res.status, ok: res.ok });
+            removeLoadingIndicator();
+            if (res.ok)
+                return;
+            const text = await res.text();
+            hitlLog('CONTINUATION_SSE_OPEN_ERROR', { status: res.status, text });
+            throw new Error(`HTTP ${res.status}: ${text}`);
+        },
+        onmessage: (event) => {
+            var _a, _b, _c, _d, _e;
+            hitlLog('CONTINUATION_SSE_EVENT', { event: event.event, dataLen: (_a = event.data) === null || _a === void 0 ? void 0 : _a.length });
+            try {
+                if (event.event === 'text') {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'text' && ((_b = data.payload) === null || _b === void 0 ? void 0 : _b.content)) {
+                        assistantResponse += data.payload.content;
+                        hitlLog('CONTINUATION_TEXT_CHUNK', { contentLen: data.payload.content.length, totalLen: assistantResponse.length });
+                        onChunk(data.payload.content);
+                    }
+                }
+                else if (event.event === 'hitl') {
+                    hitlLog('CONTINUATION_HITL_EVENT', event.data);
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'hitl' && data.payload) {
+                        currentHITLRequest = data.payload;
+                        hitlLog('CONTINUATION_HITL_PARSED', {
+                            id: currentHITLRequest.id,
+                            title: currentHITLRequest.title,
+                            fields: (_c = currentHITLRequest.fields) === null || _c === void 0 ? void 0 : _c.length
+                        });
+                        onHITL === null || onHITL === void 0 ? void 0 : onHITL(currentHITLRequest);
+                    }
+                }
+                else if (event.event === 'done') {
+                    if (assistantResponse) {
+                        historyManager.addMessage({ role: 'assistant', content: assistantResponse });
+                    }
+                    hitlLog('CONTINUATION_DONE', { responseLength: assistantResponse.length });
+                    isLoading = false;
+                    onDone === null || onDone === void 0 ? void 0 : onDone();
+                }
+                else if (event.event === 'error') {
+                    const data = JSON.parse(event.data);
+                    const errorMsg = ((_d = data.payload) === null || _d === void 0 ? void 0 : _d.message) || '未知错误';
+                    hitlLog('CONTINUATION_ERROR', { error: errorMsg });
+                    isLoading = false;
+                    onError === null || onError === void 0 ? void 0 : onError(errorMsg);
+                }
+            }
+            catch (e) {
+                console.error('解析 continuation SSE 消息失败:', e);
+                hitlLog('CONTINUATION_PARSE_ERROR', { error: String(e), data: (_e = event.data) === null || _e === void 0 ? void 0 : _e.substring(0, 100) });
+            }
+        },
+        onclose: () => {
+            hitlLog('CONTINUATION_SSE_CLOSE', { isLoading, assistantResponseLength: assistantResponse.length });
+            removeLoadingIndicator();
+            if (isLoading) {
+                if (assistantResponse) {
+                    historyManager.addMessage({ role: 'assistant', content: assistantResponse });
+                }
+                isLoading = false;
+                onDone === null || onDone === void 0 ? void 0 : onDone();
+            }
+        },
+        onerror: (err) => {
+            console.error('Continuation SSE error:', err);
+            hitlLog('CONTINUATION_SSE_ERROR', { message: err.message, name: err.name });
+            removeLoadingIndicator();
+            isLoading = false;
+            onError === null || onError === void 0 ? void 0 : onError(err.message || '连接错误');
+            throw err;
+        },
+    });
 }

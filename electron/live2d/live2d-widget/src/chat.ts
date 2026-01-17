@@ -12,6 +12,7 @@ import { showSSEMessage } from './message.js';
 
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const HITL_API_URL = 'http://localhost:8002/hitl/respond';
+const HITL_CONTINUE_API_URL = 'http://localhost:8002/hitl/continue';
 const MAX_HISTORY_LENGTH = 10;
 const SESSION_ID_KEY = 'wenko-chat-session-id';
 const HISTORY_KEY = 'wenko-chat-history';
@@ -74,6 +75,13 @@ export interface HITLResult {
   action: 'approve' | 'edit' | 'reject';
   data?: Record<string, any>;
   result?: any;
+}
+
+export interface HITLContinuationData {
+  request_title: string;
+  action: string;
+  form_data?: Record<string, any>;
+  field_labels: Record<string, string>;
 }
 
 // Emotion display configuration
@@ -802,6 +810,7 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
   let fieldsHtml = '';
 
   hitlRequest.fields?.forEach(field => {
+    hitlLog('RENDER_FIELD', { name: field.name, type: field.type, label: field.label, hasOptions: !!field.options });
     let fieldHtml = '';
 
     if (field.type === 'select' && field.options) {
@@ -835,7 +844,33 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
         <textarea class="hitl-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;resize:vertical;min-height:40px;"></textarea>
       `;
+    } else if (field.type === 'date') {
+      fieldHtml = `
+        <input type="date" class="hitl-field" data-field="${escapeHtml(field.name)}"
+          style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
+      `;
+    } else if (field.type === 'slider' || (field.type === 'number' && field.min !== undefined && field.max !== undefined)) {
+      const min = field.min ?? 0;
+      const max = field.max ?? 100;
+      const step = field.step ?? 1;
+      const defaultVal = field.default ?? min;
+      fieldHtml = `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" class="hitl-field hitl-slider" data-field="${escapeHtml(field.name)}"
+            min="${min}" max="${max}" step="${step}" value="${defaultVal}"
+            style="flex:1;">
+          <span class="hitl-slider-value" style="min-width:30px;text-align:right;font-size:11px;">${defaultVal}</span>
+        </div>
+      `;
+    } else if (field.type === 'boolean') {
+      fieldHtml = `
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+          <input type="checkbox" class="hitl-field hitl-boolean" data-field="${escapeHtml(field.name)}" style="margin:0;">
+          <span>${escapeHtml(field.placeholder || '是')}</span>
+        </label>
+      `;
     } else {
+      // Default: text, number, or unknown types
       const inputType = field.type === 'number' ? 'number' : 'text';
       fieldHtml = `
         <input type="${inputType}" class="hitl-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
@@ -880,6 +915,52 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
 }
 
 /**
+ * 显示 HITL 表单错误信息
+ */
+function showHITLError(formContainer: HTMLElement, errorMessage: string): void {
+  // Remove any existing error message
+  const existingError = formContainer.querySelector('.hitl-error-msg');
+  if (existingError) {
+    existingError.remove();
+  }
+
+  // Create error element
+  const errorEl = document.createElement('div');
+  errorEl.className = 'hitl-error-msg';
+  errorEl.style.cssText = `
+    color: #dc2626;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  `;
+  errorEl.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+    </svg>
+    <span>${escapeHtml(errorMessage)}</span>
+  `;
+
+  // Insert before the action buttons
+  const actionsDiv = formContainer.querySelector('div:last-child');
+  if (actionsDiv) {
+    actionsDiv.parentNode?.insertBefore(errorEl, actionsDiv);
+  } else {
+    formContainer.appendChild(errorEl);
+  }
+
+  // Auto-remove after 5 seconds
+  setTimeout(() => {
+    errorEl.remove();
+  }, 5000);
+}
+
+/**
  * 绑定内联 HITL 表单事件
  */
 export function bindHITLFormEvents(
@@ -902,10 +983,15 @@ export function bindHITLFormEvents(
 
   const formData: Record<string, any> = {};
 
-  // Initialize checkbox arrays
+  // Initialize checkbox arrays and boolean defaults
   hitlRequest.fields?.forEach(field => {
     if (field.type === 'checkbox') {
       formData[field.name] = [];
+    } else if (field.type === 'boolean') {
+      formData[field.name] = false;
+    } else if (field.type === 'slider' || (field.type === 'number' && field.min !== undefined)) {
+      // Initialize slider with default value
+      formData[field.name] = field.default ?? field.min ?? 0;
     }
   });
 
@@ -930,19 +1016,41 @@ export function bindHITLFormEvents(
           }
         };
       } else if (input.type === 'checkbox') {
-        input.onchange = () => {
-          if (input.checked) {
-            if (!formData[fieldName].includes(input.value)) {
-              formData[fieldName].push(input.value);
+        // Check if this is a boolean field or a multi-select checkbox
+        if (el.classList.contains('hitl-boolean')) {
+          input.onchange = () => {
+            formData[fieldName] = input.checked;
+            hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+          };
+        } else {
+          input.onchange = () => {
+            if (!Array.isArray(formData[fieldName])) {
+              formData[fieldName] = [];
             }
-          } else {
-            formData[fieldName] = formData[fieldName].filter((v: string) => v !== input.value);
+            if (input.checked) {
+              if (!formData[fieldName].includes(input.value)) {
+                formData[fieldName].push(input.value);
+              }
+            } else {
+              formData[fieldName] = formData[fieldName].filter((v: string) => v !== input.value);
+            }
+            hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+          };
+        }
+      } else if (input.type === 'range') {
+        // Slider input
+        input.oninput = () => {
+          formData[fieldName] = parseFloat(input.value);
+          // Update the value display
+          const valueDisplay = el.parentElement?.querySelector('.hitl-slider-value');
+          if (valueDisplay) {
+            valueDisplay.textContent = input.value;
           }
           hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
         };
       } else {
         input.oninput = () => {
-          formData[fieldName] = input.value;
+          formData[fieldName] = input.type === 'number' ? parseFloat(input.value) || input.value : input.value;
         };
       }
     } else if (el.tagName === 'TEXTAREA') {
@@ -956,6 +1064,45 @@ export function bindHITLFormEvents(
   const approveBtn = formContainer.querySelector('.hitl-btn-approve') as HTMLButtonElement;
   const rejectBtn = formContainer.querySelector('.hitl-btn-reject') as HTMLButtonElement;
 
+  // Helper function to handle continuation after HITL response
+  const handleContinuation = (continuationData: HITLContinuationData) => {
+    hitlLog('AUTO_CONTINUATION_TRIGGERED', continuationData);
+
+    // Build field labels from hitlRequest
+    const fieldLabels: Record<string, string> = {};
+    hitlRequest.fields?.forEach(field => {
+      fieldLabels[field.name] = field.label;
+    });
+
+    // Update continuation data with field labels
+    continuationData.field_labels = fieldLabels;
+
+    triggerHITLContinuation(
+      hitlRequest.session_id,
+      continuationData,
+      (chunk) => {
+        showSSEMessage(chunk, 'wenko-chat-response');
+      },
+      () => {
+        hitlLog('AUTO_CONTINUATION_DONE');
+      },
+      (error) => {
+        showSSEMessage(`<div class="wenko-chat-error">错误: ${escapeHtml(error)}</div>`, 'wenko-chat-error-msg');
+      },
+      (newHitlRequest) => {
+        // Handle chained HITL request
+        hitlLog('CHAINED_HITL_REQUEST', { id: newHitlRequest.id, title: newHitlRequest.title });
+        const formHtml = createHITLFormHtml(newHitlRequest);
+        showSSEMessage(formHtml, 'wenko-hitl-form');
+
+        // Recursively bind events for chained HITL
+        setTimeout(() => {
+          bindHITLFormEvents(newHitlRequest, onComplete);
+        }, 50);
+      }
+    );
+  };
+
   if (approveBtn) {
     approveBtn.onclick = async () => {
       hitlLog('ACTION_APPROVE', { requestId: hitlRequest.id, formData });
@@ -963,8 +1110,24 @@ export function bindHITLFormEvents(
       rejectBtn.disabled = true;
       try {
         const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'approve', formData);
+
+        // Check if response indicates an error (e.g., required field missing)
+        if (!result.success && result.error) {
+          hitlLog('VALIDATION_ERROR', { error: result.error });
+          // Show error message in the form
+          showHITLError(formContainer, result.error);
+          approveBtn.disabled = false;
+          rejectBtn.disabled = false;
+          return;
+        }
+
         formContainer.remove();
         onComplete?.({ action: 'approve', data: formData, result });
+
+        // Auto-trigger continuation if continuation_data is present
+        if (result.continuation_data) {
+          handleContinuation(result.continuation_data as HITLContinuationData);
+        }
       } catch (e) {
         console.error('Approve failed:', e);
         approveBtn.disabled = false;
@@ -979,9 +1142,14 @@ export function bindHITLFormEvents(
       approveBtn.disabled = true;
       rejectBtn.disabled = true;
       try {
-        await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'reject', null);
+        const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'reject', null);
         formContainer.remove();
-        onComplete?.({ action: 'reject' });
+        onComplete?.({ action: 'reject', result });
+
+        // Auto-trigger continuation for reject as well
+        if (result.continuation_data) {
+          handleContinuation(result.continuation_data as HITLContinuationData);
+        }
       } catch (e) {
         console.error('Reject failed:', e);
         approveBtn.disabled = false;
@@ -991,4 +1159,124 @@ export function bindHITLFormEvents(
   }
 
   hitlLog('BIND_EVENTS_DONE', { id: hitlRequest.id });
+}
+
+/**
+ * 触发 HITL 继续对话
+ * 在用户响应 HITL 表单后自动调用，让 AI 基于用户响应继续对话
+ */
+export function triggerHITLContinuation(
+  sessionId: string,
+  continuationData: HITLContinuationData,
+  onChunk: (text: string) => void,
+  onDone?: () => void,
+  onError?: (error: string) => void,
+  onHITL?: (hitlRequest: HITLRequest) => void
+): void {
+  hitlLog('CONTINUATION_START', { sessionId, continuationData });
+
+  // Prevent multiple concurrent requests
+  if (isLoading) {
+    hitlLog('CONTINUATION_BLOCKED', 'Already loading');
+    return;
+  }
+  isLoading = true;
+
+  // Show loading indicator
+  showSSEMessage('<div class="wenko-chat-loading">AI 思考中...</div>', 'wenko-chat-loading-msg');
+
+  let assistantResponse = '';
+
+  // Helper to remove loading indicator
+  const removeLoadingIndicator = () => {
+    const shadowRoot = document.getElementById('WENKO__CONTAINER-ROOT')?.shadowRoot;
+    const loadingEl = shadowRoot?.querySelector('.wenko-chat-loading');
+    if (loadingEl) {
+      // Only remove the loading element itself, not its parent (which is #waifu-tips)
+      loadingEl.remove();
+    }
+  };
+
+  fetchEventSource(HITL_CONTINUE_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      continuation_data: continuationData,
+    }),
+    openWhenHidden: true, // Keep connection even when page is hidden
+    onopen: async (res: Response) => {
+      hitlLog('CONTINUATION_SSE_OPEN', { status: res.status, ok: res.ok });
+      removeLoadingIndicator();
+      if (res.ok) return;
+      const text = await res.text();
+      hitlLog('CONTINUATION_SSE_OPEN_ERROR', { status: res.status, text });
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    },
+    onmessage: (event: { event: string; data: string }) => {
+      hitlLog('CONTINUATION_SSE_EVENT', { event: event.event, dataLen: event.data?.length });
+      try {
+        if (event.event === 'text') {
+          const data = JSON.parse(event.data);
+          if (data.type === 'text' && data.payload?.content) {
+            assistantResponse += data.payload.content;
+            hitlLog('CONTINUATION_TEXT_CHUNK', { contentLen: data.payload.content.length, totalLen: assistantResponse.length });
+            onChunk(data.payload.content);
+          }
+        } else if (event.event === 'hitl') {
+          // Handle chained HITL request
+          hitlLog('CONTINUATION_HITL_EVENT', event.data);
+          const data = JSON.parse(event.data);
+          if (data.type === 'hitl' && data.payload) {
+            currentHITLRequest = data.payload as HITLRequest;
+            hitlLog('CONTINUATION_HITL_PARSED', {
+              id: currentHITLRequest.id,
+              title: currentHITLRequest.title,
+              fields: currentHITLRequest.fields?.length
+            });
+            onHITL?.(currentHITLRequest);
+          }
+        } else if (event.event === 'done') {
+          // Add assistant response to local history
+          if (assistantResponse) {
+            historyManager.addMessage({ role: 'assistant', content: assistantResponse });
+          }
+          hitlLog('CONTINUATION_DONE', { responseLength: assistantResponse.length });
+          isLoading = false;
+          onDone?.();
+        } else if (event.event === 'error') {
+          const data = JSON.parse(event.data);
+          const errorMsg = data.payload?.message || '未知错误';
+          hitlLog('CONTINUATION_ERROR', { error: errorMsg });
+          isLoading = false;
+          onError?.(errorMsg);
+        }
+      } catch (e) {
+        console.error('解析 continuation SSE 消息失败:', e);
+        hitlLog('CONTINUATION_PARSE_ERROR', { error: String(e), data: event.data?.substring(0, 100) });
+      }
+    },
+    onclose: () => {
+      hitlLog('CONTINUATION_SSE_CLOSE', { isLoading, assistantResponseLength: assistantResponse.length });
+      removeLoadingIndicator();
+      if (isLoading) {
+        if (assistantResponse) {
+          historyManager.addMessage({ role: 'assistant', content: assistantResponse });
+        }
+        isLoading = false;
+        onDone?.();
+      }
+    },
+    onerror: (err: Error) => {
+      console.error('Continuation SSE error:', err);
+      hitlLog('CONTINUATION_SSE_ERROR', { message: err.message, name: err.name });
+      removeLoadingIndicator();
+      isLoading = false;
+      onError?.(err.message || '连接错误');
+      // Throw error to prevent automatic retry
+      throw err;
+    },
+  });
 }
