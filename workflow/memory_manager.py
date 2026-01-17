@@ -84,6 +84,70 @@ DEFAULT_RETRIEVAL_LIMIT = 5
 DEFAULT_CANDIDATE_LIMIT = 50
 
 
+# ============ Pronoun Normalization ============
+
+# Pronoun mapping for normalization (all map to neutral form)
+PRONOUN_NORMALIZE_MAP = {
+    "你": "用户",
+    "我": "用户",
+    "您": "用户",
+    "你的": "用户的",
+    "我的": "用户的",
+    "您的": "用户的",
+    "你们": "用户",
+    "我们": "用户",
+}
+
+# Reverse lookup for matching both directions
+PRONOUN_VARIANTS = {
+    "用户": ["你", "我", "您"],
+    "用户的": ["你的", "我的", "您的"],
+}
+
+
+def normalize_pronouns(text: str) -> str:
+    """Normalize personal pronouns in text to neutral form.
+
+    This helps match queries like "我喜欢的颜色" with memories stored as "你喜欢的颜色".
+
+    Args:
+        text: Input text containing pronouns
+
+    Returns:
+        Text with pronouns normalized to neutral form
+    """
+    result = text
+    # Sort by length descending to replace longer patterns first (e.g., "你的" before "你")
+    sorted_pronouns = sorted(PRONOUN_NORMALIZE_MAP.keys(), key=len, reverse=True)
+    for pronoun in sorted_pronouns:
+        result = result.replace(pronoun, PRONOUN_NORMALIZE_MAP[pronoun])
+    return result
+
+
+def get_pronoun_variants(text: str) -> List[str]:
+    """Get all pronoun variants of a text for fuzzy matching.
+
+    For example, "用户喜欢的颜色" returns ["你喜欢的颜色", "我喜欢的颜色", "您喜欢的颜色"].
+
+    Args:
+        text: Input text (possibly normalized)
+
+    Returns:
+        List of variant texts with different pronouns
+    """
+    variants = [text]
+
+    # Generate variants by replacing normalized forms with original pronouns
+    for normalized, originals in PRONOUN_VARIANTS.items():
+        if normalized in text:
+            for original in originals:
+                variant = text.replace(normalized, original)
+                if variant not in variants:
+                    variants.append(variant)
+
+    return variants
+
+
 # ============ Data Classes ============
 
 @dataclass
@@ -748,8 +812,116 @@ def _recall_candidates_like(keywords: List[str], limit: int) -> List[MemoryEntry
         return entries
 
 
+def _recall_candidates_substring(keywords: List[str], limit: int) -> List[MemoryEntry]:
+    """Recall candidate memories using substring matching with pronoun normalization.
+
+    This is a fallback strategy when FTS5 returns insufficient results.
+    It searches for keywords as substrings and also tries pronoun-normalized variants.
+
+    Args:
+        keywords: List of keywords to search
+        limit: Maximum candidates to return
+
+    Returns:
+        List of candidate MemoryEntry instances
+    """
+    if not keywords:
+        return []
+
+    # Expand keywords with pronoun-normalized variants
+    expanded_keywords = set()
+    for kw in keywords:
+        expanded_keywords.add(kw)
+        normalized = normalize_pronouns(kw)
+        expanded_keywords.add(normalized)
+        # Also add pronoun variants
+        for variant in get_pronoun_variants(normalized):
+            expanded_keywords.add(variant)
+
+    # Build LIKE conditions for all expanded keywords
+    conditions = []
+    params: List[Any] = []
+    for kw in expanded_keywords:
+        if len(kw) >= 2:  # Skip very short keywords
+            conditions.append("(key LIKE ? OR value LIKE ?)")
+            params.extend([f"%{kw}%", f"%{kw}%"])
+
+    if not conditions:
+        return []
+
+    where_clause = " OR ".join(conditions)
+
+    with chat_db.get_connection() as conn:
+        cursor = conn.execute(f"""
+            SELECT id, session_id, category, key, value, confidence, source,
+                   created_at, last_accessed, access_count
+            FROM long_term_memory
+            WHERE {where_clause}
+            LIMIT ?
+        """, params + [limit])
+
+        rows = cursor.fetchall()
+
+        entries = []
+        for row in rows:
+            try:
+                value = json.loads(row["value"])
+            except (json.JSONDecodeError, TypeError):
+                value = row["value"]
+
+            entries.append(MemoryEntry(
+                id=row["id"],
+                session_id=row["session_id"],
+                category=row["category"],
+                key=row["key"],
+                value=value,
+                confidence=row["confidence"],
+                source=row["source"],
+                created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow(),
+                last_accessed=datetime.fromisoformat(row["last_accessed"]) if row["last_accessed"] else datetime.utcnow(),
+                access_count=row["access_count"],
+            ))
+
+        return entries
+
+
+def _merge_and_dedupe_candidates(
+    primary: List[MemoryEntry],
+    secondary: List[MemoryEntry],
+) -> List[MemoryEntry]:
+    """Merge two candidate lists and remove duplicates.
+
+    Args:
+        primary: Primary candidate list (higher priority)
+        secondary: Secondary candidate list
+
+    Returns:
+        Merged and deduplicated list
+    """
+    seen_ids: Set[str] = set()
+    result = []
+
+    for entry in primary:
+        if entry.id not in seen_ids:
+            seen_ids.add(entry.id)
+            result.append(entry)
+
+    for entry in secondary:
+        if entry.id not in seen_ids:
+            seen_ids.add(entry.id)
+            result.append(entry)
+
+    return result
+
+
 def _calculate_keyword_score(memory: MemoryEntry, keywords: List[str]) -> float:
-    """Calculate keyword match score for a memory.
+    """Calculate keyword match score for a memory with fuzzy matching support.
+
+    Supports:
+    - Exact match: keyword fully contained in memory (score: 1.0)
+    - Normalized match: match after pronoun normalization (score: 1.0)
+    - Substring match: keyword is substring of memory words (score: 0.7)
+    - Partial match: partial character overlap (score: 0.3)
 
     Args:
         memory: MemoryEntry to score
@@ -765,8 +937,64 @@ def _calculate_keyword_score(memory: MemoryEntry, keywords: List[str]) -> float:
     value_str = str(memory.value) if not isinstance(memory.value, str) else memory.value
     text = f"{memory.key} {value_str}".lower()
 
-    matched = sum(1 for kw in keywords if kw.lower() in text)
-    return matched / len(keywords)
+    # Also create normalized version for pronoun-invariant matching
+    normalized_text = normalize_pronouns(text)
+
+    total_score = 0.0
+    for kw in keywords:
+        kw_lower = kw.lower()
+        normalized_kw = normalize_pronouns(kw_lower)
+
+        if kw_lower in text:
+            # Exact match
+            total_score += 1.0
+        elif normalized_kw in normalized_text:
+            # Match after pronoun normalization
+            total_score += 1.0
+        elif _is_substring_match(kw_lower, text) or _is_substring_match(normalized_kw, normalized_text):
+            # Keyword is a meaningful substring
+            total_score += 0.7
+        elif _has_partial_overlap(kw_lower, text):
+            # Partial character overlap
+            total_score += 0.3
+
+    return total_score / len(keywords)
+
+
+def _is_substring_match(keyword: str, text: str) -> bool:
+    """Check if keyword is a meaningful substring of any word in text.
+
+    Args:
+        keyword: Keyword to match
+        text: Text to search in
+
+    Returns:
+        True if keyword is a substring of a word in text
+    """
+    # Check if keyword appears as substring in any word
+    words = text.split()
+    for word in words:
+        if len(keyword) >= 2 and keyword in word and len(keyword) < len(word):
+            return True
+    return False
+
+
+def _has_partial_overlap(keyword: str, text: str) -> bool:
+    """Check if keyword has significant character overlap with text.
+
+    Args:
+        keyword: Keyword to match
+        text: Text to search in
+
+    Returns:
+        True if at least half of keyword characters appear in text
+    """
+    if len(keyword) < 2:
+        return False
+
+    # Count how many characters from keyword appear in text
+    matched_chars = sum(1 for char in keyword if char in text)
+    return matched_chars >= len(keyword) * 0.5
 
 
 def _calculate_recency_score(last_accessed: datetime) -> float:
@@ -830,9 +1058,9 @@ def retrieve_relevant_memories(
 ) -> List[RetrievalResult]:
     """Retrieve memories relevant to user message using multi-stage algorithm.
 
-    Stage 1: Extract keywords from message
-    Stage 2: Recall candidates (FTS5 primary, LIKE fallback)
-    Stage 3: Calculate relevance scores
+    Stage 1: Extract keywords from message (with pronoun normalization)
+    Stage 2: Recall candidates (FTS5 primary, substring fallback with pronoun variants)
+    Stage 3: Calculate relevance scores (with fuzzy matching)
     Stage 4: Rank and return top-N
 
     Args:
@@ -844,6 +1072,9 @@ def retrieve_relevant_memories(
     Returns:
         List of RetrievalResult sorted by relevance score
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Stage 1: Keyword extraction
     keywords = extract_keywords(user_message)
 
@@ -855,10 +1086,31 @@ def retrieve_relevant_memories(
     if not keywords:
         return []
 
-    # Stage 2: Candidate recall (FTS5 first, LIKE fallback)
+    # Also add normalized versions of keywords for better matching
+    normalized_keywords = list(set(
+        keywords + [normalize_pronouns(kw) for kw in keywords]
+    ))
+
+    # Stage 2: Multi-tier candidate recall
+    # Tier 1: FTS5 with original keywords
     candidates = _recall_candidates_fts(keywords, candidate_limit)
-    if not candidates:
-        candidates = _recall_candidates_like(keywords, candidate_limit)
+
+    # Tier 2: FTS5 with normalized keywords (if different)
+    if len(candidates) < candidate_limit // 2:
+        fts_normalized = _recall_candidates_fts(normalized_keywords, candidate_limit)
+        candidates = _merge_and_dedupe_candidates(candidates, fts_normalized)
+
+    # Tier 3: LIKE fallback
+    if len(candidates) < candidate_limit // 2:
+        like_candidates = _recall_candidates_like(keywords, candidate_limit)
+        candidates = _merge_and_dedupe_candidates(candidates, like_candidates)
+
+    # Tier 4: Substring matching with pronoun variants (final fallback)
+    if len(candidates) < candidate_limit // 2:
+        substring_candidates = _recall_candidates_substring(keywords, candidate_limit)
+        candidates = _merge_and_dedupe_candidates(candidates, substring_candidates)
+        if substring_candidates:
+            logger.debug(f"[Memory] Substring fallback found {len(substring_candidates)} additional candidates")
 
     if not candidates:
         return []

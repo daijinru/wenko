@@ -204,6 +204,9 @@ def _process_form_data(
     if request.context and request.context.intent == "collect_preference":
         _save_to_memory(request, data, session_id)
 
+    # Persist form data to working memory for session context continuity
+    _persist_to_working_memory(request, data, session_id)
+
     logger.info(f"[HITL] Processed form data for request {request.id}")
 
     return HITLResponseResult(
@@ -211,6 +214,105 @@ def _process_form_data(
         next_action="continue",
         message="已保存",
     )
+
+
+# Maximum size for context_variables in bytes (to prevent unbounded growth)
+MAX_CONTEXT_VARIABLES_SIZE = 64 * 1024  # 64KB
+
+
+def _persist_to_working_memory(
+    request: HITLRequest,
+    data: Dict[str, Any],
+    session_id: str,
+) -> None:
+    """Persist HITL form data to working memory for session context continuity.
+
+    This ensures that form submissions are available in subsequent conversations
+    within the same session.
+
+    Args:
+        request: Original HITL request
+        data: Form data to persist
+        session_id: Session ID
+    """
+    import json
+
+    try:
+        # Get or create working memory
+        wm = memory_manager.get_or_create_working_memory(session_id)
+        updated_ctx = wm.context_variables.copy()
+
+        # Build field labels mapping for readable context
+        field_labels = {field.name: field.label for field in request.fields}
+
+        # Format data with labels for better readability
+        labeled_data = {}
+        for field_name, value in data.items():
+            label = field_labels.get(field_name, field_name)
+            labeled_data[label] = value
+
+        # Store under a key based on request title
+        ctx_key = f"hitl_{request.title}"
+        updated_ctx[ctx_key] = {
+            "fields": labeled_data,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # Check size limit before updating
+        ctx_json = json.dumps(updated_ctx)
+        if len(ctx_json.encode('utf-8')) > MAX_CONTEXT_VARIABLES_SIZE:
+            # Remove oldest entries to make room (LRU eviction)
+            updated_ctx = _evict_oldest_context_entries(updated_ctx, ctx_key)
+            logger.warning(f"[HITL] Context variables exceeded size limit, evicted oldest entries")
+
+        # Update working memory
+        memory_manager.update_working_memory(
+            session_id,
+            context_variables=updated_ctx,
+        )
+        logger.info(f"[HITL] Persisted form data to working memory: {ctx_key}")
+
+    except Exception as e:
+        logger.warning(f"[HITL] Failed to persist to working memory: {e}")
+
+
+def _evict_oldest_context_entries(
+    ctx: Dict[str, Any],
+    preserve_key: str,
+) -> Dict[str, Any]:
+    """Evict oldest context entries to make room for new data.
+
+    Args:
+        ctx: Current context variables
+        preserve_key: Key to preserve (the new entry)
+
+    Returns:
+        Updated context with oldest entries removed
+    """
+    import json
+
+    # Sort entries by timestamp (if available), remove oldest first
+    entries_with_time = []
+    for key, value in ctx.items():
+        if key == preserve_key:
+            continue
+        if isinstance(value, dict) and "timestamp" in value:
+            entries_with_time.append((key, value.get("timestamp", "")))
+        else:
+            # Entries without timestamp are considered oldest
+            entries_with_time.append((key, ""))
+
+    # Sort by timestamp ascending (oldest first)
+    entries_with_time.sort(key=lambda x: x[1])
+
+    # Remove entries until under size limit
+    result = ctx.copy()
+    for key, _ in entries_with_time:
+        del result[key]
+        if len(json.dumps(result).encode('utf-8')) <= MAX_CONTEXT_VARIABLES_SIZE:
+            break
+
+    return result
 
 
 def _save_to_memory(

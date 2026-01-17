@@ -229,8 +229,20 @@ def format_working_memory_summary(working_memory: Optional[memory_manager.Workin
         parts.append(f"上轮情绪: {working_memory.last_emotion}")
 
     if working_memory.context_variables:
-        ctx_str = ", ".join(f"{k}={v}" for k, v in working_memory.context_variables.items())
-        parts.append(f"上下文: {ctx_str}")
+        # Format context variables with special handling for HITL form data
+        ctx_parts = []
+        for key, value in working_memory.context_variables.items():
+            if key.startswith("hitl_") and isinstance(value, dict):
+                # Format HITL form data in a readable way
+                form_title = key[5:]  # Remove "hitl_" prefix
+                fields = value.get("fields", {})
+                if fields:
+                    field_strs = [f"{k}: {v}" for k, v in fields.items()]
+                    ctx_parts.append(f"[表单:{form_title}] {', '.join(field_strs)}")
+            else:
+                ctx_parts.append(f"{key}={value}")
+        if ctx_parts:
+            parts.append(f"上下文: {'; '.join(ctx_parts)}")
 
     return "; ".join(parts) if parts else "无"
 
