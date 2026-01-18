@@ -516,7 +516,7 @@ function App() {
 
   // ============ 聊天记录标签页 ============
   const ChatHistoryTab = () => (
-    <div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <h4 className="classic-section-title">聊天记录</h4>
       <div className="classic-toolbar">
         <Button type="primary" size="small" onClick={loadChatSessions} loading={chatSessionsLoading}>
@@ -527,14 +527,14 @@ function App() {
         </Button>
       </div>
 
-      <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-        <div style={{ width: '40%', minWidth: '280px' }}>
+      <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flex: 1, minHeight: 0 }}>
+        <div style={{ width: '40%', minWidth: '280px', display: 'flex', flexDirection: 'column' }}>
           <h5 className="classic-section-title">会话列表</h5>
-          <Spin spinning={chatSessionsLoading}>
+          <Spin spinning={chatSessionsLoading} wrapperClassName="full-height-spin">
             {chatSessions.length === 0 ? (
               <Alert message="暂无聊天记录" type="info" />
             ) : (
-              <div className="classic-list" style={{}}>
+              <div className="classic-list" style={{ flex: 1, overflowY: 'auto' }}>
                 {chatSessions.map(session => (
                   <div
                     key={session.id}
@@ -567,15 +567,15 @@ function App() {
           </Spin>
         </div>
 
-        <div style={{ flex: 1, minWidth: '350px' }}>
+        <div style={{ flex: 1, minWidth: '350px', display: 'flex', flexDirection: 'column' }}>
           <h5 className="classic-section-title">消息详情</h5>
-          <Spin spinning={sessionMessagesLoading}>
+          <Spin spinning={sessionMessagesLoading} wrapperClassName="full-height-spin">
             {!selectedSession ? (
               <Alert message="请选择一个会话查看详情" type="info" />
             ) : sessionMessages.length === 0 ? (
               <Alert message="该会话暂无消息" type="info" />
             ) : (
-              <div className="classic-inset" style={{}}>
+              <div className="classic-inset" style={{ flex: 1, overflowY: 'auto' }}>
                 {sessionMessages.map((msg, index) => (
                   <div
                     key={msg.id || index}
@@ -617,7 +617,7 @@ function App() {
 
   // ============ 工作记忆标签页 ============
   const WorkingMemoryTab = () => (
-    <div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <h4 className="classic-section-title">工作记忆</h4>
       <div className="classic-toolbar">
         <Button type="primary" size="small" onClick={loadWorkingMemories} loading={workingMemoriesLoading}>
@@ -625,13 +625,13 @@ function App() {
         </Button>
       </div>
 
-      <Spin spinning={workingMemoriesLoading}>
+      <Spin spinning={workingMemoriesLoading} wrapperClassName="full-height-spin">
         {workingMemories.length === 0 ? (
           <div className="working-memory-empty" style={{ marginTop: '12px' }}>
             <Alert message="暂无活跃会话" type="info" />
           </div>
         ) : (
-          <div className="classic-list" style={{ marginTop: '12px' }}>
+          <div className="classic-list" style={{ marginTop: '12px', flex: 1, overflowY: 'auto' }}>
             {workingMemories.map(wm => (
               <div key={wm.session_id} className="memory-item">
                 <div className="memory-item-header">
@@ -741,7 +741,7 @@ function App() {
 
   // ============ 长期记忆标签页 ============
   const LongTermMemoryTab = () => (
-    <div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <h4 className="classic-section-title">长期记忆</h4>
       <div className="classic-toolbar">
         <Button type="primary" size="small" onClick={() => loadMemories(memoryFilter.category)} loading={memoriesLoading}>
@@ -784,11 +784,11 @@ function App() {
         </span>
       </div>
 
-      <Spin spinning={memoriesLoading}>
+      <Spin spinning={memoriesLoading} wrapperClassName="full-height-spin">
         {memories.length === 0 ? (
           <Alert message="暂无记忆数据" type="info" />
         ) : (
-          <div className="classic-list" style={{}}>
+          <div className="classic-list" style={{ flex: 1, overflowY: 'auto' }}>
             {memories.map(memory => (
               <div key={memory.id} className="memory-item">
                 <div className="memory-item-header">
@@ -839,7 +839,11 @@ function App() {
         </Space>
       </div>
       <div className="app-content">
-        <Tabs activeKey={activeTab} onChange={(key) => {
+        <Tabs
+          activeKey={activeTab}
+          tabPosition="left"
+          style={{ height: '100%' }}
+          onChange={(key) => {
           setActiveTab(key);
           if (key === 'chatHistory' && chatSessions.length === 0) {
             loadChatSessions();

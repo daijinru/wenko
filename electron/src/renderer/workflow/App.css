@@ -125,10 +125,10 @@ body {
    ============================================ */
 
 .app-content {
-  padding: 12px;
+  padding: 0; /* Remove padding to let Tabs fill the area */
   background: var(--classic-window-content);
   height: calc(100vh - 33px);
-  overflow: auto;
+  overflow: hidden; /* Use inner scrollbars */
 }
 
 /* ============================================
@@ -736,10 +736,13 @@ body {
 /* Hide default antd styles by making them match classic theme */
 .ant-tabs {
   font-family: inherit;
+  overflow: hidden; /* Ensure no scrollbars on the tabs container itself */
 }
 
 .ant-tabs-nav {
   margin-bottom: 0 !important;
+  width: 120px !important; /* Fixed width for nav */
+  min-width: 120px !important;
 }
 
 .ant-tabs-nav::before {
@@ -747,17 +750,19 @@ body {
 }
 
 .ant-tabs-tab {
-  padding: 4px 16px !important;
+  padding: 8px 12px !important;
   font-size: 12px !important;
   background: var(--classic-bg-dark) !important;
   border: 1px solid var(--classic-border-dark) !important;
-  border-bottom: none !important;
-  margin-right: 2px !important;
+  border-right: none !important; /* Remove right border for left tabs */
+  margin-bottom: 4px !important;
+  margin-right: 0 !important;
   border-radius: 0 !important;
+  text-align: left;
 }
 
 .ant-tabs-tab+.ant-tabs-tab {
-  margin: 0 0 0 8px;
+  margin: 4px 0 0 0 !important;
 }
 
 .ant-tabs-tab:hover {
@@ -767,6 +772,9 @@ body {
 .ant-tabs-tab-active {
   background: var(--classic-window-content) !important;
   border-color: var(--classic-border-dark) !important;
+  border-right: 1px solid var(--classic-window-content) !important; /* Mask the content border */
+  margin-right: -2px !important; /* Overlap content border */
+  z-index: 1;
 }
 
 .ant-tabs-tab-active .ant-tabs-tab-btn {
@@ -786,8 +794,30 @@ body {
   background: var(--classic-window-content);
   border: 2px solid;
   border-color: var(--classic-border-dark) var(--classic-border-light) var(--classic-border-light) var(--classic-border-dark);
-  border-top: none;
+  border-left: 1px solid var(--classic-border-dark); /* Adjust left border */
   padding: 12px;
+  overflow: hidden; /* Disable scrolling on holder */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ant-tabs-content {
+  height: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.ant-tabs-tabpane {
+  height: 100%;
+  /* Only apply flex layout to active tabpane to avoid showing all tabs */
+  display: none; 
+}
+
+.ant-tabs-tabpane-active {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Ant Design Button overrides */
@@ -968,6 +998,22 @@ body {
 /* Ant Design Spin overrides */
 .ant-spin-dot-item {
   background-color: var(--classic-selection) !important;
+}
+
+/* Spin full height helper */
+.full-height-spin {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.full-height-spin .ant-spin-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
 }
 
 /* Ant Design Checkbox overrides */
