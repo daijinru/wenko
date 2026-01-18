@@ -6,7 +6,13 @@ export default defineConfig({
   plugins: [react()],
   base: './', // Use relative paths for Electron
   root: 'src/renderer/workflow', // Set root to the workflow directory
-  
+
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src/renderer/workflow'),
+    },
+  },
+
   build: {
     outDir: resolve(__dirname, 'dist'), // Output to project root's dist folder
     emptyOutDir: true,
@@ -16,5 +22,8 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-  }
+  },
+  css: {
+    postcss: resolve(__dirname, 'postcss.config.js'),
+  },
 });

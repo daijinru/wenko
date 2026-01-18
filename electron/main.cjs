@@ -35,7 +35,7 @@ function createWindow() {
     fullscreenable: false,
     skipTaskbar: true,    // 不在任务栏显示
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false  // 关闭同源策略和 CSP 检查，方便开发加载任意脚本
@@ -81,7 +81,7 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
       fullscreenable: true,
       skipTaskbar: false,    // 在任务栏显示
       webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
+        preload: path.join(__dirname, 'preload.cjs'),
         nodeIntegration: false,
         contextIsolation: true,
         webSecurity: false  // 关闭同源策略和 CSP 检查，方便开发加载任意脚本
