@@ -66,7 +66,7 @@ export function ChatHistoryTab({ onConfirmDialog }: ChatHistoryTabProps) {
         聊天记录
       </h4>
 
-      <div className="flex gap-1 mb-3 flex-wrap">
+      <div className="flex gap-1 !mb-1 !mt-1 flex-wrap">
         <Button size="sm" onClick={loadSessions} disabled={loading}>
           {loading ? "加载中..." : "刷新列表"}
         </Button>

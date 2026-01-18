@@ -9,6 +9,9 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ToastProvider } from "@/hooks/use-toast"
 import { useHealth } from "@/hooks/use-health"
 import "@/styles/globals.css"
+import 'classic-stylesheets/layout.css';
+import 'classic-stylesheets/themes/macos9/theme.css';
+import 'classic-stylesheets/themes/macos9/skins/bubbles.css';
 
 interface ConfirmDialogState {
   open: boolean
@@ -42,10 +45,9 @@ function AppInner() {
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
-          orientation="vertical"
-          className="h-full flex"
+          className="h-full flex flex-col"
         >
-          <TabsList className="w-[120px] min-w-[120px] shrink-0">
+          <TabsList className="w-full justify-start">
             <TabsTrigger value="chatHistory">聊天历史</TabsTrigger>
             <TabsTrigger value="workingMemory">工作记忆</TabsTrigger>
             <TabsTrigger value="longTermMemory">长期记忆</TabsTrigger>

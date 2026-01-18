@@ -3,20 +3,32 @@ import * as TabsPrimitive from "@radix-ui/react-tabs"
 
 import { cn } from "@/lib/utils"
 
-const Tabs = TabsPrimitive.Root
+const Tabs = React.forwardRef<
+  React.ElementRef<typeof TabsPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <TabsPrimitive.Root
+    ref={ref}
+    className={cn("tabs flex flex-col h-full", className)}
+    {...props}
+  />
+))
+Tabs.displayName = TabsPrimitive.Root.displayName
 
 const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <TabsPrimitive.List
+    asChild
     ref={ref}
-    className={cn(
-      "inline-flex flex-col items-stretch justify-start bg-secondary text-muted-foreground",
-      className
-    )}
+    className={className}
     {...props}
-  />
+  >
+    <menu>
+      {children}
+    </menu>
+  </TabsPrimitive.List>
 ))
 TabsList.displayName = TabsPrimitive.List.displayName
 
@@ -27,7 +39,8 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-start whitespace-nowrap px-3 py-2 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-border border-r-0 -mr-px data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:font-bold data-[state=active]:border-r-card data-[state=active]:z-10 data-[state=inactive]:bg-secondary hover:bg-accent",
+      // Resetting base styles to allow classic-stylesheets to apply
+      "cursor-pointer",
       className
     )}
     {...props}
@@ -42,7 +55,7 @@ const TabsContent = React.forwardRef<
   <TabsPrimitive.Content
     ref={ref}
     className={cn(
-      "flex-1 min-h-0 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-card border border-border border-classic-inset p-3 overflow-hidden",
+      "flex-1 min-h-0 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-card border border-border p-5 overflow-hidden",
       className
     )}
     {...props}

@@ -1278,6 +1278,11 @@ class-variance-authority@^0.7.1:
   dependencies:
     clsx "^2.1.1"
 
+classic-stylesheets@^2.1.3:
+  version "2.1.3"
+  resolved "https://registry.npmmirror.com/classic-stylesheets/-/classic-stylesheets-2.1.3.tgz"
+  integrity sha512-dQpTuvKukAdjuUTIFKAKI+Oa3bciBbScioj/7NdPZ/nXkKCwEXPxjSqgWJilWfU6cgN3ss0zoRIIfFU29owjgg==
+
 clean-stack@^2.0.0:
   version "2.2.0"
   resolved "https://registry.npmmirror.com/clean-stack/-/clean-stack-2.2.0.tgz"

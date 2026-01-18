@@ -9,7 +9,7 @@ export function AppLayout({ children, className }: AppLayoutProps) {
   return (
     <div
       className={cn(
-        "h-screen flex flex-col bg-background border-classic-outset shadow-md overflow-hidden",
+        "h-screen flex flex-col bg-background shadow-md overflow-hidden window",
         className
       )}
     >
