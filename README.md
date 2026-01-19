@@ -1,6 +1,9 @@
 # Wenko
 
-Customize workflow by yrself!
+Customize Your Desktop AI Assistant!
+
+![HITL](./docs/Snipaste_2026-01-19_14-53-54.jpg)
+![记忆管理](./docs/Snipaste_2026-01-19_14-51-43.jpg)
 
 ## 项目结构
 
