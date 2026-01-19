@@ -48,7 +48,7 @@ export function MemoryList({
   return (
     <div className="border-classic-inset bg-card overflow-y-auto flex-1 min-h-0">
       {memories.map((wm) => (
-        <div key={wm.session_id} className="p-2 border-b border-muted">
+        <div key={wm.session_id} className="p-2 border-b border-muted !mb-1">
           {/* Header */}
           <div className="flex items-center gap-2 flex-wrap">
             <Button
@@ -93,13 +93,23 @@ export function MemoryList({
 
           {/* Context variables */}
           {Object.keys(wm.context_variables || {}).length > 0 && (
-            <div className="mt-2">
-              <span className="font-bold text-xs text-muted-foreground">
+            <div className="">
+              <details>
+                <summary className="button !w-[100px] !cursor-pointer">上下文变量</summary>
+                <pre className="input readonly">
+                  <code>{JSON.stringify(wm.context_variables, null, 2)}</code>
+                </pre>
+              </details>
+              {/* <span className="font-bold text-xs text-muted-foreground">
                 上下文变量:
-              </span>
-              <div className="mt-1 p-2 bg-muted border border-border text-xs font-mono whitespace-pre-wrap">
+              </span> */}
+              {/* <summary className="!mt-1">上下文变量：</summary>
+              <pre className="input readonly">
+                <code>{JSON.stringify(wm.context_variables, null, 2)}</code>
+              </pre> */}
+              {/* <div className="mt-1 p-2 bg-muted border border-border text-xs font-mono whitespace-pre-wrap">
                 {JSON.stringify(wm.context_variables, null, 2)}
-              </div>
+              </div> */}
             </div>
           )}
 

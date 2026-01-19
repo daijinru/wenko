@@ -60,11 +60,7 @@ export function WorkingMemoryTab({ onConfirmDialog }: WorkingMemoryTabProps) {
 
   return (
     <div className="h-full flex flex-col">
-      <h4 className="text-xs font-bold mb-2 pb-1 border-b border-border">
-        工作记忆
-      </h4>
-
-      <div className="flex gap-1 mb-3">
+      <div className="flex gap-1 !mb-1 !mt-1 !px-1 flex-wrap">
         <Button size="sm" onClick={loadMemories} disabled={loading}>
           {loading ? "加载中..." : "刷新列表"}
         </Button>

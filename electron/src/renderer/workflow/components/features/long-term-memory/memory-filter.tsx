@@ -20,7 +20,7 @@ export function MemoryFilter({
   onFilterChange,
 }: MemoryFilterProps) {
   return (
-    <div className="flex items-center gap-2 p-2 bg-secondary border-classic-inset mb-2">
+    <div className="flex items-center gap-2 p-2 bg-secondary border-classic-inset !p-1">
       <span className="text-[11px] font-bold">类别:</span>
       <div className="flex gap-0.5">
         {FILTERS.map((item) => (

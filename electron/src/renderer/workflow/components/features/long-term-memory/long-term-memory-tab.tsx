@@ -89,11 +89,7 @@ export function LongTermMemoryTab({ onConfirmDialog }: LongTermMemoryTabProps) {
 
   return (
     <div className="h-full flex flex-col">
-      <h4 className="text-xs font-bold mb-2 pb-1 border-b border-border">
-        长期记忆
-      </h4>
-
-      <div className="flex gap-1 mb-3 flex-wrap">
+      <div className="flex gap-1 !mb-1 !mt-1 !px-1 flex-wrap">
         <Button size="sm" onClick={() => loadMemories()} disabled={loading}>
           {loading ? "加载中..." : "刷新列表"}
         </Button>
@@ -103,7 +99,6 @@ export function LongTermMemoryTab({ onConfirmDialog }: LongTermMemoryTabProps) {
         <Button size="sm" onClick={exportMemories}>
           导出 JSON
         </Button>
-        <div className="w-px h-5 bg-border mx-1 self-center" />
         <Button
           variant="destructive"
           size="sm"
