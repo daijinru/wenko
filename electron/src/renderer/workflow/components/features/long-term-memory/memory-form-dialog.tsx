@@ -86,7 +86,7 @@ export function MemoryFormDialog({
         <div className="p-4 space-y-4">
           <div className="space-y-2">
             <label className="text-xs font-bold">类别</label>
-            <div className="flex gap-1">
+            <div className="flex gap-1 !mt-1 !mb-1">
               {CATEGORIES.map((cat) => (
                 <Button
                   key={cat.value}
@@ -135,7 +135,7 @@ export function MemoryFormDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="!mt-4 !mb-1 !mr-1 flex gap-2">
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             取消
           </Button>
