@@ -1,102 +1,137 @@
-# Wenko
+# Wenko 🤖
 
-Customize Your Desktop AI Assistant!
+> **Your Intelligent Desktop Companion with Heart & Memory.**
+> 打造你的专属桌面 AI 伴侣，具备情感记忆与 Live2D 形象。
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Electron](https://img.shields.io/badge/Electron-Desktop-blueviolet)](https://www.electronjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-Frontend-61DAFB)](https://reactjs.org/)
 
 ![HITL](./docs/Snipaste_2026-01-19_14-53-54.jpg)
 ![记忆管理](./docs/Snipaste_2026-01-19_14-51-43.jpg)
 
-## 项目结构
+## 📖 Introduction (简介)
 
-```
+**Wenko** is an open-source Desktop AI Assistant designed to be more than just a chatbot. It integrates **Live2D** avatars with a powerful **Memory & Emotion System**, creating a personalized and interactive experience.
+
+Unlike standard AI tools, Wenko:
+- **Remembers** your preferences and past conversations (Long-term Memory).
+- **Understands** the context of your current work (Working Memory).
+- **Reacts** with emotions, changing its expression based on the conversation.
+- **Collaborates** with you through Human-in-the-Loop (HITL) workflows.
+
+Wenko 是一个开源的桌面 AI 助手。它不仅是一个聊天机器人，更是一个拥有**情感**和**记忆**的数字伴侣。结合 Live2D 技术，Wenko 能以生动的形象陪伴你的工作与生活，并通过 Python 后端提供强大的记忆管理和工作流处理能力。
+
+## ✨ Key Features (核心特性)
+
+- **🧠 Advanced Memory System (双重记忆系统)**
+  - **Long-term Memory**: Stores facts, user preferences, and historical data persistently using SQLite.
+  - **Working Memory**: Maintains context for the current session, ensuring smooth multi-turn conversations.
+
+- **❤️ Emotion Engine (情感引擎)**
+  - Detects emotions from text (Joy, Sadness, Anger, Neutral, etc.).
+  - Updates the Live2D avatar's expression in real-time to match the conversation mood.
+
+- **🎨 Live2D Avatar (Live2D 形象)**
+  - Fully interactive desktop widget.
+  - Supports custom Live2D models (Cubism 2/5).
+  - Touch and gaze interactions.
+
+- **🤝 Human-in-the-Loop (HITL)**
+  - Collaborative workflows where the AI proposes actions and you approve/edit them.
+  - Perfect for complex tasks requiring human oversight.
+
+- **🔒 Privacy First (隐私优先)**
+  - All chat history and memory data are stored locally (`workflow/data/`).
+  - You control your data.
+
+## 🛠️ Tech Stack (技术栈)
+
+- **Frontend (Desktop)**: Electron, React, TypeScript, TailwindCSS, Vite
+- **Avatar Engine**: Live2D Cubism SDK (Web)
+- **Backend (Brain)**: Python, FastAPI, Uvicorn
+- **Data Store**: SQLite (Chat History & Memory)
+- **AI**: OpenAI API / Compatible LLMs
+
+## 📂 Project Structure (项目结构)
+
+```bash
 .
-├── electron/                    # Electron 桌面应用
-│   ├── main.js                  # 主进程
-│   ├── live2d/live2d-widget/    # Live2D Widget 组件
-│   └── src/renderer/workflow/   # Workflow 管理界面 (React)
-├── workflow/                    # Python 后端服务
-│   ├── main.py                  # FastAPI 入口
-│   ├── chat_db.py               # 聊天记录数据库
-│   └── data/                    # 数据目录 (SQLite)
-└── openspec/                    # OpenSpec 规范文档
+├── electron/                    # Electron Desktop App
+│   ├── main.cjs                 # Main Process
+│   ├── src/                     # Renderer Process (React)
+│   └── live2d/live2d-widget/    # Live2D Widget Implementation
+├── workflow/                    # Python Backend Service
+│   ├── main.py                  # FastAPI Entry Point
+│   ├── chat_db.py               # Chat History Database
+│   ├── memory_manager.py        # Memory Logic
+│   └── data/                    # Local Database (SQLite)
+└── openspec/                    # Project Specifications
 ```
 
-## 安装
+## 🚀 Getting Started (快速开始)
 
-### 1. Electron 应用
+### Prerequisites (前置要求)
 
-```bash
-cd electron
-npm install
-```
+- Node.js (v18+)
+- Python (v3.10+)
+- OpenAI API Key (or compatible)
 
-### 2. Live2D Widget
+### Installation (安装)
 
-```bash
-cd electron/live2d/live2d-widget
-npm install
-```
+1.  **Setup Backend (Python)**
+    ```bash
+    cd workflow
+    # pip install -r requirements.txt
+    pip install fastapi uvicorn httpx pydantic
+    ```
 
-### 3. Python 后端
+2.  **Configure AI**
+    ```bash
+    cd workflow
+    cp chat_config.example.json chat_config.json
+    # Edit chat_config.json and add your API Key
+    ```
 
-```bash
-cd workflow
-pip install fastapi uvicorn httpx pydantic
-```
+3.  **Setup Frontend (Electron)**
+    ```bash
+    cd electron
+    npm install
+    ```
 
-### 4. 配置 AI 对话
+4.  **Setup Live2D Widget**
+    ```bash
+    cd electron/live2d/live2d-widget
+    npm install
+    ```
 
-```bash
-cd workflow
-cp chat_config.example.json chat_config.json
-# 编辑 chat_config.json，填写 API Key
-```
+### Running the App (启动应用)
 
-## 开发启动
+1.  **Start Backend**
+    ```bash
+    # Terminal 1
+    cd workflow
+    python main.py
+    # Server running at http://localhost:8002
+    ```
 
-### 启动后端服务
+2.  **Start Electron App**
+    ```bash
+    # Terminal 2
+    cd electron
+    npm start
+    ```
 
-```bash
-cd workflow
-python main.py
-# 服务运行在 http://localhost:8002
-```
+### Building (构建)
 
-### 启动 Electron 应用
+- **Live2D Widget**: `cd electron/live2d/live2d-widget && npm run build`
+- **Electron App**: `cd electron && npm run dist`
 
-```bash
-cd electron
-npm start
-```
+## 📄 License
 
-### 构建 Live2D Widget（修改源码后）
+Distributed under the **MIT License**. See `LICENSE` for more information.
 
-```bash
-cd electron/live2d/live2d-widget
-npm run build
-```
+## 🔗 Related
 
-### 构建 Workflow UI（修改源码后）
-
-```bash
-cd electron
-npm run build
-```
-
-## 打包
-
-```bash
-cd electron
-npm run dist      # 构建安装包
-npm run pack      # 仅构建目录（不打包安装器）
-```
-
-## 数据备份
-
-聊天记录存储在 `workflow/data/chat_history.db`，备份时复制 `workflow/data/` 目录即可。数据库使用相对路径，可在不同机器间迁移。
-
-## Archive info
-
-archive_0914: Archive includes all the code (plugins suport for chrome, obs and the vector server and more) before 9/14/2025.
-
-## Articles
-- [DeepWiki](https://deepwiki.com/daijinru/wenko)
+- [DeepWiki Article](https://deepwiki.com/daijinru/wenko)
