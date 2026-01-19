@@ -115,7 +115,7 @@ export function MemoryFormDialog({
               value={form.value}
               onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
               placeholder="输入记忆内容"
-              rows={3}
+              rows={8}
             />
           </div>
 
@@ -135,7 +135,7 @@ export function MemoryFormDialog({
           </div>
         </div>
 
-        <DialogFooter className="!mt-4 !mb-1 !mr-1 flex gap-2">
+        <DialogFooter className="!mt-4 !mb-1 !mr-1 flex gap-1">
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             取消
           </Button>

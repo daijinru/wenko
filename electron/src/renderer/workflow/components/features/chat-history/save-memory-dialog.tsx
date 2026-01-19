@@ -95,19 +95,19 @@ export function SaveMemoryDialog({
 
         <div className="p-4 space-y-4">
           {message && (
-            <div className="p-2 bg-muted rounded text-xs">
-              <Badge variant={message.role === "user" ? "blue" : "green"}>
+            <div className="flex flex-row justify-between items-center p-2 bg-muted rounded text-[12px]">
+              <Badge variant={message.role === "user" ? "blue" : "green"} className="text-[12px] !mr-1">
                 {message.role === "user" ? "用户消息" : "AI回复"}
               </Badge>
-              <span className="text-[10px] text-muted-foreground ml-2">
+              <span className="text-[12px] text-muted-foreground ml-2">
                 {formatTime(message.created_at)}
               </span>
             </div>
           )}
 
-          <div className="space-y-2">
+          <div className="space-y-2 !mt-1">
             <label className="text-xs font-bold">类别</label>
-            <div className="flex gap-1">
+            <div className="flex gap-1 !mt-1 !mb-1">
               {CATEGORIES.map((cat) => (
                 <Button
                   key={cat.value}
@@ -135,7 +135,7 @@ export function SaveMemoryDialog({
             <Textarea
               value={form.value}
               onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
-              rows={4}
+              rows={8}
             />
           </div>
 
@@ -155,7 +155,7 @@ export function SaveMemoryDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="!mt-4 !mb-1 !mr-1 flex gap-1">
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             取消
           </Button>

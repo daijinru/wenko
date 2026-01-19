@@ -33,8 +33,8 @@ export function ConfirmDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <div className="p-4 text-xs">{content}</div>
-        <DialogFooter>
+        <div className="p-4 text-[12px] text-center !mt-2">{content}</div>
+        <DialogFooter className="!mt-4 !mb-1 !mr-1 flex gap-1">
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             取消
           </Button>
