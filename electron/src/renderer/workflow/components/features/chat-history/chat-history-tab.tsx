@@ -78,7 +78,6 @@ export function ChatHistoryTab({ onConfirmDialog }: ChatHistoryTabProps) {
 
       <div className="flex-1 flex gap-3 min-h-0">
         <div className="w-2/5 min-w-[280px] flex flex-col min-h-0">
-          <h5 className="text-xs font-bold mb-2 shrink-0">会话列表</h5>
           <SessionList
             sessions={sessions}
             loading={loading}

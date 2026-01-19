@@ -37,44 +37,59 @@ export function SessionList({
   }
 
   return (
-    <div className="border-classic-inset bg-card overflow-y-auto flex-1 min-h-0">
-      {sessions.map((session) => (
-        <div
-          key={session.id}
-          className={cn(
-            "p-2 border-b border-muted cursor-pointer hover:bg-primary hover:text-primary-foreground",
-            selectedSessionId === session.id && "bg-primary text-primary-foreground"
-          )}
-          onClick={() => onSelectSession(session.id)}
-        >
-          <div className="flex justify-between items-start gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-xs truncate">
-                {session.title || "(无标题)"}
-              </div>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[10px] opacity-70">
-                  {formatTime(session.updated_at)}
-                </span>
-                <Badge variant="blue" className="text-[9px]">
-                  {session.message_count} 条
-                </Badge>
-              </div>
-            </div>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="shrink-0"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDeleteSession(session.id)
-              }}
+    <div className="border-classic-inset bg-card overflow-y-auto flex-1 min-h-0 !p-0">
+      <table className="w-full text-xs border-collapse detailed">
+        <thead className="bg-muted sticky top-0 z-10 font-bold text-muted-foreground">
+          <tr>
+            <th className="p-2 text-left border-b border-r border-border whitespace-nowrap">标题</th>
+            <th className="p-2 text-left border-b border-r border-border whitespace-nowrap w-24">时间</th>
+            <th className="p-2 text-center border-b border-r border-border whitespace-nowrap w-12">条数</th>
+            <th className="p-2 text-center border-b border-border whitespace-nowrap w-16">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sessions.map((session) => (
+            <tr
+              key={session.id}
+              className={cn(
+                "cursor-pointer hover:bg-primary hover:text-primary-foreground group",
+                selectedSessionId === session.id 
+                  ? "bg-primary text-primary-foreground" 
+                  : "even:bg-muted/30"
+              )}
+              onClick={() => onSelectSession(session.id)}
             >
-              删除
-            </Button>
-          </div>
-        </div>
-      ))}
+              <td className="p-2 border-b border-r border-border truncate max-w-[150px]">
+                {session.title || "(无标题)"}
+              </td>
+              <td className="p-2 border-b border-r border-border whitespace-nowrap text-[10px]">
+                {formatTime(session.updated_at)}
+              </td>
+              <td className="p-2 border-b border-r border-border text-center">
+                <Badge variant="outline" className={cn(
+                  "text-[9px] px-1 h-4 bg-transparent border-current",
+                  selectedSessionId === session.id ? "text-primary-foreground" : "text-foreground"
+                )}>
+                  {session.message_count}
+                </Badge>
+              </td>
+              <td className="p-2 border-b border-border text-center">
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity !cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDeleteSession(session.id)
+                  }}
+                >
+                  <span className="text-[10px]">×</span>
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
