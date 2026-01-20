@@ -1,5 +1,5 @@
 import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
-import { showSSEMessage } from './message.js';
+import { showSSEMessage, showMemoryNotification } from './message.js';
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const HITL_API_URL = 'http://localhost:8002/hitl/respond';
 const HITL_CONTINUE_API_URL = 'http://localhost:8002/hitl/continue';
@@ -87,7 +87,7 @@ export function getSessionId() {
 export function createNewSession() {
     return sessionManager.createNewSession();
 }
-export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, onHITL) {
+export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, onHITL, onMemorySaved) {
     if (isLoading)
         return;
     if (!message.trim())
@@ -133,6 +133,17 @@ export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, on
                             confidence: data.payload.confidence,
                         };
                         onEmotion === null || onEmotion === void 0 ? void 0 : onEmotion(currentEmotion);
+                    }
+                }
+                else if (event.event === 'memory_saved') {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'memory_saved' && data.payload) {
+                        const memorySavedInfo = {
+                            count: data.payload.count,
+                            entries: data.payload.entries,
+                        };
+                        console.log(`[Memory] 自动保存了 ${memorySavedInfo.count} 条记忆:`, memorySavedInfo.entries);
+                        onMemorySaved === null || onMemorySaved === void 0 ? void 0 : onMemorySaved(memorySavedInfo);
                     }
                 }
                 else if (event.event === 'hitl') {
@@ -237,6 +248,8 @@ export function createChatInput(shadowRoot) {
                     }
                 });
             }, 50);
+        }, (memorySavedInfo) => {
+            showMemoryNotification(memorySavedInfo.count, memorySavedInfo.entries);
         });
     };
     sendBtn.addEventListener('click', handleSend);

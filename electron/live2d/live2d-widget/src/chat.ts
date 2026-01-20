@@ -8,7 +8,7 @@
 
 // @ts-ignore
 import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
-import { showSSEMessage } from './message.js';
+import { showSSEMessage, showMemoryNotification } from './message.js';
 
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const HITL_API_URL = 'http://localhost:8002/hitl/respond';
@@ -34,6 +34,15 @@ export interface EmotionInfo {
   primary: string;
   category: string;
   confidence: number;
+}
+
+export interface MemorySavedInfo {
+  count: number;
+  entries: Array<{
+    id: string;
+    category: string;
+    key: string;
+  }>;
 }
 
 // HITL Types
@@ -203,7 +212,8 @@ export function sendChatMessage(
   onDone?: () => void,
   onError?: (error: string) => void,
   onEmotion?: (emotion: EmotionInfo) => void,
-  onHITL?: (hitlRequest: HITLRequest) => void
+  onHITL?: (hitlRequest: HITLRequest) => void,
+  onMemorySaved?: (info: MemorySavedInfo) => void
 ): void {
   if (isLoading) return;
   if (!message.trim()) return;
@@ -253,6 +263,17 @@ export function sendChatMessage(
               confidence: data.payload.confidence,
             };
             onEmotion?.(currentEmotion);
+          }
+        } else if (event.event === 'memory_saved') {
+          // Handle memory saved event
+          const data = JSON.parse(event.data);
+          if (data.type === 'memory_saved' && data.payload) {
+            const memorySavedInfo: MemorySavedInfo = {
+              count: data.payload.count,
+              entries: data.payload.entries,
+            };
+            console.log(`[Memory] 自动保存了 ${memorySavedInfo.count} 条记忆:`, memorySavedInfo.entries);
+            onMemorySaved?.(memorySavedInfo);
           }
         } else if (event.event === 'hitl') {
           // Handle HITL event
@@ -383,6 +404,10 @@ export function createChatInput(shadowRoot: ShadowRoot): HTMLElement {
             }
           });
         }, 50);
+      },
+      (memorySavedInfo) => {
+        // Handle memory saved notification
+        showMemoryNotification(memorySavedInfo.count, memorySavedInfo.entries);
       }
     );
   };

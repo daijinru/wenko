@@ -7,6 +7,14 @@ export interface EmotionInfo {
     category: string;
     confidence: number;
 }
+export interface MemorySavedInfo {
+    count: number;
+    entries: Array<{
+        id: string;
+        category: string;
+        key: string;
+    }>;
+}
 export interface HITLOption {
     value: string;
     label: string;
@@ -59,7 +67,7 @@ export interface HITLContinuationData {
 }
 export declare function getSessionId(): string;
 export declare function createNewSession(): string;
-export declare function sendChatMessage(message: string, onChunk: (text: string) => void, onDone?: () => void, onError?: (error: string) => void, onEmotion?: (emotion: EmotionInfo) => void, onHITL?: (hitlRequest: HITLRequest) => void): void;
+export declare function sendChatMessage(message: string, onChunk: (text: string) => void, onDone?: () => void, onError?: (error: string) => void, onEmotion?: (emotion: EmotionInfo) => void, onHITL?: (hitlRequest: HITLRequest) => void, onMemorySaved?: (info: MemorySavedInfo) => void): void;
 export declare function isChatLoading(): boolean;
 export declare function clearChatHistory(): void;
 export declare function createChatInput(shadowRoot: ShadowRoot): HTMLElement;

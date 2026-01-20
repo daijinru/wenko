@@ -93,3 +93,16 @@ export interface MemoryFormData {
   value: string;
   confidence: number;
 }
+
+// Memory extraction types
+export interface MemoryExtractRequest {
+  content: string;
+  role?: 'user' | 'assistant';
+}
+
+export interface MemoryExtractResponse {
+  key: string;
+  value: string;
+  category: MemoryCategory;
+  confidence: number;
+}

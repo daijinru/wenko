@@ -24,6 +24,7 @@ import uvicorn
 
 import chat_db
 import memory_manager
+import memory_extractor
 import chat_processor
 import hitl_handler
 from hitl_schema import (
@@ -277,6 +278,14 @@ async def stream_chat_response(request: ChatRequest):
                 # 发送情绪信息
                 if detected_emotion:
                     yield f'event: emotion\ndata: {json.dumps({"type": "emotion", "payload": {"primary": detected_emotion.primary, "category": detected_emotion.category, "confidence": detected_emotion.confidence}})}\n\n'
+
+                # 发送记忆保存事件
+                if chat_result.memories_to_store:
+                    memory_payload = {
+                        "count": len(chat_result.memories_to_store),
+                        "entries": chat_result.memories_to_store,
+                    }
+                    yield f'event: memory_saved\ndata: {json.dumps({"type": "memory_saved", "payload": memory_payload})}\n\n'
 
                 # 发送 HITL 请求事件
                 if hitl_request:
@@ -777,6 +786,69 @@ async def delete_working_memory(session_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"清除工作记忆失败: {str(e)}")
+
+
+# ============ Memory Extract API ============
+
+class MemoryExtractRequest(BaseModel):
+    """智能提取记忆请求"""
+    content: str
+    role: str = "user"  # user | assistant
+
+
+class MemoryExtractResponse(BaseModel):
+    """智能提取记忆响应"""
+    key: str
+    value: str
+    category: str
+    confidence: float
+
+
+@app.post("/memory/extract", response_model=MemoryExtractResponse)
+async def extract_memory(request: MemoryExtractRequest):
+    """从消息内容中智能提取记忆信息
+
+    使用 LLM 分析消息，自动提取键名、值、类别和置信度。
+    适用于"保存到长期记忆"对话框的预填充。
+    """
+    try:
+        # Try LLM extraction
+        result = await memory_extractor.extract_memory_from_message(
+            content=request.content,
+            role=request.role,
+        )
+
+        if result and result.confidence >= 0.3:
+            return MemoryExtractResponse(
+                key=result.key,
+                value=result.value,
+                category=result.category,
+                confidence=result.confidence,
+            )
+
+        # Fallback to default extraction
+        default = memory_extractor.get_default_extraction(
+            content=request.content,
+            role=request.role,
+        )
+        return MemoryExtractResponse(
+            key=default.key,
+            value=default.value,
+            category=default.category,
+            confidence=default.confidence,
+        )
+    except Exception as e:
+        # On error, return default extraction
+        default = memory_extractor.get_default_extraction(
+            content=request.content,
+            role=request.role,
+        )
+        return MemoryExtractResponse(
+            key=default.key,
+            value=default.value,
+            category=default.category,
+            confidence=default.confidence,
+        )
 
 
 # ============ HITL API ============

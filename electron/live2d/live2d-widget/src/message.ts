@@ -134,4 +134,58 @@ function i18n(template: string, ...args: string[]) {
   });
 }
 
-export { showMessage, showSSEMessage, welcomeMessage, i18n, Time };
+/**
+ * Show memory saved notification as a toast-like message.
+ * @param {number} count - Number of memories saved.
+ * @param {Array} entries - Saved memory entries.
+ */
+function showMemoryNotification(count: number, entries: Array<{ key: string; category: string }>) {
+  const shadowRoot = document.getElementById('WENKO__CONTAINER-ROOT')?.shadowRoot;
+  if (!shadowRoot) return;
+
+  // Create or get notification container
+  let notificationContainer = shadowRoot.getElementById('memory-notification');
+  if (!notificationContainer) {
+    notificationContainer = document.createElement('div');
+    notificationContainer.id = 'memory-notification';
+    notificationContainer.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+      max-width: 280px;
+    `;
+    shadowRoot.appendChild(notificationContainer);
+  }
+
+  // Format entries for display
+  const entryLabels = entries.slice(0, 3).map(e => e.key).join('、');
+  const suffix = entries.length > 3 ? '...' : '';
+  notificationContainer.innerHTML = `
+    <div style="font-weight: bold; margin-bottom: 4px;">已自动保存 ${count} 条记忆</div>
+    <div style="font-size: 12px; opacity: 0.9;">${entryLabels}${suffix}</div>
+  `;
+
+  // Show notification
+  setTimeout(() => {
+    notificationContainer!.style.opacity = '1';
+    notificationContainer!.style.transform = 'translateY(0)';
+  }, 10);
+
+  // Hide after 3 seconds
+  setTimeout(() => {
+    notificationContainer!.style.opacity = '0';
+    notificationContainer!.style.transform = 'translateY(20px)';
+  }, 3000);
+}
+
+export { showMessage, showSSEMessage, welcomeMessage, i18n, showMemoryNotification, Time };

@@ -57,13 +57,57 @@ CHAT_PROMPT_TEMPLATE = """你是一个友好的 AI 助手。
 emotion.primary 可选值: neutral, happy, excited, grateful, curious, sad, anxious, frustrated, confused, help_seeking, info_seeking, validation_seeking
 emotion.category 可选值: neutral, positive, negative, seeking
 
-重要：如果用户表达了偏好、个人信息或重要事实，必须在 memory_update 中保存。
+【记忆自动保存规则 - 非常重要】
+你必须主动识别并保存以下类型的信息到 memory_update：
+
+1. 用户偏好 (preference)：
+   - 喜欢/不喜欢的事物（食物、颜色、音乐、编程语言等）
+   - 习惯和风格（沟通方式、工作习惯等）
+   - 选择和倾向（工具、方法、平台等）
+   - 价值观和信念（对事物的态度、立场）
+
+2. 用户事实 (fact)：
+   - 个人信息（姓名、职业、年龄、地点等）
+   - 技能和专长（会的语言、擅长的领域等）
+   - 状态和情况（正在做什么、遇到什么问题等）
+   - 经历和发现（学到的东西、遇到的情况）
+
+3. 行为模式 (pattern)：
+   - 重复出现的需求或问题
+   - 特定的交流风格
+   - 使用习惯
+   - 思维方式和认知模式
+
+4. 个人观点和看法 (preference)：【特别重要】
+   - 用户表达的观点、看法、认为、觉得
+   - 深度思考和洞见
+   - 对某个主题的理解和结论
+   - 个人发现和领悟
+   - 关键词识别：我认为、我觉得、我发现、我相信、在我看来、我的观点是、我认同、我不认同
+
+保存规则：
 - should_store 设为 true
 - entries 中添加条目，key 和 value 必须使用中文
-- category 可选: preference(偏好), fact(事实), pattern(习惯)
+- key 应该是简洁的标签（3-15字），如"编程语言偏好"、"用户姓名"、"对AI学习的看法"
+- value 应该是具体信息，对于长篇观点可以保存核心要点
+- category 必须是: preference | fact | pattern
 
-示例：用户说"我叫小明，喜欢用Python"，应保存:
+示例1：用户说"我叫小明，喜欢用Python"
 {{"should_store":true,"entries":[{{"category":"fact","key":"用户姓名","value":"小明"}},{{"category":"preference","key":"编程语言偏好","value":"Python"}}]}}
+
+示例2：用户说"我是前端开发，主要用React"
+{{"should_store":true,"entries":[{{"category":"fact","key":"用户职业","value":"前端开发"}},{{"category":"preference","key":"前端框架偏好","value":"React"}}]}}
+
+示例3：用户说"我在北京工作，每天9点上班"
+{{"should_store":true,"entries":[{{"category":"fact","key":"工作地点","value":"北京"}},{{"category":"pattern","key":"上班时间","value":"每天9点"}}]}}
+
+示例4：用户说"我认为AI最重要的价值不是提升效率，而是让我们能学习更复杂的知识"
+{{"should_store":true,"entries":[{{"category":"preference","key":"对AI价值的看法","value":"AI最重要的价值不是提升效率，而是让我们能学习更复杂、更抽象、更具挑战性的知识"}}]}}
+
+示例5：用户说"我发现当效率提升逐渐累积时，很多以前因太耗时而难以实践的学习方式变得可行了"
+{{"should_store":true,"entries":[{{"category":"fact","key":"关于效率累积的发现","value":"效率提升逐渐累积时，以前因太耗时而难以实践的学习方式变得可行"}}]}}
+
+注意：只有简单的问候、确认（如"好的"、"谢谢"）不需要保存。其他包含有价值信息的消息都应该保存，特别是用户表达个人观点和深度思考时。
 
 {hitl_instruction}
 

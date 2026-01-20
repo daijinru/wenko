@@ -198,11 +198,48 @@ def _extract_json_from_text(text: str) -> Optional[str]:
         if match.startswith('{'):
             return match
 
-    # Try to find raw JSON object
-    # Look for content between first { and last }
+    # Try to find raw JSON object by matching balanced braces
     first_brace = text.find('{')
+    if first_brace == -1:
+        return None
+
+    # Count braces to find the matching closing brace
+    brace_count = 0
+    in_string = False
+    escape_next = False
+
+    for i, char in enumerate(text[first_brace:], start=first_brace):
+        if escape_next:
+            escape_next = False
+            continue
+
+        if char == '\\' and in_string:
+            escape_next = True
+            continue
+
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if char == '{':
+            brace_count += 1
+        elif char == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                potential_json = text[first_brace:i + 1]
+                try:
+                    json.loads(potential_json)
+                    return potential_json
+                except json.JSONDecodeError:
+                    # Continue looking for valid JSON
+                    pass
+
+    # Fallback: Try from first { to last } (original behavior)
     last_brace = text.rfind('}')
-    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+    if last_brace != -1 and last_brace > first_brace:
         potential_json = text[first_brace:last_brace + 1]
         try:
             json.loads(potential_json)
