@@ -21,7 +21,8 @@ interface Window {
 
   electronAPI: {
     send(channel: string, ...args: any[]): void;
-    invoke?(channel: string, ...args: any[]): Promise<any>;
-    // 根据你调用 electronAPI 的具体接口补充声明
+    invoke(channel: string, ...args: any[]): Promise<any>;
+    on(channel: string, callback: (...args: any[]) => void): () => void;
+    once(channel: string, callback: (...args: any[]) => void): void;
   };
 }

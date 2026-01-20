@@ -81,6 +81,53 @@ class ChatHistoryManager {
 const sessionManager = new SessionManager();
 const historyManager = new ChatHistoryManager();
 let isLoading = false;
+function setupHITLResultListener() {
+    var _a;
+    if (!((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.on)) {
+        hitlLog('SETUP_LISTENER', 'electronAPI.on not available, skipping HITL listener setup');
+        return;
+    }
+    window.electronAPI.on('hitl:result', (result) => {
+        hitlLog('HITL_RESULT_RECEIVED', result);
+        if (result.action === 'approve' && result.message) {
+            showSSEMessage(`<div class="wenko-chat-system">${result.message}</div>`, 'wenko-chat-system-msg');
+        }
+        else if (result.action === 'reject') {
+            showSSEMessage(`<div class="wenko-chat-system">已跳过</div>`, 'wenko-chat-system-msg');
+        }
+        else if (result.action === 'cancel') {
+            showSSEMessage(`<div class="wenko-chat-system">已取消</div>`, 'wenko-chat-system-msg');
+        }
+        else if (result.action === 'timeout') {
+            showSSEMessage(`<div class="wenko-chat-error">请求已超时</div>`, 'wenko-chat-error-msg');
+        }
+        if (result.success && result.continuationData) {
+            hitlLog('HITL_CONTINUATION_TRIGGERED', result.continuationData);
+            handleHITLContinuation(result.continuationData);
+        }
+    });
+    hitlLog('SETUP_LISTENER', 'HITL result listener setup complete');
+}
+function handleHITLContinuation(continuationData) {
+    const sessionId = sessionManager.getSessionId();
+    triggerHITLContinuation(sessionId, continuationData, (chunk) => {
+        showSSEMessage(chunk, 'wenko-chat-response');
+    }, () => {
+        hitlLog('HITL_CONTINUATION_DONE');
+    }, (error) => {
+        showSSEMessage(`<div class="wenko-chat-error">错误: ${error}</div>`, 'wenko-chat-error-msg');
+    }, (newHitlRequest) => {
+        var _a;
+        hitlLog('HITL_CHAINED_REQUEST', { id: newHitlRequest.id, title: newHitlRequest.title });
+        if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
+            window.electronAPI.invoke('hitl:open-window', {
+                request: newHitlRequest,
+                sessionId: sessionId,
+            });
+        }
+    });
+}
+setupHITLResultListener();
 export function getSessionId() {
     return sessionManager.getSessionId();
 }
@@ -233,21 +280,24 @@ export function createChatInput(shadowRoot) {
             sendBtn.disabled = false;
             input.focus();
         }, undefined, (hitlRequest) => {
+            var _a;
             hitlLog('HITL_CALLBACK_TRIGGERED', { id: hitlRequest.id, title: hitlRequest.title });
-            const formHtml = createHITLFormHtml(hitlRequest);
-            showSSEMessage(formHtml, 'wenko-hitl-form');
-            setTimeout(() => {
-                bindHITLFormEvents(hitlRequest, (result) => {
-                    var _a;
-                    hitlLog('HITL_FORM_COMPLETED', result);
-                    if (result.action === 'approve' && ((_a = result.result) === null || _a === void 0 ? void 0 : _a.message)) {
-                        showSSEMessage(`<div class="wenko-chat-system">${escapeHtml(result.result.message)}</div>`, 'wenko-chat-system-msg');
-                    }
-                    else if (result.action === 'reject') {
-                        showSSEMessage(`<div class="wenko-chat-system">已跳过</div>`, 'wenko-chat-system-msg');
-                    }
+            const sessionId = sessionManager.getSessionId();
+            if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
+                window.electronAPI.invoke('hitl:open-window', {
+                    request: hitlRequest,
+                    sessionId: sessionId,
+                }).then((result) => {
+                    hitlLog('HITL_WINDOW_OPENED', result);
+                }).catch((error) => {
+                    hitlLog('HITL_WINDOW_ERROR', error);
+                    showSSEMessage(`<div class="wenko-chat-error">无法打开 HITL 窗口</div>`, 'wenko-chat-error-msg');
                 });
-            }, 50);
+            }
+            else {
+                hitlLog('HITL_NO_ELECTRON_API', 'electronAPI not available');
+                showSSEMessage(`<div class="wenko-chat-system">HITL 请求: ${hitlRequest.title}</div>`, 'wenko-chat-system-msg');
+            }
         }, (memorySavedInfo) => {
             showMemoryNotification(memorySavedInfo.count, memorySavedInfo.entries);
         });

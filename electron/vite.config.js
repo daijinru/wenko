@@ -5,19 +5,22 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [react()],
   base: './', // Use relative paths for Electron
-  root: 'src/renderer/workflow', // Set root to the workflow directory
 
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src/renderer/workflow'),
+      '@hitl': resolve(__dirname, 'src/renderer/hitl'),
     },
   },
 
   build: {
-    outDir: resolve(__dirname, 'dist'), // Output to project root's dist folder
+    outDir: resolve(__dirname, 'dist'),
     emptyOutDir: true,
     rollupOptions: {
-      // No need to specify input if index.html is in root
+      input: {
+        main: resolve(__dirname, 'src/renderer/workflow/index.html'),
+        hitl: resolve(__dirname, 'src/renderer/hitl/index.html'),
+      },
     },
   },
   server: {
