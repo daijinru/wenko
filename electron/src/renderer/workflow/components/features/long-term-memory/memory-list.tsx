@@ -1,8 +1,10 @@
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { MemoryDetailDialog } from "./memory-detail-dialog"
 import { formatTime, cn } from "@/lib/utils"
 import type { LongTermMemory, MemoryCategory } from "@/types/api"
 
@@ -29,6 +31,14 @@ export function LongTermMemoryList({
   onEdit,
   onDelete,
 }: MemoryListProps) {
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailMemory, setDetailMemory] = useState<LongTermMemory | null>(null)
+
+  const handleRowClick = (memory: LongTermMemory) => {
+    setDetailMemory(memory)
+    setDetailOpen(true)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-32">
@@ -66,7 +76,7 @@ export function LongTermMemoryList({
                 "cursor-pointer hover:bg-primary hover:text-primary-foreground group transition-colors",
                 selectedIds.includes(memory.id) ? "bg-muted/50" : "even:bg-muted/30"
               )}
-              onClick={() => onToggleSelect(memory.id)}
+              onClick={() => handleRowClick(memory)}
             >
               <td className="p-2 border-b border-r border-border text-center" onClick={(e) => e.stopPropagation()}>
                 <Checkbox
@@ -134,6 +144,13 @@ export function LongTermMemoryList({
           ))}
         </tbody>
       </table>
+
+      <MemoryDetailDialog
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        memory={detailMemory}
+        onEdit={onEdit}
+      />
     </div>
   )
 }
