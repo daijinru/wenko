@@ -113,7 +113,7 @@ async function handleReplay(key: string, value: unknown, sessionId: string) {
 /**
  * Get display info for a context variable entry
  */
-function getEntryDisplayInfo(key: string, value: unknown): { type: string; preview: string } {
+function getEntryDisplayInfo(_: string, value: unknown): { type: string; preview: string } {
   if (isHITLContextValue(value)) {
     const fieldCount = value.fields_def?.length ?? Object.keys(value.fields).length
     return {
