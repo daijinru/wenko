@@ -151,7 +151,7 @@ export function ContextVariableDialog({
             </div>
           ) : (
             <div className="border-classic-inset bg-card overflow-y-auto max-h-[400px]">
-              <table className="w-full text-xs border-collapse">
+              <table className="w-full text-xs border-collapse detailed">
                 <thead className="bg-muted sticky top-0 z-10 font-bold text-muted-foreground">
                   <tr>
                     <th className="p-2 text-left border-b border-r border-border">键名</th>
@@ -198,7 +198,7 @@ export function ContextVariableDialog({
           )}
         </div>
 
-        <DialogFooter className="!mt-0 !mb-1 !mr-1">
+        <DialogFooter className="!mt-2 !mb-1 !mr-1">
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             关闭
           </Button>

@@ -15,7 +15,7 @@ export function HITLActions({ actions, isSubmitting, onApprove, onReject, readon
   // Readonly mode: only show close button
   if (readonly) {
     return (
-      <div className="flex justify-end gap-2 p-4 border-t border-border">
+      <div className="!mt-2 flex justify-end gap-2 p-4 border-t border-border">
         <button
           onClick={() => window.electronAPI.invoke('hitl:cancel')}
           className="px-4 py-1 text-xs border-classic-outset bg-secondary text-secondary-foreground hover:bg-secondary/80"
@@ -27,7 +27,7 @@ export function HITLActions({ actions, isSubmitting, onApprove, onReject, readon
   }
 
   return (
-    <div className="flex justify-end gap-2 p-4 border-t border-border">
+    <div className="!mt-2 flex justify-end gap-2 p-4 border-t border-border">
       <button
         onClick={onReject}
         disabled={isSubmitting}
