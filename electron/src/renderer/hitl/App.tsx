@@ -37,9 +37,9 @@ export default function App() {
     <div className="theme-classic h-screen flex flex-col">
       <div className="window active flex-1 flex flex-col">
         {/* Title bar */}
-        <div className="title-bar window-draggable !p-[6px]">
-          <div className="title-bar-text">{request.title || 'HITL'}</div>
-        </div>
+        <header className="window-draggable bg-classic-title border-b border-border !p-[6px] !mb-[6px] flex justify-between items-center">
+          <h1 className="flex-1 text-center text-xs font-bold">{request.title || 'HITL'}</h1>
+        </header>
 
         {/* Form content */}
         <div className="!p-[12px] window-body flex-1 flex flex-col overflow-hidden">

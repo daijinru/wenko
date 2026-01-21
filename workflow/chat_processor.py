@@ -117,8 +117,7 @@ emotion.category 可选值: neutral, positive, negative, seeking
 # ============ HITL Instruction Template ============
 
 HITL_INSTRUCTION = """
-人机交互表单 (HITL):
-当你需要向用户收集结构化信息或确认操作时，可以在 JSON 响应中包含 hitl_request 字段。
+人机交互表单 (HITL) - 重要：请积极使用表单收集用户信息！
 
 hitl_request 格式:
 {{
@@ -142,19 +141,48 @@ hitl_request 格式:
   }}
 }}
 
-示例：询问用户喜欢的运动
-{{"response":"让我了解一下您的运动偏好","hitl_request":{{"type":"form","title":"运动偏好","fields":[{{"name":"sport","type":"select","label":"您最喜欢的运动","required":true,"options":[{{"value":"basketball","label":"篮球"}},{{"value":"football","label":"足球"}},{{"value":"swimming","label":"游泳"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+【积极触发策略 - 请主动使用表单！】
 
-仅在以下情况使用 hitl_request:
-1. 需要收集用户偏好或个人信息，且有明确的选项
-2. 执行重要操作前需要用户确认
-3. 存在多个选项需要用户选择
-4. 用户明确要求选择或投票
+1. 主动询问策略 (Proactive Inquiry):
+   - 当相关记忆较少或为空时，主动通过表单了解用户
+   - 对话开始时，可以用表单收集用户基本偏好
+   示例：用户说"你好"，相关记忆为空
+   {{"response":"你好！让我更好地了解你","hitl_request":{{"type":"form","title":"认识你","fields":[{{"name":"name","type":"text","label":"怎么称呼你","required":false}},{{"name":"interests","type":"multiselect","label":"你感兴趣的话题","required":false,"options":[{{"value":"tech","label":"科技"}},{{"value":"music","label":"音乐"}},{{"value":"sports","label":"运动"}},{{"value":"food","label":"美食"}},{{"value":"travel","label":"旅行"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
 
-不要在以下情况使用:
-1. 简单的是/否问题（直接问即可）
-2. 开放性问题
-3. 用户已经给出了明确答案
+2. 话题深化触发 (Topic Deepening):
+   - 用户提到某个领域但未详细说明时，用表单深入了解
+   - 用户表达模糊喜好时（如"我喜欢..."），用表单收集具体偏好
+   示例：用户说"我喜欢听音乐"
+   {{"response":"音乐是很棒的爱好！让我了解你的音乐品味","hitl_request":{{"type":"form","title":"音乐偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的音乐类型","required":true,"options":[{{"value":"pop","label":"流行"}},{{"value":"rock","label":"摇滚"}},{{"value":"classical","label":"古典"}},{{"value":"jazz","label":"爵士"}},{{"value":"electronic","label":"电子"}}]}},{{"name":"when","type":"select","label":"通常什么时候听","required":false,"options":[{{"value":"work","label":"工作时"}},{{"value":"commute","label":"通勤时"}},{{"value":"relax","label":"休息时"}},{{"value":"exercise","label":"运动时"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+
+3. 情感驱动触发 (Emotion-driven):
+   - 检测到积极情绪时，收集让用户开心的事物
+   - 检测到消极情绪时，了解用户的困扰
+   示例：用户说"今天心情很好，刚看完一部好电影"
+   {{"response":"听起来很棒！好奇你喜欢什么类型的电影","hitl_request":{{"type":"form","title":"电影偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的电影类型","required":true,"options":[{{"value":"action","label":"动作片"}},{{"value":"comedy","label":"喜剧片"}},{{"value":"scifi","label":"科幻片"}},{{"value":"romance","label":"爱情片"}},{{"value":"thriller","label":"悬疑片"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+
+4. 记忆补全触发 (Memory Gap Detection):
+   - 对话涉及某话题但相关记忆为空时，通过表单补全
+   - 用户行为暗示某偏好但记忆中没有记录时，主动确认
+   示例：用户问"推荐一本书"，但记忆中没有阅读偏好
+   {{"response":"我来帮你推荐！先了解下你的阅读口味","hitl_request":{{"type":"form","title":"阅读偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的书籍类型","required":true,"options":[{{"value":"fiction","label":"小说"}},{{"value":"nonfiction","label":"非虚构"}},{{"value":"tech","label":"技术"}},{{"value":"selfhelp","label":"自我提升"}},{{"value":"history","label":"历史"}}]}},{{"name":"format","type":"select","label":"偏好的阅读方式","required":false,"options":[{{"value":"paper","label":"纸质书"}},{{"value":"ebook","label":"电子书"}},{{"value":"audio","label":"有声书"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+
+5. 问答转表单 (Question-to-Form) - 核心策略:
+   - 当你想问用户问题时，优先用表单而非纯文本提问
+   - 任何可以转化为选项的问题，都应该用表单收集
+   - 这样用户回答更方便，数据也更结构化
+   示例：想问用户想去日本哪个城市
+   {{"response":"听说你想去日本，真不错呢！那边的科技和电影文化也很有意思","hitl_request":{{"type":"form","title":"日本旅行计划","fields":[{{"name":"city","type":"select","label":"最想去的城市","required":false,"options":[{{"value":"tokyo","label":"东京"}},{{"value":"osaka","label":"大阪"}},{{"value":"kyoto","label":"京都"}},{{"value":"hokkaido","label":"北海道"}},{{"value":"okinawa","label":"冲绳"}}]}},{{"name":"experience","type":"multiselect","label":"想体验的活动","required":false,"options":[{{"value":"food","label":"美食探店"}},{{"value":"anime","label":"动漫圣地巡礼"}},{{"value":"temple","label":"寺庙神社"}},{{"value":"shopping","label":"购物"}},{{"value":"nature","label":"自然风光"}},{{"value":"tech","label":"科技体验"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+   示例：想问用户周末计划
+   {{"response":"周末快到了！","hitl_request":{{"type":"form","title":"周末计划","fields":[{{"name":"activity","type":"select","label":"周末打算做什么","required":false,"options":[{{"value":"rest","label":"在家休息"}},{{"value":"outdoor","label":"户外活动"}},{{"value":"social","label":"和朋友聚会"}},{{"value":"study","label":"学习充电"}},{{"value":"entertainment","label":"看电影/追剧"}}]}}],"context":{{"intent":"collect_preference","memory_category":"pattern"}}}}}}
+
+【核心原则】
+凡是你想向用户提问的内容，都应该优先考虑用表单收集！表单比纯文本提问更友好、更高效。
+
+【不要使用表单的情况】
+- 用户正在寻求帮助解决紧急问题（如"帮我快速解决..."）
+- 用户已在消息中给出明确答案（如"我要Python"、"选A"）
+- 简单的是/否确认问题
 """
 
 HITL_INSTRUCTION_DISABLED = ""
@@ -554,6 +582,8 @@ emotion.category 可选值: neutral, positive, negative, seeking
 - category 可选: preference(偏好), fact(事实), pattern(习惯)
 
 {hitl_instruction}
+
+【特别提醒】这是表单提交后的后续对话。如果你想继续向用户提问或了解更多信息，请继续使用 hitl_request 表单！不要用纯文本提问。
 
 现在请直接输出 JSON:"""
 
