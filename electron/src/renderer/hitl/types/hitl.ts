@@ -33,6 +33,7 @@ export interface HITLRequest {
   actions?: HITLActions;
   session_id: string;
   ttl_seconds?: number;
+  readonly?: boolean;  // Readonly mode for context variable replay
 }
 
 export interface HITLContinuationData {

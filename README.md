@@ -8,8 +8,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-Frontend-61DAFB)](https://reactjs.org/)
 
-![HITL](./docs/Snipaste_2026-01-19_14-53-54.jpg)
-![记忆管理](./docs/Snipaste_2026-01-19_14-51-43.jpg)
+![HITL](./docs/Snipaste_2026-01-21.png)
+![记忆管理](./docs/Snipaste_2026-01-20.png)
 
 ## 📖 Introduction (简介)
 

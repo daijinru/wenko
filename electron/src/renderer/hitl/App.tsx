@@ -48,6 +48,7 @@ export default function App() {
             formData={formData}
             onFieldChange={updateField}
             error={error}
+            readonly={request.readonly}
           />
 
           {/* Actions */}
@@ -56,6 +57,7 @@ export default function App() {
             isSubmitting={isSubmitting}
             onApprove={() => submit('approve')}
             onReject={() => submit('reject')}
+            readonly={request.readonly}
           />
         </div>
       </div>

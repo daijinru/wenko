@@ -151,7 +151,8 @@ function createHITLWindow(request) {
       hitlTimeoutId = null;
     }
     // If window closed without submit, treat as cancel
-    if (currentHITLRequest) {
+    // Skip sending cancel message for readonly mode (context variable replay)
+    if (currentHITLRequest && !currentHITLRequest.request?.readonly) {
       const cancelResult = {
         success: true,
         action: 'cancel',
@@ -160,8 +161,8 @@ function createHITLWindow(request) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('hitl:result', cancelResult);
       }
-      currentHITLRequest = null;
     }
+    currentHITLRequest = null;
     hitlWindow = null;
   });
 
@@ -214,7 +215,7 @@ function setupHITLTimeout(ttlSeconds) {
  * Handle request to open HITL window
  */
 ipcMain.handle('hitl:open-window', async (event, data) => {
-  console.log('[HITL] Opening window:', data.request?.title);
+  console.log('[HITL] Opening window:', data.request?.title, 'readonly:', data.request?.readonly);
 
   const { request, sessionId } = data;
   currentHITLRequest = { request, sessionId };
@@ -222,9 +223,11 @@ ipcMain.handle('hitl:open-window', async (event, data) => {
   // Create or focus HITL window
   createHITLWindow(request);
 
-  // Setup TTL timeout
-  const ttlSeconds = request.ttl_seconds || 300;
-  setupHITLTimeout(ttlSeconds);
+  // Setup TTL timeout (skip for readonly mode)
+  if (!request.readonly) {
+    const ttlSeconds = request.ttl_seconds || 300;
+    setupHITLTimeout(ttlSeconds);
+  }
 
   return { success: true };
 });
@@ -298,17 +301,19 @@ ipcMain.handle('hitl:submit', async (event, data) => {
 ipcMain.handle('hitl:cancel', async (event) => {
   console.log('[HITL] Cancel requested');
 
-  const cancelResult = {
-    success: true,
-    action: 'cancel',
-    message: '用户取消'
-  };
+  // Only send cancel result to Live2D for non-readonly mode
+  const isReadonly = currentHITLRequest?.request?.readonly;
 
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (!isReadonly && mainWindow && !mainWindow.isDestroyed()) {
+    const cancelResult = {
+      success: true,
+      action: 'cancel',
+      message: '用户取消'
+    };
     mainWindow.webContents.send('hitl:result', cancelResult);
   }
 
   closeHITLWindow();
 
-  return cancelResult;
+  return { success: true, action: 'cancel' };
 });

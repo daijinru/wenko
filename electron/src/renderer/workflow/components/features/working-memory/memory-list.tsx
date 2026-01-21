@@ -2,10 +2,11 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Fragment } from "react"
+import { Fragment, useState } from "react"
 import { formatTime, cn } from "@/lib/utils"
 import type { WorkingMemory, ChatMessage } from "@/types/api"
 import { MemoryDrilldown } from "./memory-drilldown"
+import { ContextVariableDialog } from "./context-variable-dialog"
 
 interface MemoryListProps {
   memories: WorkingMemory[]
@@ -30,6 +31,14 @@ export function MemoryList({
   onTransfer,
   onSaveMessage,
 }: MemoryListProps) {
+  const [contextDialogOpen, setContextDialogOpen] = useState(false)
+  const [selectedMemory, setSelectedMemory] = useState<WorkingMemory | null>(null)
+
+  const handleShowContextVariables = (memory: WorkingMemory) => {
+    setSelectedMemory(memory)
+    setContextDialogOpen(true)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-32">
@@ -118,25 +127,26 @@ export function MemoryList({
                       >
                         清除
                       </Button>
+                      {Object.keys(wm.context_variables || {}).length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-3 text-[10px] px-2"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleShowContextVariables(wm)
+                          }}
+                        >
+                          上下文
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
                 {isExpanded && (
                   <tr className="bg-background/50">
                     <td colSpan={5} className="p-0 border-b border-border">
-                      <div className="p-4 space-y-4">
-                        {/* Context variables */}
-                        {Object.keys(wm.context_variables || {}).length > 0 && (
-                          <div className="">
-                            <details>
-                              <summary className="button !w-[100px] !cursor-pointer text-xs mb-1">上下文变量</summary>
-                              <pre className="input readonly text-xs">
-                                <code>{JSON.stringify(wm.context_variables, null, 2)}</code>
-                              </pre>
-                            </details>
-                          </div>
-                        )}
-                        
+                      <div className="p-4">
                         {/* Drilldown */}
                         <MemoryDrilldown
                           messages={expandedMessages}
@@ -152,6 +162,13 @@ export function MemoryList({
           })}
         </tbody>
       </table>
+
+      {/* Context Variable Dialog */}
+      <ContextVariableDialog
+        open={contextDialogOpen}
+        onOpenChange={setContextDialogOpen}
+        memory={selectedMemory}
+      />
     </div>
   )
 }

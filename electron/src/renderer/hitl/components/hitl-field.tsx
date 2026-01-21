@@ -5,9 +5,12 @@ interface HITLFieldProps {
   field: HITLFieldType;
   value: unknown;
   onChange: (value: unknown) => void;
+  readonly?: boolean;
 }
 
-export function HITLField({ field, value, onChange }: HITLFieldProps) {
+export function HITLField({ field, value, onChange, readonly }: HITLFieldProps) {
+  const disabledClass = readonly ? 'opacity-75 cursor-not-allowed bg-gray-100' : '';
+
   const renderField = () => {
     switch (field.type) {
       case 'text':
@@ -17,7 +20,8 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
             value={(value as string) ?? ''}
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder}
-            className="w-full px-2 py-1 text-xs bg-white border-classic-inset"
+            disabled={readonly}
+            className={cn("w-full px-2 py-1 text-xs bg-white border-classic-inset", disabledClass)}
           />
         );
 
@@ -27,7 +31,8 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
             value={(value as string) ?? ''}
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder}
-            className="w-full min-h-[60px] px-2 py-1 text-xs bg-white border-classic-inset resize-y"
+            disabled={readonly}
+            className={cn("w-full min-h-[60px] px-2 py-1 text-xs bg-white border-classic-inset resize-y", disabledClass)}
           />
         );
 
@@ -41,7 +46,8 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
             max={field.max}
             step={field.step}
             placeholder={field.placeholder}
-            className="w-full px-2 py-1 text-xs bg-white border-classic-inset"
+            disabled={readonly}
+            className={cn("w-full px-2 py-1 text-xs bg-white border-classic-inset", disabledClass)}
           />
         );
 
@@ -50,7 +56,8 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
           <select
             value={(value as string) ?? ''}
             onChange={(e) => onChange(e.target.value)}
-            className="w-full px-2 py-1 text-xs bg-white border-classic-inset"
+            disabled={readonly}
+            className={cn("w-full px-2 py-1 text-xs bg-white border-classic-inset", disabledClass)}
           >
             <option value="">请选择...</option>
             {field.options?.map((opt) => (
@@ -67,7 +74,7 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
             {field.options?.map((opt) => (
               <label
                 key={opt.value}
-                className="flex items-center gap-1 text-xs cursor-pointer"
+                className={cn("flex items-center gap-1 text-xs cursor-pointer", readonly && "cursor-not-allowed opacity-75")}
               >
                 <input
                   type="radio"
@@ -75,6 +82,7 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
                   value={opt.value}
                   checked={(value as string) === opt.value}
                   onChange={(e) => onChange(e.target.value)}
+                  disabled={readonly}
                   className="w-3 h-3"
                 />
                 {opt.label}
@@ -91,7 +99,7 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
             {field.options?.map((opt) => (
               <label
                 key={opt.value}
-                className="flex items-center gap-1 text-xs cursor-pointer"
+                className={cn("flex items-center gap-1 text-xs cursor-pointer", readonly && "cursor-not-allowed opacity-75")}
               >
                 <input
                   type="checkbox"
@@ -104,6 +112,7 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
                       onChange(selectedValues.filter((v) => v !== opt.value));
                     }
                   }}
+                  disabled={readonly}
                   className="w-3 h-3"
                 />
                 {opt.label}
@@ -114,11 +123,12 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
 
       case 'boolean':
         return (
-          <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <label className={cn("flex items-center gap-2 text-xs cursor-pointer", readonly && "cursor-not-allowed opacity-75")}>
             <input
               type="checkbox"
               checked={(value as boolean) ?? false}
               onChange={(e) => onChange(e.target.checked)}
+              disabled={readonly}
               className="w-4 h-4"
             />
             {field.placeholder || '是'}
@@ -139,7 +149,8 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
               step={step}
               value={sliderValue}
               onChange={(e) => onChange(parseFloat(e.target.value))}
-              className="flex-1"
+              disabled={readonly}
+              className={cn("flex-1", disabledClass)}
             />
             <span className="text-xs min-w-[30px] text-right">{sliderValue}</span>
           </div>
@@ -151,7 +162,8 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
             type="date"
             value={(value as string) ?? ''}
             onChange={(e) => onChange(e.target.value)}
-            className="w-full px-2 py-1 text-xs bg-white border-classic-inset"
+            disabled={readonly}
+            className={cn("w-full px-2 py-1 text-xs bg-white border-classic-inset", disabledClass)}
           />
         );
 
@@ -162,7 +174,8 @@ export function HITLField({ field, value, onChange }: HITLFieldProps) {
             value={(value as string) ?? ''}
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder}
-            className="w-full px-2 py-1 text-xs bg-white border-classic-inset"
+            disabled={readonly}
+            className={cn("w-full px-2 py-1 text-xs bg-white border-classic-inset", disabledClass)}
           />
         );
     }

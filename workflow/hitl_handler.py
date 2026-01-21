@@ -251,10 +251,35 @@ def _persist_to_working_memory(
             label = field_labels.get(field_name, field_name)
             labeled_data[label] = value
 
+        # Serialize fields definition for replay capability
+        fields_def = []
+        for field in request.fields:
+            field_dict = {
+                "name": field.name,
+                "type": field.type.value if hasattr(field.type, 'value') else str(field.type),
+                "label": field.label,
+                "required": field.required,
+            }
+            if field.placeholder:
+                field_dict["placeholder"] = field.placeholder
+            if field.default is not None:
+                field_dict["default"] = field.default
+            if field.options:
+                field_dict["options"] = [{"value": opt.value, "label": opt.label} for opt in field.options]
+            if field.min is not None:
+                field_dict["min"] = field.min
+            if field.max is not None:
+                field_dict["max"] = field.max
+            if field.step is not None:
+                field_dict["step"] = field.step
+            fields_def.append(field_dict)
+
         # Store under a key based on request title
         ctx_key = f"hitl_{request.title}"
         updated_ctx[ctx_key] = {
             "fields": labeled_data,
+            "fields_def": fields_def,  # Store original field definitions for replay
+            "form_data": data,  # Store original form data (field_name -> value)
             "timestamp": datetime.now().isoformat(),
         }
 

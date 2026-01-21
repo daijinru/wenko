@@ -6,9 +6,10 @@ interface HITLFormProps {
   formData: Record<string, unknown>;
   onFieldChange: (fieldName: string, value: unknown) => void;
   error: string | null;
+  readonly?: boolean;
 }
 
-export function HITLForm({ request, formData, onFieldChange, error }: HITLFormProps) {
+export function HITLForm({ request, formData, onFieldChange, error, readonly }: HITLFormProps) {
   return (
     <div className="flex-1 overflow-auto p-4">
       {request.description && (
@@ -24,6 +25,7 @@ export function HITLForm({ request, formData, onFieldChange, error }: HITLFormPr
             field={field}
             value={formData[field.name]}
             onChange={(value) => onFieldChange(field.name, value)}
+            readonly={readonly}
           />
         ))}
       </div>
