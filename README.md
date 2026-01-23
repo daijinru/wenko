@@ -41,6 +41,17 @@ Wenko 是一个开源的桌面 AI 助手。它不仅是一个聊天机器人，�
 - **🤝 Human-in-the-Loop (HITL)**
   - Collaborative workflows where the AI proposes actions and you approve/edit them.
   - Perfect for complex tasks requiring human oversight.
+  - Supports readonly replay mode for reviewing past decisions.
+
+- **🖼️ Image Analysis (图片分析)**
+  - Paste images directly into the app for instant preview.
+  - OCR-powered text extraction from screenshots and images.
+  - Save extracted content to Long-term Memory for future reference.
+
+- **📊 Memory Dashboard (记忆管理面板)**
+  - Visual management of Chat History, Working Memory, and Long-term Memory.
+  - Browse, search, and organize your AI's memory data.
+  - Transfer important context from Working Memory to Long-term Memory.
 
 - **🔒 Privacy First (隐私优先)**
   - All chat history and memory data are stored locally (`workflow/data/`).
@@ -61,6 +72,10 @@ Wenko 是一个开源的桌面 AI 助手。它不仅是一个聊天机器人，�
 ├── electron/                    # Electron Desktop App
 │   ├── main.cjs                 # Main Process
 │   ├── src/                     # Renderer Process (React)
+│   │   └── renderer/
+│   │       ├── workflow/        # Memory Management UI (记忆管理界面)
+│   │       ├── hitl/            # Human-in-the-Loop UI (人机协作界面)
+│   │       └── image-preview/   # Image Preview & Analysis UI (图片预览分析界面)
 │   └── live2d/live2d-widget/    # Live2D Widget Implementation
 ├── workflow/                    # Python Backend Service
 │   ├── main.py                  # FastAPI Entry Point
@@ -69,6 +84,14 @@ Wenko 是一个开源的桌面 AI 助手。它不仅是一个聊天机器人，�
 │   └── data/                    # Local Database (SQLite)
 └── openspec/                    # Project Specifications
 ```
+
+### Renderer Modules (渲染进程模块)
+
+| Module | Description |
+|--------|-------------|
+| **workflow/** | 记忆管理系统界面。包含三个 Tab：聊天历史、工作记忆、长期记忆。用于查看和管理 AI 的对话记录与记忆数据。 |
+| **hitl/** | Human-in-the-Loop 协作界面。当 AI 需要人工审核时弹出，用户可以审批或拒绝 AI 的操作请求，支持只读回放模式。 |
+| **image-preview/** | 图片预览与分析界面。支持粘贴图片后进行 OCR 文字提取，并可将提取结果保存到长期记忆中。 |
 
 ## 🚀 Getting Started (快速开始)
 
@@ -83,8 +106,7 @@ Wenko 是一个开源的桌面 AI 助手。它不仅是一个聊天机器人，�
 1.  **Setup Backend (Python)**
     ```bash
     cd workflow
-    # pip install -r requirements.txt
-    pip install fastapi uvicorn httpx pydantic
+    uv sync
     ```
 
 2.  **Configure AI**
@@ -108,20 +130,13 @@ Wenko 是一个开源的桌面 AI 助手。它不仅是一个聊天机器人，�
 
 ### Running the App (启动应用)
 
-1.  **Start Backend**
-    ```bash
-    # Terminal 1
-    cd workflow
-    python main.py
-    # Server running at http://localhost:8002
-    ```
+```bash
+# Start Backend
+cd workflow && ./start.sh
 
-2.  **Start Electron App**
-    ```bash
-    # Terminal 2
-    cd electron
-    npm start
-    ```
+# Start Electron (in another terminal)
+cd electron && ./start.sh
+```
 
 ### Building (构建)
 
