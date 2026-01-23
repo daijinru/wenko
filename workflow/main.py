@@ -27,6 +27,7 @@ import memory_manager
 import memory_extractor
 import chat_processor
 import hitl_handler
+import image_analyzer
 from hitl_schema import (
     HITLAction,
     HITLRequest,
@@ -47,6 +48,13 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     history: Optional[List[ChatMessage]] = None
+
+
+class ImageChatRequest(BaseModel):
+    """图片分析请求"""
+    image: str  # Base64 encoded image (data URL or raw base64)
+    session_id: Optional[str] = None
+    action: str = "analyze_for_memory"  # analyze_only | analyze_for_memory
 
 
 class ChatConfig(BaseModel):
@@ -347,6 +355,158 @@ async def chat(request: ChatRequest):
     """对话接口 - 返回 SSE 流式响应"""
     return StreamingResponse(
         stream_chat_response(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+# ============ 图片分析 API ============
+
+async def stream_image_analysis(request: ImageChatRequest):
+    """分析图片并提取文本，可选生成记忆保存 HITL 请求。
+
+    支持两种模式：
+    - analyze_only: 仅分析图片返回文本
+    - analyze_for_memory: 分析后生成 HITL 让用户确认保存到记忆
+    """
+    session_id = request.session_id or str(uuid.uuid4())
+
+    try:
+        # Step 1: 使用 Vision API 分析图片
+        extracted_text = await image_analyzer.analyze_image_text(request.image)
+
+        # 发送提取的文本
+        text_content = f"📷 图片文本识别结果：\n\n{extracted_text}"
+        yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": text_content}})}\n\n'
+
+        # 检查是否有有效文本内容
+        if not image_analyzer.has_text_content(extracted_text):
+            no_text_msg = "\n\n图片中未识别到可保存的文本内容。"
+            yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": no_text_msg}})}\n\n'
+            yield f'event: done\ndata: {json.dumps({"type": "done"})}\n\n'
+            return
+
+        # Step 2: 如果是 analyze_for_memory 模式，尝试提取记忆信息
+        if request.action == "analyze_for_memory":
+            try:
+                # 使用 memory_extractor 从文本中提取记忆信息
+                memory_result = await memory_extractor.extract_memory_from_message(
+                    content=extracted_text,
+                    role="user",
+                )
+
+                if memory_result and memory_result.confidence >= 0.3:
+                    # 生成 HITL 请求让用户确认
+                    from hitl_schema import (
+                        HITLRequest as HITLRequestModel,
+                        HITLField,
+                        HITLFieldType,
+                        HITLOption,
+                        HITLActions,
+                        HITLActionButton,
+                        HITLActionStyle,
+                    )
+
+                    hitl_request = HITLRequestModel(
+                        id=str(uuid.uuid4()),
+                        type="image_memory_confirm",
+                        title="保存图片内容到长期记忆",
+                        description="AI 从图片中提取了以下信息，请确认是否保存到长期记忆。",
+                        fields=[
+                            HITLField(
+                                name="key",
+                                type=HITLFieldType.TEXT,
+                                label="记忆名称",
+                                required=True,
+                                placeholder="例如：会议笔记、书籍摘录",
+                                default=memory_result.key,
+                            ),
+                            HITLField(
+                                name="value",
+                                type=HITLFieldType.TEXTAREA,
+                                label="记忆内容",
+                                required=True,
+                                placeholder="提取的文本内容",
+                                default=memory_result.value,
+                            ),
+                            HITLField(
+                                name="category",
+                                type=HITLFieldType.SELECT,
+                                label="类别",
+                                required=True,
+                                default=memory_result.category,
+                                options=[
+                                    HITLOption(value="preference", label="偏好"),
+                                    HITLOption(value="fact", label="事实"),
+                                    HITLOption(value="pattern", label="模式"),
+                                ],
+                            ),
+                        ],
+                        actions=HITLActions(
+                            approve=HITLActionButton(label="保存", style=HITLActionStyle.PRIMARY),
+                            edit=HITLActionButton(label="编辑", style=HITLActionStyle.DEFAULT),
+                            reject=HITLActionButton(label="跳过", style=HITLActionStyle.SECONDARY),
+                        ),
+                    )
+
+                    # 存储 HITL 请求
+                    hitl_handler.store_hitl_request(hitl_request, session_id)
+
+                    # 发送 HITL 事件
+                    hitl_payload = {
+                        "id": hitl_request.id,
+                        "type": hitl_request.type,
+                        "title": hitl_request.title,
+                        "description": hitl_request.description,
+                        "fields": [
+                            {
+                                "name": f.name,
+                                "type": f.type.value,
+                                "label": f.label,
+                                "required": f.required,
+                                "placeholder": f.placeholder,
+                                "default": f.default,
+                                "options": [{"value": o.value, "label": o.label} for o in f.options] if f.options else None,
+                            }
+                            for f in hitl_request.fields
+                        ],
+                        "actions": {
+                            "approve": {"label": hitl_request.actions.approve.label, "style": hitl_request.actions.approve.style.value},
+                            "edit": {"label": hitl_request.actions.edit.label, "style": hitl_request.actions.edit.style.value},
+                            "reject": {"label": hitl_request.actions.reject.label, "style": hitl_request.actions.reject.style.value},
+                        },
+                        "session_id": session_id,
+                    }
+                    yield f'event: hitl\ndata: {json.dumps({"type": "hitl", "payload": hitl_payload})}\n\n'
+                else:
+                    no_memory_msg = "\n\n未能从文本中提取出适合保存的记忆信息。"
+                    yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": no_memory_msg}})}\n\n'
+
+            except Exception as e:
+                print(f"Memory extraction failed: {e}")
+                error_msg = f"\n\n记忆提取失败: {str(e)}"
+                yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": error_msg}})}\n\n'
+
+        yield f'event: done\ndata: {json.dumps({"type": "done"})}\n\n'
+
+    except ValueError as e:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": str(e)}})}\n\n'
+    except Exception as e:
+        yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"图片分析失败: {str(e)}"}})}\n\n'
+
+
+@app.post("/chat/image")
+async def chat_image(request: ImageChatRequest):
+    """图片分析接口 - 返回 SSE 流式响应
+
+    使用 Vision LLM 分析图片中的文本内容，可选保存到长期记忆。
+    """
+    return StreamingResponse(
+        stream_image_analysis(request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

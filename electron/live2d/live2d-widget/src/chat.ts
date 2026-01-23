@@ -11,9 +11,11 @@ import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
 import { showSSEMessage, showMemoryNotification } from './message.js';
 
 const CHAT_API_URL = 'http://localhost:8002/chat';
+const IMAGE_CHAT_API_URL = 'http://localhost:8002/chat/image';
 const HITL_API_URL = 'http://localhost:8002/hitl/respond';
 const HITL_CONTINUE_API_URL = 'http://localhost:8002/hitl/continue';
 const MAX_HISTORY_LENGTH = 10;
+const MAX_IMAGE_SIZE = 4 * 1024 * 1024; // 4MB
 const SESSION_ID_KEY = 'wenko-chat-session-id';
 const HISTORY_KEY = 'wenko-chat-history';
 
@@ -222,6 +224,51 @@ function setupHITLResultListener(): void {
 
   hitlLog('SETUP_LISTENER', 'HITL result listener setup complete');
 }
+
+/**
+ * Setup listener for Image Preview results from main process
+ */
+function setupImagePreviewResultListener(): void {
+  if (!window.electronAPI?.on) {
+    console.log('[ImagePreview] electronAPI.on not available, skipping listener setup');
+    return;
+  }
+
+  window.electronAPI.on('image-preview:result', (result: {
+    success: boolean;
+    action: string;
+    hitlRequest?: HITLRequest;
+  }) => {
+    console.log('[ImagePreview] Result received:', result);
+
+    if (result.action === 'cancel') {
+      // User cancelled, no action needed
+      console.log('[ImagePreview] User cancelled');
+    } else if (result.action === 'hitl' && result.hitlRequest) {
+      // HITL request from image analysis - open HITL window
+      console.log('[ImagePreview] Opening HITL window for memory confirmation');
+
+      const sessionId = sessionManager.getSessionId();
+
+      if (window.electronAPI?.invoke) {
+        window.electronAPI.invoke('hitl:open-window', {
+          request: result.hitlRequest,
+          sessionId: sessionId,
+        }).then(() => {
+          console.log('[ImagePreview] HITL window opened');
+        }).catch((error: Error) => {
+          console.error('[ImagePreview] Failed to open HITL window:', error);
+          showSSEMessage('<div class="wenko-chat-error">无法打开记忆确认窗口</div>', 'wenko-chat-error-msg');
+        });
+      }
+    }
+  });
+
+  console.log('[ImagePreview] Result listener setup complete');
+}
+
+// Initialize Image Preview listener when module loads
+setupImagePreviewResultListener();
 
 /**
  * Handle HITL continuation - trigger AI to continue conversation
@@ -488,6 +535,14 @@ export function createChatInput(shadowRoot: ShadowRoot): HTMLElement {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  });
+
+  // 添加图片粘贴事件监听
+  input.addEventListener('paste', async (e: ClipboardEvent) => {
+    const handled = await handleImagePaste(e, shadowRoot, container);
+    if (handled) {
+      console.log('[Chat] Image paste handled');
     }
   });
 
@@ -1375,4 +1430,320 @@ export function triggerHITLContinuation(
       throw err;
     },
   });
+}
+
+// ============ Image Analysis Functions ============
+
+let pendingImage: string | null = null;
+let imagePreviewElement: HTMLElement | null = null;
+
+/**
+ * 压缩图片到指定大小
+ */
+async function compressImage(dataUrl: string, maxSize: number = MAX_IMAGE_SIZE): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let { width, height } = img;
+
+      // 计算压缩比例
+      const originalSize = dataUrl.length * 0.75; // Base64 约为原始大小的 4/3
+      if (originalSize <= maxSize) {
+        resolve(dataUrl);
+        return;
+      }
+
+      const ratio = Math.sqrt(maxSize / originalSize);
+      width = Math.floor(width * ratio);
+      height = Math.floor(height * ratio);
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('无法创建 canvas context'));
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // 使用 JPEG 格式压缩
+      const compressed = canvas.toDataURL('image/jpeg', 0.8);
+      resolve(compressed);
+    };
+
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * 从剪贴板事件提取图片
+ */
+function extractImageFromClipboard(event: ClipboardEvent): string | null {
+  const items = event.clipboardData?.items;
+  if (!items) return null;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) {
+        return URL.createObjectURL(file);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 将 File 对象转换为 Base64
+ */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to read file as base64'));
+      }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * 从 Blob URL 转换为 Base64
+ */
+async function blobUrlToBase64(blobUrl: string): Promise<string> {
+  const response = await fetch(blobUrl);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to convert blob to base64'));
+      }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * 发送图片分析请求
+ */
+export function sendImageMessage(
+  imageData: string,
+  action: 'analyze_only' | 'analyze_for_memory' = 'analyze_for_memory',
+  onChunk: (text: string) => void,
+  onDone?: () => void,
+  onError?: (error: string) => void,
+  onHITL?: (hitlRequest: HITLRequest) => void
+): void {
+  if (isLoading) return;
+
+  isLoading = true;
+  const sessionId = sessionManager.getSessionId();
+
+  console.log('[Image] Sending image for analysis', { sessionId, action });
+
+  fetchEventSource(IMAGE_CHAT_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      image: imageData,
+      session_id: sessionId,
+      action: action,
+    }),
+    onopen: (res: Response) => {
+      console.log('[Image] SSE connection opened', { status: res.status });
+      if (res.ok) return Promise.resolve();
+      throw new Error(`HTTP ${res.status}`);
+    },
+    onmessage: (event: { event: string; data: string }) => {
+      try {
+        if (event.event === 'text') {
+          const data = JSON.parse(event.data);
+          if (data.type === 'text' && data.payload?.content) {
+            onChunk(data.payload.content);
+          }
+        } else if (event.event === 'hitl') {
+          const data = JSON.parse(event.data);
+          if (data.type === 'hitl' && data.payload) {
+            currentHITLRequest = data.payload as HITLRequest;
+            onHITL?.(currentHITLRequest);
+          }
+        } else if (event.event === 'done') {
+          isLoading = false;
+          onDone?.();
+        } else if (event.event === 'error') {
+          const data = JSON.parse(event.data);
+          const errorMsg = data.payload?.message || '未知错误';
+          isLoading = false;
+          onError?.(errorMsg);
+        }
+      } catch (e) {
+        console.error('解析图片分析 SSE 消息失败:', e);
+      }
+    },
+    onclose: () => {
+      if (isLoading) {
+        isLoading = false;
+        onDone?.();
+      }
+    },
+    onerror: (err: Error) => {
+      console.error('Image analysis SSE error:', err);
+      isLoading = false;
+      onError?.(err.message || '连接错误');
+    },
+  });
+}
+
+/**
+ * 创建图片预览 UI
+ */
+export function createImagePreview(
+  shadowRoot: ShadowRoot,
+  imageUrl: string,
+  onAnalyze: () => void,
+  onCancel: () => void
+): HTMLElement {
+  const container = document.createElement('div');
+  container.id = 'wenko-image-preview';
+  container.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 8px;
+  `;
+
+  container.innerHTML = `
+    <img src="${imageUrl}" style="max-width: 60px; max-height: 60px; border-radius: 4px; object-fit: cover;" />
+    <div style="flex: 1; font-size: 12px; color: #666;">
+      已粘贴图片，点击分析提取文本
+    </div>
+    <button id="wenko-image-analyze" style="
+      padding: 6px 12px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    ">分析图片</button>
+    <button id="wenko-image-cancel" style="
+      padding: 6px 8px;
+      background: #f3f4f6;
+      color: #374151;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    ">取消</button>
+  `;
+
+  const analyzeBtn = container.querySelector('#wenko-image-analyze') as HTMLButtonElement;
+  const cancelBtn = container.querySelector('#wenko-image-cancel') as HTMLButtonElement;
+
+  analyzeBtn.addEventListener('click', () => {
+    // 显示加载状态
+    analyzeBtn.textContent = '分析中...';
+    analyzeBtn.disabled = true;
+    cancelBtn.disabled = true;
+    onAnalyze();
+  });
+
+  cancelBtn.addEventListener('click', onCancel);
+
+  return container;
+}
+
+/**
+ * 移除图片预览
+ */
+export function removeImagePreview(shadowRoot: ShadowRoot): void {
+  const preview = shadowRoot.getElementById('wenko-image-preview');
+  if (preview) {
+    preview.remove();
+  }
+  pendingImage = null;
+  imagePreviewElement = null;
+}
+
+/**
+ * 处理图片粘贴事件 - 使用 Electron 新窗口
+ */
+export async function handleImagePaste(
+  event: ClipboardEvent,
+  shadowRoot: ShadowRoot,
+  chatInputContainer: HTMLElement
+): Promise<boolean> {
+  const items = event.clipboardData?.items;
+  if (!items) return false;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.type.startsWith('image/')) {
+      event.preventDefault();
+
+      const file = item.getAsFile();
+      if (!file) continue;
+
+      try {
+        // 转换为 Base64
+        let base64Data = await fileToBase64(file);
+
+        // 检查并压缩大图片
+        const originalSize = base64Data.length * 0.75;
+        if (originalSize > MAX_IMAGE_SIZE) {
+          console.log('[Image] Compressing large image', { originalSize });
+          base64Data = await compressImage(base64Data);
+        }
+
+        const sessionId = sessionManager.getSessionId();
+
+        // 使用 Electron IPC 打开图片预览窗口
+        if (window.electronAPI?.invoke) {
+          console.log('[Image] Opening preview window via IPC');
+
+          window.electronAPI.invoke('image-preview:open', {
+            imageData: base64Data,
+            sessionId: sessionId,
+          }).then((result: { success: boolean }) => {
+            if (result.success) {
+              console.log('[Image] Preview window opened');
+            }
+          }).catch((error: Error) => {
+            console.error('[Image] Failed to open preview window:', error);
+            showSSEMessage('<div class="wenko-chat-error">无法打开图片预览窗口</div>', 'wenko-chat-error-msg');
+          });
+        } else {
+          // 非 Electron 环境的回退处理
+          console.log('[Image] electronAPI not available, using inline preview');
+          showSSEMessage('<div class="wenko-chat-system">请在 Electron 环境中使用图片粘贴功能</div>', 'wenko-chat-system-msg');
+        }
+
+        return true;
+      } catch (error) {
+        console.error('[Image] Failed to process pasted image:', error);
+        showSSEMessage('<div class="wenko-chat-error">图片处理失败</div>', 'wenko-chat-error-msg');
+      }
+    }
+  }
+
+  return false;
 }

@@ -1,9 +1,11 @@
 import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
 import { showSSEMessage, showMemoryNotification } from './message.js';
 const CHAT_API_URL = 'http://localhost:8002/chat';
+const IMAGE_CHAT_API_URL = 'http://localhost:8002/chat/image';
 const HITL_API_URL = 'http://localhost:8002/hitl/respond';
 const HITL_CONTINUE_API_URL = 'http://localhost:8002/hitl/continue';
 const MAX_HISTORY_LENGTH = 10;
+const MAX_IMAGE_SIZE = 4 * 1024 * 1024;
 const SESSION_ID_KEY = 'wenko-chat-session-id';
 const HISTORY_KEY = 'wenko-chat-history';
 const HITL_DEBUG = true;
@@ -108,6 +110,37 @@ function setupHITLResultListener() {
     });
     hitlLog('SETUP_LISTENER', 'HITL result listener setup complete');
 }
+function setupImagePreviewResultListener() {
+    var _a;
+    if (!((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.on)) {
+        console.log('[ImagePreview] electronAPI.on not available, skipping listener setup');
+        return;
+    }
+    window.electronAPI.on('image-preview:result', (result) => {
+        var _a;
+        console.log('[ImagePreview] Result received:', result);
+        if (result.action === 'cancel') {
+            console.log('[ImagePreview] User cancelled');
+        }
+        else if (result.action === 'hitl' && result.hitlRequest) {
+            console.log('[ImagePreview] Opening HITL window for memory confirmation');
+            const sessionId = sessionManager.getSessionId();
+            if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
+                window.electronAPI.invoke('hitl:open-window', {
+                    request: result.hitlRequest,
+                    sessionId: sessionId,
+                }).then(() => {
+                    console.log('[ImagePreview] HITL window opened');
+                }).catch((error) => {
+                    console.error('[ImagePreview] Failed to open HITL window:', error);
+                    showSSEMessage('<div class="wenko-chat-error">无法打开记忆确认窗口</div>', 'wenko-chat-error-msg');
+                });
+            }
+        }
+    });
+    console.log('[ImagePreview] Result listener setup complete');
+}
+setupImagePreviewResultListener();
 function handleHITLContinuation(continuationData) {
     const sessionId = sessionManager.getSessionId();
     triggerHITLContinuation(sessionId, continuationData, (chunk) => {
@@ -307,6 +340,12 @@ export function createChatInput(shadowRoot) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
+        }
+    });
+    input.addEventListener('paste', async (e) => {
+        const handled = await handleImagePaste(e, shadowRoot, container);
+        if (handled) {
+            console.log('[Chat] Image paste handled');
         }
     });
     return container;
@@ -1041,4 +1080,253 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
             throw err;
         },
     });
+}
+let pendingImage = null;
+let imagePreviewElement = null;
+async function compressImage(dataUrl, maxSize = MAX_IMAGE_SIZE) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let { width, height } = img;
+            const originalSize = dataUrl.length * 0.75;
+            if (originalSize <= maxSize) {
+                resolve(dataUrl);
+                return;
+            }
+            const ratio = Math.sqrt(maxSize / originalSize);
+            width = Math.floor(width * ratio);
+            height = Math.floor(height * ratio);
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                reject(new Error('无法创建 canvas context'));
+                return;
+            }
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.8);
+            resolve(compressed);
+        };
+        img.onerror = () => reject(new Error('图片加载失败'));
+        img.src = dataUrl;
+    });
+}
+function extractImageFromClipboard(event) {
+    var _a;
+    const items = (_a = event.clipboardData) === null || _a === void 0 ? void 0 : _a.items;
+    if (!items)
+        return null;
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+                return URL.createObjectURL(file);
+            }
+        }
+    }
+    return null;
+}
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                resolve(reader.result);
+            }
+            else {
+                reject(new Error('Failed to read file as base64'));
+            }
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+    });
+}
+async function blobUrlToBase64(blobUrl) {
+    const response = await fetch(blobUrl);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                resolve(reader.result);
+            }
+            else {
+                reject(new Error('Failed to convert blob to base64'));
+            }
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+    });
+}
+export function sendImageMessage(imageData, action = 'analyze_for_memory', onChunk, onDone, onError, onHITL) {
+    if (isLoading)
+        return;
+    isLoading = true;
+    const sessionId = sessionManager.getSessionId();
+    console.log('[Image] Sending image for analysis', { sessionId, action });
+    fetchEventSource(IMAGE_CHAT_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            image: imageData,
+            session_id: sessionId,
+            action: action,
+        }),
+        onopen: (res) => {
+            console.log('[Image] SSE connection opened', { status: res.status });
+            if (res.ok)
+                return Promise.resolve();
+            throw new Error(`HTTP ${res.status}`);
+        },
+        onmessage: (event) => {
+            var _a, _b;
+            try {
+                if (event.event === 'text') {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'text' && ((_a = data.payload) === null || _a === void 0 ? void 0 : _a.content)) {
+                        onChunk(data.payload.content);
+                    }
+                }
+                else if (event.event === 'hitl') {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'hitl' && data.payload) {
+                        currentHITLRequest = data.payload;
+                        onHITL === null || onHITL === void 0 ? void 0 : onHITL(currentHITLRequest);
+                    }
+                }
+                else if (event.event === 'done') {
+                    isLoading = false;
+                    onDone === null || onDone === void 0 ? void 0 : onDone();
+                }
+                else if (event.event === 'error') {
+                    const data = JSON.parse(event.data);
+                    const errorMsg = ((_b = data.payload) === null || _b === void 0 ? void 0 : _b.message) || '未知错误';
+                    isLoading = false;
+                    onError === null || onError === void 0 ? void 0 : onError(errorMsg);
+                }
+            }
+            catch (e) {
+                console.error('解析图片分析 SSE 消息失败:', e);
+            }
+        },
+        onclose: () => {
+            if (isLoading) {
+                isLoading = false;
+                onDone === null || onDone === void 0 ? void 0 : onDone();
+            }
+        },
+        onerror: (err) => {
+            console.error('Image analysis SSE error:', err);
+            isLoading = false;
+            onError === null || onError === void 0 ? void 0 : onError(err.message || '连接错误');
+        },
+    });
+}
+export function createImagePreview(shadowRoot, imageUrl, onAnalyze, onCancel) {
+    const container = document.createElement('div');
+    container.id = 'wenko-image-preview';
+    container.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 8px;
+  `;
+    container.innerHTML = `
+    <img src="${imageUrl}" style="max-width: 60px; max-height: 60px; border-radius: 4px; object-fit: cover;" />
+    <div style="flex: 1; font-size: 12px; color: #666;">
+      已粘贴图片，点击分析提取文本
+    </div>
+    <button id="wenko-image-analyze" style="
+      padding: 6px 12px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    ">分析图片</button>
+    <button id="wenko-image-cancel" style="
+      padding: 6px 8px;
+      background: #f3f4f6;
+      color: #374151;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    ">取消</button>
+  `;
+    const analyzeBtn = container.querySelector('#wenko-image-analyze');
+    const cancelBtn = container.querySelector('#wenko-image-cancel');
+    analyzeBtn.addEventListener('click', () => {
+        analyzeBtn.textContent = '分析中...';
+        analyzeBtn.disabled = true;
+        cancelBtn.disabled = true;
+        onAnalyze();
+    });
+    cancelBtn.addEventListener('click', onCancel);
+    return container;
+}
+export function removeImagePreview(shadowRoot) {
+    const preview = shadowRoot.getElementById('wenko-image-preview');
+    if (preview) {
+        preview.remove();
+    }
+    pendingImage = null;
+    imagePreviewElement = null;
+}
+export async function handleImagePaste(event, shadowRoot, chatInputContainer) {
+    var _a, _b;
+    const items = (_a = event.clipboardData) === null || _a === void 0 ? void 0 : _a.items;
+    if (!items)
+        return false;
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+            event.preventDefault();
+            const file = item.getAsFile();
+            if (!file)
+                continue;
+            try {
+                let base64Data = await fileToBase64(file);
+                const originalSize = base64Data.length * 0.75;
+                if (originalSize > MAX_IMAGE_SIZE) {
+                    console.log('[Image] Compressing large image', { originalSize });
+                    base64Data = await compressImage(base64Data);
+                }
+                const sessionId = sessionManager.getSessionId();
+                if ((_b = window.electronAPI) === null || _b === void 0 ? void 0 : _b.invoke) {
+                    console.log('[Image] Opening preview window via IPC');
+                    window.electronAPI.invoke('image-preview:open', {
+                        imageData: base64Data,
+                        sessionId: sessionId,
+                    }).then((result) => {
+                        if (result.success) {
+                            console.log('[Image] Preview window opened');
+                        }
+                    }).catch((error) => {
+                        console.error('[Image] Failed to open preview window:', error);
+                        showSSEMessage('<div class="wenko-chat-error">无法打开图片预览窗口</div>', 'wenko-chat-error-msg');
+                    });
+                }
+                else {
+                    console.log('[Image] electronAPI not available, using inline preview');
+                    showSSEMessage('<div class="wenko-chat-system">请在 Electron 环境中使用图片粘贴功能</div>', 'wenko-chat-system-msg');
+                }
+                return true;
+            }
+            catch (error) {
+                console.error('[Image] Failed to process pasted image:', error);
+                showSSEMessage('<div class="wenko-chat-error">图片处理失败</div>', 'wenko-chat-error-msg');
+            }
+        }
+    }
+    return false;
 }

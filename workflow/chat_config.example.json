@@ -4,5 +4,6 @@
   "model": "gpt-4o-mini",
   "system_prompt": "你是一个友好的 AI 助手。",
   "max_tokens": 1024,
-  "temperature": 0.7
+  "temperature": 0.7,
+  "vision_model": "volcengine/doubao-embedding-vision"
 }

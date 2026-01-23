@@ -11,8 +11,13 @@ let hitlTimeoutId = null;
 let mainWindow = null;
 let currentHITLRequest = null;
 
-// HITL API configuration
+// Image preview window management
+let imagePreviewWindow = null;
+let currentImageData = null;
+
+// API configuration
 const HITL_API_URL = 'http://localhost:8002/hitl/respond';
+const IMAGE_ANALYZE_API_URL = 'http://localhost:8002/chat/image';
 
 // 创建Express服务器提供live2d静态文件访问
 function createStaticServer() {
@@ -316,4 +321,237 @@ ipcMain.handle('hitl:cancel', async (event) => {
   closeHITLWindow();
 
   return { success: true, action: 'cancel' };
+});
+
+// ============ Image Preview Window Management ============
+
+/**
+ * Create Image Preview window
+ */
+function createImagePreviewWindow() {
+  if (imagePreviewWindow && !imagePreviewWindow.isDestroyed()) {
+    imagePreviewWindow.focus();
+    return imagePreviewWindow;
+  }
+
+  imagePreviewWindow = new BrowserWindow({
+    width: 500,
+    height: 550,
+    title: 'Image Preview',
+    parent: mainWindow,
+    modal: false,
+    show: false,
+    center: true,
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 10, y: 10 },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false
+    }
+  });
+
+  imagePreviewWindow.loadFile(path.join(__dirname, 'dist/src/renderer/image-preview/index.html'));
+
+  imagePreviewWindow.once('ready-to-show', () => {
+    imagePreviewWindow.show();
+    // Send image data to preview window
+    if (currentImageData) {
+      imagePreviewWindow.webContents.send('image-preview:data', currentImageData);
+    }
+  });
+
+  imagePreviewWindow.on('closed', () => {
+    // Send cancel to Live2D if window closed without action
+    if (currentImageData && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('image-preview:result', {
+        success: false,
+        action: 'cancel'
+      });
+    }
+    currentImageData = null;
+    imagePreviewWindow = null;
+  });
+
+  return imagePreviewWindow;
+}
+
+/**
+ * Close Image Preview window
+ */
+function closeImagePreviewWindow() {
+  currentImageData = null;
+  if (imagePreviewWindow && !imagePreviewWindow.isDestroyed()) {
+    imagePreviewWindow.close();
+  }
+  imagePreviewWindow = null;
+}
+
+// ============ Image Preview IPC Handlers ============
+
+/**
+ * Open image preview window
+ */
+ipcMain.handle('image-preview:open', async (event, data) => {
+  console.log('[ImagePreview] Opening window');
+
+  const { imageData, sessionId } = data;
+  currentImageData = { imageData, sessionId };
+
+  createImagePreviewWindow();
+
+  return { success: true };
+});
+
+/**
+ * Analyze image
+ */
+ipcMain.handle('image-preview:analyze', async (event, data) => {
+  console.log('[ImagePreview] Analyzing image');
+
+  const { imageData, sessionId } = data;
+
+  try {
+    const response = await fetch(IMAGE_ANALYZE_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: imageData,
+        session_id: sessionId,
+        action: 'analyze_only'
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `API error: ${response.status}` };
+    }
+
+    // Parse SSE response to get extracted text
+    const text = await response.text();
+    console.log('[ImagePreview] Raw SSE response:', text);
+    let extractedText = '';
+
+    // Parse SSE events
+    const lines = text.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const jsonStr = line.substring(6);
+          console.log('[ImagePreview] Parsing JSON:', jsonStr);
+          const data = JSON.parse(jsonStr);
+          if (data.type === 'text' && data.payload?.content) {
+            extractedText += data.payload.content;
+          }
+        } catch (e) {
+          console.error('[ImagePreview] JSON parse error:', e.message);
+        }
+      }
+    }
+    console.log('[ImagePreview] Extracted text:', extractedText);
+
+    return {
+      success: true,
+      extractedText: extractedText || 'No text found'
+    };
+  } catch (error) {
+    console.error('[ImagePreview] Analyze error:', error);
+    return {
+      success: false,
+      error: error.message || 'Network error'
+    };
+  }
+});
+
+/**
+ * Save extracted text to memory
+ */
+ipcMain.handle('image-preview:save-memory', async (event, data) => {
+  console.log('[ImagePreview] Saving to memory');
+
+  const { extractedText, sessionId } = data;
+
+  try {
+    // Call the memory API to save
+    console.log('[ImagePreview] Calling API with action: analyze_for_memory');
+    const response = await fetch(IMAGE_ANALYZE_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: currentImageData?.imageData,
+        session_id: sessionId,
+        action: 'analyze_for_memory'
+      })
+    });
+
+    if (!response.ok) {
+      console.error('[ImagePreview] API error:', response.status);
+      return { success: false, error: `API error: ${response.status}` };
+    }
+
+    // Parse SSE to check for HITL
+    const text = await response.text();
+    console.log('[ImagePreview] Save-memory raw SSE response:', text);
+    let hitlPayload = null;
+
+    const lines = text.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const jsonStr = line.substring(6);
+          console.log('[ImagePreview] Save-memory parsing JSON:', jsonStr);
+          const data = JSON.parse(jsonStr);
+          if (data.type === 'hitl' && data.payload) {
+            console.log('[ImagePreview] Found HITL payload:', data.payload);
+            hitlPayload = data.payload;
+          }
+        } catch (e) {
+          console.error('[ImagePreview] JSON parse error:', e.message);
+        }
+      }
+    }
+
+    // If HITL request found, open HITL window
+    if (hitlPayload) {
+      closeImagePreviewWindow();
+
+      // Send result to Live2D with HITL data
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('image-preview:result', {
+          success: true,
+          action: 'hitl',
+          hitlRequest: hitlPayload
+        });
+      }
+
+      return { success: true, hasHITL: true };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[ImagePreview] Save memory error:', error);
+    return { success: false, error: error.message || 'Network error' };
+  }
+});
+
+/**
+ * Cancel image preview
+ */
+ipcMain.handle('image-preview:cancel', async (event) => {
+  console.log('[ImagePreview] Cancel');
+  closeImagePreviewWindow();
+  return { success: true };
+});
+
+/**
+ * Close image preview window
+ */
+ipcMain.handle('image-preview:close', async (event) => {
+  console.log('[ImagePreview] Close');
+  closeImagePreviewWindow();
+  return { success: true };
 });

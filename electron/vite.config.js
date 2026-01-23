@@ -20,6 +20,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'src/renderer/workflow/index.html'),
         hitl: resolve(__dirname, 'src/renderer/hitl/index.html'),
+        'image-preview': resolve(__dirname, 'src/renderer/image-preview/index.html'),
       },
     },
   },
