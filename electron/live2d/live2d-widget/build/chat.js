@@ -711,6 +711,13 @@ export function createHITLFormHtml(hitlRequest) {
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
       `;
         }
+        else if (field.type === 'datetime') {
+            fieldHtml = `
+        <input type="datetime-local" class="hitl-field" data-field="${escapeHtml(field.name)}"
+          ${field.default ? `value="${escapeHtml(String(field.default))}"` : ''}
+          style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
+      `;
+        }
         else if (field.type === 'slider' || (field.type === 'number' && field.min !== undefined && field.max !== undefined)) {
             const min = (_a = field.min) !== null && _a !== void 0 ? _a : 0;
             const max = (_b = field.max) !== null && _b !== void 0 ? _b : 100;
@@ -1081,8 +1088,6 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
         },
     });
 }
-let pendingImage = null;
-let imagePreviewElement = null;
 async function compressImage(dataUrl, maxSize = MAX_IMAGE_SIZE) {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -1112,22 +1117,6 @@ async function compressImage(dataUrl, maxSize = MAX_IMAGE_SIZE) {
         img.src = dataUrl;
     });
 }
-function extractImageFromClipboard(event) {
-    var _a;
-    const items = (_a = event.clipboardData) === null || _a === void 0 ? void 0 : _a.items;
-    if (!items)
-        return null;
-    for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.type.startsWith('image/')) {
-            const file = item.getAsFile();
-            if (file) {
-                return URL.createObjectURL(file);
-            }
-        }
-    }
-    return null;
-}
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -1141,23 +1130,6 @@ function fileToBase64(file) {
         };
         reader.onerror = () => reject(reader.error);
         reader.readAsDataURL(file);
-    });
-}
-async function blobUrlToBase64(blobUrl) {
-    const response = await fetch(blobUrl);
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (typeof reader.result === 'string') {
-                resolve(reader.result);
-            }
-            else {
-                reject(new Error('Failed to convert blob to base64'));
-            }
-        };
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
     });
 }
 export function sendImageMessage(imageData, action = 'analyze_for_memory', onChunk, onDone, onError, onHITL) {
@@ -1226,62 +1198,6 @@ export function sendImageMessage(imageData, action = 'analyze_for_memory', onChu
         },
     });
 }
-export function createImagePreview(shadowRoot, imageUrl, onAnalyze, onCancel) {
-    const container = document.createElement('div');
-    container.id = 'wenko-image-preview';
-    container.style.cssText = `
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    margin-bottom: 8px;
-  `;
-    container.innerHTML = `
-    <img src="${imageUrl}" style="max-width: 60px; max-height: 60px; border-radius: 4px; object-fit: cover;" />
-    <div style="flex: 1; font-size: 12px; color: #666;">
-      已粘贴图片，点击分析提取文本
-    </div>
-    <button id="wenko-image-analyze" style="
-      padding: 6px 12px;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 12px;
-      cursor: pointer;
-    ">分析图片</button>
-    <button id="wenko-image-cancel" style="
-      padding: 6px 8px;
-      background: #f3f4f6;
-      color: #374151;
-      border: none;
-      border-radius: 4px;
-      font-size: 12px;
-      cursor: pointer;
-    ">取消</button>
-  `;
-    const analyzeBtn = container.querySelector('#wenko-image-analyze');
-    const cancelBtn = container.querySelector('#wenko-image-cancel');
-    analyzeBtn.addEventListener('click', () => {
-        analyzeBtn.textContent = '分析中...';
-        analyzeBtn.disabled = true;
-        cancelBtn.disabled = true;
-        onAnalyze();
-    });
-    cancelBtn.addEventListener('click', onCancel);
-    return container;
-}
-export function removeImagePreview(shadowRoot) {
-    const preview = shadowRoot.getElementById('wenko-image-preview');
-    if (preview) {
-        preview.remove();
-    }
-    pendingImage = null;
-    imagePreviewElement = null;
-}
 export async function handleImagePaste(event, shadowRoot, chatInputContainer) {
     var _a, _b;
     const items = (_a = event.clipboardData) === null || _a === void 0 ? void 0 : _a.items;
@@ -1330,3 +1246,182 @@ export async function handleImagePaste(event, shadowRoot, chatInputContainer) {
     }
     return false;
 }
+let currentPlanReminder = null;
+function setupPlanReminderListener() {
+    var _a;
+    if (!((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.on)) {
+        console.log('[PlanReminder] electronAPI.on not available, skipping listener setup');
+        return;
+    }
+    window.electronAPI.on('plan:reminder', (reminder) => {
+        console.log('[PlanReminder] Reminder received:', reminder);
+        currentPlanReminder = reminder;
+        showPlanReminder(reminder);
+    });
+    console.log('[PlanReminder] Listener setup complete');
+}
+function showPlanReminder(reminder) {
+    const targetTime = new Date(reminder.target_time);
+    const timeStr = targetTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = targetTime.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    const reminderHtml = `
+    <div class="wenko-plan-reminder" data-plan-id="${escapeHtml(reminder.id)}" style="
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin: 8px 0;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    ">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+        </svg>
+        <span style="font-weight: bold; font-size: 14px;">计划提醒</span>
+        <span style="opacity: 0.8; font-size: 12px; margin-left: auto;">${escapeHtml(dateStr)} ${escapeHtml(timeStr)}</span>
+      </div>
+      <div style="font-size: 16px; font-weight: 500; margin-bottom: 4px;">
+        ${escapeHtml(reminder.title)}
+      </div>
+      ${reminder.description ? `<div style="font-size: 12px; opacity: 0.9; margin-bottom: 12px;">${escapeHtml(reminder.description)}</div>` : ''}
+      <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <button class="plan-btn-complete" style="
+          flex: 1;
+          padding: 8px;
+          border: none;
+          border-radius: 6px;
+          background: rgba(255,255,255,0.2);
+          color: white;
+          font-size: 12px;
+          cursor: pointer;
+        ">完成</button>
+        <button class="plan-btn-snooze" style="
+          flex: 1;
+          padding: 8px;
+          border: none;
+          border-radius: 6px;
+          background: rgba(255,255,255,0.2);
+          color: white;
+          font-size: 12px;
+          cursor: pointer;
+        ">稍后提醒</button>
+        <button class="plan-btn-dismiss" style="
+          padding: 8px 12px;
+          border: none;
+          border-radius: 6px;
+          background: rgba(255,255,255,0.1);
+          color: white;
+          font-size: 12px;
+          cursor: pointer;
+        ">取消</button>
+      </div>
+    </div>
+  `;
+    showSSEMessage(reminderHtml, 'wenko-plan-reminder-msg');
+    setTimeout(() => {
+        bindPlanReminderEvents(reminder.id);
+    }, 100);
+}
+function bindPlanReminderEvents(planId) {
+    var _a;
+    const shadowRoot = (_a = document.getElementById('WENKO__CONTAINER-ROOT')) === null || _a === void 0 ? void 0 : _a.shadowRoot;
+    if (!shadowRoot)
+        return;
+    const reminderEl = shadowRoot.querySelector(`.wenko-plan-reminder[data-plan-id="${planId}"]`);
+    if (!reminderEl)
+        return;
+    const completeBtn = reminderEl.querySelector('.plan-btn-complete');
+    const snoozeBtn = reminderEl.querySelector('.plan-btn-snooze');
+    const dismissBtn = reminderEl.querySelector('.plan-btn-dismiss');
+    if (completeBtn) {
+        completeBtn.onclick = async () => {
+            var _a;
+            console.log('[PlanReminder] Complete clicked:', planId);
+            if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
+                await window.electronAPI.invoke('plan:complete', planId);
+            }
+            reminderEl.remove();
+            showSSEMessage('<div class="wenko-chat-system">已完成计划</div>', 'wenko-chat-system-msg');
+        };
+    }
+    if (snoozeBtn) {
+        snoozeBtn.onclick = async () => {
+            console.log('[PlanReminder] Snooze clicked:', planId);
+            showSnoozeOptions(planId, reminderEl);
+        };
+    }
+    if (dismissBtn) {
+        dismissBtn.onclick = async () => {
+            var _a;
+            console.log('[PlanReminder] Dismiss clicked:', planId);
+            if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
+                await window.electronAPI.invoke('plan:dismiss', planId);
+            }
+            reminderEl.remove();
+            showSSEMessage('<div class="wenko-chat-system">已取消提醒</div>', 'wenko-chat-system-msg');
+        };
+    }
+}
+function showSnoozeOptions(planId, reminderEl) {
+    const snoozeBtn = reminderEl.querySelector('.plan-btn-snooze');
+    if (!snoozeBtn)
+        return;
+    const optionsHtml = `
+    <div class="plan-snooze-options" style="
+      display: flex;
+      gap: 4px;
+      margin-top: 8px;
+    ">
+      <button data-minutes="5" style="
+        flex: 1;
+        padding: 6px;
+        border: none;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.3);
+        color: white;
+        font-size: 11px;
+        cursor: pointer;
+      ">5分钟</button>
+      <button data-minutes="15" style="
+        flex: 1;
+        padding: 6px;
+        border: none;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.3);
+        color: white;
+        font-size: 11px;
+        cursor: pointer;
+      ">15分钟</button>
+      <button data-minutes="60" style="
+        flex: 1;
+        padding: 6px;
+        border: none;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.3);
+        color: white;
+        font-size: 11px;
+        cursor: pointer;
+      ">1小时</button>
+    </div>
+  `;
+    snoozeBtn.outerHTML = optionsHtml;
+    const optionsEl = reminderEl.querySelector('.plan-snooze-options');
+    if (optionsEl) {
+        optionsEl.querySelectorAll('button').forEach((btn) => {
+            btn.onclick = async () => {
+                var _a;
+                const minutes = parseInt(btn.getAttribute('data-minutes') || '10');
+                console.log('[PlanReminder] Snooze for:', minutes, 'minutes');
+                if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
+                    await window.electronAPI.invoke('plan:snooze', { planId, snoozeMinutes: minutes });
+                }
+                reminderEl.remove();
+                showSSEMessage(`<div class="wenko-chat-system">将在 ${minutes} 分钟后再次提醒</div>`, 'wenko-chat-system-msg');
+            };
+        });
+    }
+}
+export function getCurrentPlanReminder() {
+    return currentPlanReminder;
+}
+setupPlanReminderListener();

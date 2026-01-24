@@ -21,12 +21,14 @@ const CATEGORY_LABELS: Record<MemoryCategory, string> = {
   preference: "偏好",
   fact: "事实",
   pattern: "模式",
+  plan: "计划",
 }
 
-const CATEGORY_VARIANTS: Record<MemoryCategory, "blue" | "green" | "orange"> = {
+const CATEGORY_VARIANTS: Record<MemoryCategory, "blue" | "green" | "orange" | "purple"> = {
   preference: "blue",
   fact: "green",
   pattern: "orange",
+  plan: "purple",
 }
 
 const SOURCE_LABELS: Record<string, string> = {

@@ -11,7 +11,7 @@ import json
 import math
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 
@@ -32,6 +32,7 @@ class MemoryCategory(str, Enum):
     PREFERENCE = "preference"
     FACT = "fact"
     PATTERN = "pattern"
+    PLAN = "plan"
 
 
 class MemorySource(str, Enum):
@@ -39,6 +40,22 @@ class MemorySource(str, Enum):
     USER_STATED = "user_stated"
     INFERRED = "inferred"
     SYSTEM = "system"
+
+
+class PlanStatus(str, Enum):
+    """Plan status types."""
+    PENDING = "pending"
+    COMPLETED = "completed"
+    DISMISSED = "dismissed"
+    SNOOZED = "snoozed"
+
+
+class RepeatType(str, Enum):
+    """Plan repeat types."""
+    NONE = "none"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
 
 
 # Stopwords for keyword extraction
@@ -175,6 +192,12 @@ class MemoryEntry:
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_accessed: datetime = field(default_factory=datetime.utcnow)
     access_count: int = 0
+    # Plan-specific fields (only when category == 'plan')
+    target_time: Optional[datetime] = None
+    reminder_offset_minutes: Optional[int] = None
+    repeat_type: Optional[str] = None
+    plan_status: Optional[str] = None
+    snooze_until: Optional[datetime] = None
 
 
 @dataclass
@@ -186,6 +209,22 @@ class RetrievalResult:
     category_boost: float
     recency_score: float
     frequency_score: float
+
+
+@dataclass
+class PlanEntry:
+    """Plan/reminder entry with time-specific fields."""
+    id: str
+    session_id: Optional[str]
+    title: str
+    description: Optional[str] = None
+    target_time: datetime = field(default_factory=datetime.utcnow)
+    reminder_offset_minutes: int = 10
+    repeat_type: str = "none"
+    status: str = "pending"
+    snooze_until: Optional[datetime] = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
 
 
 # ============ Keyword Extraction ============
@@ -506,7 +545,8 @@ def get_memory_entry(memory_id: str) -> Optional[MemoryEntry]:
     with chat_db.get_connection() as conn:
         cursor = conn.execute("""
             SELECT id, session_id, category, key, value, confidence, source,
-                   created_at, last_accessed, access_count
+                   created_at, last_accessed, access_count,
+                   target_time, reminder_offset_minutes, repeat_type, plan_status, snooze_until
             FROM long_term_memory
             WHERE id = ?
         """, (memory_id,))
@@ -532,6 +572,11 @@ def get_memory_entry(memory_id: str) -> Optional[MemoryEntry]:
             created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow(),
             last_accessed=datetime.fromisoformat(row["last_accessed"]) if row["last_accessed"] else datetime.utcnow(),
             access_count=row["access_count"],
+            target_time=datetime.fromisoformat(row["target_time"]) if row["target_time"] else None,
+            reminder_offset_minutes=row["reminder_offset_minutes"],
+            repeat_type=row["repeat_type"],
+            plan_status=row["plan_status"],
+            snooze_until=datetime.fromisoformat(row["snooze_until"]) if row["snooze_until"] else None,
         )
 
 
@@ -640,7 +685,10 @@ def list_memory_entries(
         List of MemoryEntry instances
     """
     with chat_db.get_connection() as conn:
-        query = "SELECT id, session_id, category, key, value, confidence, source, created_at, last_accessed, access_count FROM long_term_memory"
+        query = """SELECT id, session_id, category, key, value, confidence, source,
+                          created_at, last_accessed, access_count,
+                          target_time, reminder_offset_minutes, repeat_type, plan_status, snooze_until
+                   FROM long_term_memory"""
         params: List[Any] = []
 
         if category:
@@ -672,6 +720,11 @@ def list_memory_entries(
                 created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow(),
                 last_accessed=datetime.fromisoformat(row["last_accessed"]) if row["last_accessed"] else datetime.utcnow(),
                 access_count=row["access_count"],
+                target_time=datetime.fromisoformat(row["target_time"]) if row["target_time"] else None,
+                reminder_offset_minutes=row["reminder_offset_minutes"],
+                repeat_type=row["repeat_type"],
+                plan_status=row["plan_status"],
+                snooze_until=datetime.fromisoformat(row["snooze_until"]) if row["snooze_until"] else None,
             ))
 
         return entries
@@ -1214,3 +1267,373 @@ def evict_memories_by_threshold(max_count: int) -> int:
             conn.commit()
 
         return len(ids_to_delete)
+
+
+# ============ Plan Operations (using long_term_memory table) ============
+
+def create_plan(
+    title: str,
+    target_time: datetime,
+    description: Optional[str] = None,
+    session_id: Optional[str] = None,
+    reminder_offset_minutes: int = 10,
+    repeat_type: str = "none",
+) -> PlanEntry:
+    """Create a new plan/reminder entry in long_term_memory.
+
+    Plans are stored as memory entries with category='plan' and additional
+    plan-specific fields (target_time, reminder_offset_minutes, etc.)
+
+    Args:
+        title: Plan title (stored as 'key')
+        target_time: Target datetime (UTC)
+        description: Optional description (stored as 'value')
+        session_id: Source session ID (optional)
+        reminder_offset_minutes: Minutes before target_time to remind (default 10)
+        repeat_type: Repeat type (none, daily, weekly, monthly)
+
+    Returns:
+        Created PlanEntry instance
+    """
+    plan_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    target_time_str = target_time.isoformat() if isinstance(target_time, datetime) else target_time
+
+    with chat_db.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO long_term_memory
+            (id, session_id, category, key, value, confidence, source,
+             created_at, last_accessed, access_count,
+             target_time, reminder_offset_minutes, repeat_type, plan_status)
+            VALUES (?, ?, 'plan', ?, ?, 1.0, 'user_stated', ?, ?, 0, ?, ?, ?, 'pending')
+        """, (plan_id, session_id, title, description or '',
+              now, now, target_time_str, reminder_offset_minutes, repeat_type))
+        conn.commit()
+
+    return PlanEntry(
+        id=plan_id,
+        session_id=session_id,
+        title=title,
+        description=description,
+        target_time=target_time if isinstance(target_time, datetime) else datetime.fromisoformat(target_time),
+        reminder_offset_minutes=reminder_offset_minutes,
+        repeat_type=repeat_type,
+        status="pending",
+        snooze_until=None,
+        created_at=datetime.fromisoformat(now),
+        updated_at=datetime.fromisoformat(now),
+    )
+
+
+def get_plan(plan_id: str) -> Optional[PlanEntry]:
+    """Get a plan by ID from long_term_memory.
+
+    Args:
+        plan_id: Plan UUID
+
+    Returns:
+        PlanEntry or None if not found
+    """
+    with chat_db.get_connection() as conn:
+        cursor = conn.execute("""
+            SELECT id, session_id, key as title, value as description, target_time,
+                   reminder_offset_minutes, repeat_type, plan_status as status, snooze_until,
+                   created_at, last_accessed as updated_at
+            FROM long_term_memory
+            WHERE id = ? AND category = 'plan'
+        """, (plan_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        return _row_to_plan_entry(row)
+
+
+def _row_to_plan_entry(row) -> PlanEntry:
+    """Convert a database row to PlanEntry."""
+    return PlanEntry(
+        id=row["id"],
+        session_id=row["session_id"],
+        title=row["title"],
+        description=row["description"] if row["description"] else None,
+        target_time=datetime.fromisoformat(row["target_time"]) if row["target_time"] else datetime.utcnow(),
+        reminder_offset_minutes=row["reminder_offset_minutes"] if row["reminder_offset_minutes"] is not None else 10,
+        repeat_type=row["repeat_type"] or "none",
+        status=row["status"] or "pending",
+        snooze_until=datetime.fromisoformat(row["snooze_until"]) if row["snooze_until"] else None,
+        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow(),
+        updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow(),
+    )
+
+
+def update_plan(
+    plan_id: str,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    target_time: Optional[datetime] = None,
+    reminder_offset_minutes: Optional[int] = None,
+    repeat_type: Optional[str] = None,
+    status: Optional[str] = None,
+    snooze_until: Optional[datetime] = None,
+) -> Optional[PlanEntry]:
+    """Update a plan entry in long_term_memory.
+
+    Args:
+        plan_id: Plan UUID
+        title: New title (None to keep unchanged)
+        description: New description (None to keep unchanged)
+        target_time: New target time (None to keep unchanged)
+        reminder_offset_minutes: New reminder offset (None to keep unchanged)
+        repeat_type: New repeat type (None to keep unchanged)
+        status: New status (None to keep unchanged)
+        snooze_until: New snooze time (None to keep unchanged)
+
+    Returns:
+        Updated PlanEntry or None if not found
+    """
+    now = datetime.utcnow().isoformat()
+
+    with chat_db.get_connection() as conn:
+        updates = ["last_accessed = ?"]
+        params: List[Any] = [now]
+
+        if title is not None:
+            updates.append("key = ?")
+            params.append(title)
+
+        if description is not None:
+            updates.append("value = ?")
+            params.append(description)
+
+        if target_time is not None:
+            updates.append("target_time = ?")
+            params.append(target_time.isoformat() if isinstance(target_time, datetime) else target_time)
+
+        if reminder_offset_minutes is not None:
+            updates.append("reminder_offset_minutes = ?")
+            params.append(reminder_offset_minutes)
+
+        if repeat_type is not None:
+            updates.append("repeat_type = ?")
+            params.append(repeat_type)
+
+        if status is not None:
+            updates.append("plan_status = ?")
+            params.append(status)
+
+        if snooze_until is not None:
+            updates.append("snooze_until = ?")
+            params.append(snooze_until.isoformat() if isinstance(snooze_until, datetime) else snooze_until)
+
+        params.append(plan_id)
+
+        query = f"UPDATE long_term_memory SET {', '.join(updates)} WHERE id = ? AND category = 'plan'"
+        cursor = conn.execute(query, params)
+        conn.commit()
+
+        if cursor.rowcount == 0:
+            return None
+
+    return get_plan(plan_id)
+
+
+def delete_plan(plan_id: str) -> bool:
+    """Delete a plan by ID from long_term_memory.
+
+    Args:
+        plan_id: Plan UUID
+
+    Returns:
+        True if deleted, False if not found
+    """
+    with chat_db.get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM long_term_memory WHERE id = ? AND category = 'plan'",
+            (plan_id,)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def list_plans(
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[PlanEntry]:
+    """List plans from long_term_memory with optional status filtering.
+
+    Args:
+        status: Filter by status (optional)
+        limit: Maximum number of plans to return
+        offset: Number of plans to skip
+
+    Returns:
+        List of PlanEntry instances, ordered by target_time ascending
+    """
+    with chat_db.get_connection() as conn:
+        query = """
+            SELECT id, session_id, key as title, value as description, target_time,
+                   reminder_offset_minutes, repeat_type, plan_status as status, snooze_until,
+                   created_at, last_accessed as updated_at
+            FROM long_term_memory
+            WHERE category = 'plan'
+        """
+        params: List[Any] = []
+
+        if status:
+            query += " AND plan_status = ?"
+            params.append(status)
+
+        query += " ORDER BY target_time ASC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cursor = conn.execute(query, params)
+        rows = cursor.fetchall()
+
+        return [_row_to_plan_entry(row) for row in rows]
+
+
+def count_plans(status: Optional[str] = None) -> int:
+    """Count total plans in long_term_memory.
+
+    Args:
+        status: Filter by status (optional)
+
+    Returns:
+        Total count
+    """
+    with chat_db.get_connection() as conn:
+        if status:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM long_term_memory WHERE category = 'plan' AND plan_status = ?",
+                (status,)
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM long_term_memory WHERE category = 'plan'"
+            )
+        return cursor.fetchone()[0]
+
+
+def get_due_plans(limit: int = 10) -> List[PlanEntry]:
+    """Get plans that are due for reminder from long_term_memory.
+
+    A plan is due when:
+    - category is 'plan'
+    - plan_status is 'pending'
+    - current time >= target_time - reminder_offset_minutes
+    - snooze_until is NULL or current time >= snooze_until
+
+    Note: Uses local time for comparison since user-entered times are typically local.
+
+    Args:
+        limit: Maximum number of plans to return
+
+    Returns:
+        List of due PlanEntry instances, ordered by target_time ascending
+    """
+    # Use local time since user-entered times are in local timezone
+    now = datetime.now().isoformat()
+
+    with chat_db.get_connection() as conn:
+        cursor = conn.execute("""
+            SELECT id, session_id, key as title, value as description, target_time,
+                   reminder_offset_minutes, repeat_type, plan_status as status, snooze_until,
+                   created_at, last_accessed as updated_at
+            FROM long_term_memory
+            WHERE category = 'plan'
+              AND plan_status = 'pending'
+              AND datetime(target_time, '-' || COALESCE(reminder_offset_minutes, 10) || ' minutes') <= datetime(?)
+              AND (snooze_until IS NULL OR datetime(snooze_until) <= datetime(?))
+            ORDER BY target_time ASC
+            LIMIT ?
+        """, (now, now, limit))
+
+        rows = cursor.fetchall()
+        return [_row_to_plan_entry(row) for row in rows]
+
+
+def _add_months(dt: datetime, months: int) -> datetime:
+    """Add months to a datetime, handling month-end edge cases.
+
+    Args:
+        dt: Original datetime
+        months: Number of months to add
+
+    Returns:
+        New datetime with months added
+    """
+    import calendar
+
+    month = dt.month - 1 + months
+    year = dt.year + month // 12
+    month = month % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
+def complete_plan(plan_id: str) -> Optional[PlanEntry]:
+    """Mark a plan as completed.
+
+    If the plan has a repeat_type, create the next occurrence.
+
+    Args:
+        plan_id: Plan UUID
+
+    Returns:
+        Updated PlanEntry or None if not found
+    """
+    plan = get_plan(plan_id)
+    if not plan:
+        return None
+
+    # Mark current plan as completed
+    updated = update_plan(plan_id, status="completed")
+
+    # Create next occurrence for repeating plans
+    if plan.repeat_type and plan.repeat_type != "none":
+        next_time = plan.target_time
+        if plan.repeat_type == "daily":
+            next_time = plan.target_time + timedelta(days=1)
+        elif plan.repeat_type == "weekly":
+            next_time = plan.target_time + timedelta(weeks=1)
+        elif plan.repeat_type == "monthly":
+            next_time = _add_months(plan.target_time, 1)
+
+        create_plan(
+            title=plan.title,
+            description=plan.description,
+            target_time=next_time,
+            session_id=plan.session_id,
+            reminder_offset_minutes=plan.reminder_offset_minutes,
+            repeat_type=plan.repeat_type,
+        )
+
+    return updated
+
+
+def dismiss_plan(plan_id: str) -> Optional[PlanEntry]:
+    """Dismiss a plan (cancel without completing).
+
+    Args:
+        plan_id: Plan UUID
+
+    Returns:
+        Updated PlanEntry or None if not found
+    """
+    return update_plan(plan_id, status="dismissed")
+
+
+def snooze_plan(plan_id: str, snooze_minutes: int = 10) -> Optional[PlanEntry]:
+    """Snooze a plan for a specified duration.
+
+    Args:
+        plan_id: Plan UUID
+        snooze_minutes: Minutes to snooze
+
+    Returns:
+        Updated PlanEntry or None if not found
+    """
+    snooze_until = datetime.utcnow() + timedelta(minutes=snooze_minutes)
+    return update_plan(plan_id, snooze_until=snooze_until)

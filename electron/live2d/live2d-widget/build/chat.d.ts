@@ -87,6 +87,12 @@ export declare function createHITLFormHtml(hitlRequest: HITLRequest): string;
 export declare function bindHITLFormEvents(hitlRequest: HITLRequest, onComplete?: (result: HITLResult) => void): void;
 export declare function triggerHITLContinuation(sessionId: string, continuationData: HITLContinuationData, onChunk: (text: string) => void, onDone?: () => void, onError?: (error: string) => void, onHITL?: (hitlRequest: HITLRequest) => void): void;
 export declare function sendImageMessage(imageData: string, action: 'analyze_only' | 'analyze_for_memory', onChunk: (text: string) => void, onDone?: () => void, onError?: (error: string) => void, onHITL?: (hitlRequest: HITLRequest) => void): void;
-export declare function createImagePreview(shadowRoot: ShadowRoot, imageUrl: string, onAnalyze: () => void, onCancel: () => void): HTMLElement;
-export declare function removeImagePreview(shadowRoot: ShadowRoot): void;
 export declare function handleImagePaste(event: ClipboardEvent, shadowRoot: ShadowRoot, chatInputContainer: HTMLElement): Promise<boolean>;
+export interface PlanReminder {
+    id: string;
+    title: string;
+    description?: string;
+    target_time: string;
+    repeat_type: string;
+}
+export declare function getCurrentPlanReminder(): PlanReminder | null;

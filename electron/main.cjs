@@ -555,3 +555,187 @@ ipcMain.handle('image-preview:close', async (event) => {
   closeImagePreviewWindow();
   return { success: true };
 });
+
+// ============ Plan Reminder Polling ============
+
+const PLANS_API_URL = 'http://localhost:8002/plans';
+const PLAN_POLL_INTERVAL = 60 * 1000; // 60 seconds
+let planPollIntervalId = null;
+let currentReminders = new Set(); // Track reminders being shown to avoid duplicates
+
+/**
+ * Poll for due plans and send reminders
+ */
+async function pollDuePlans() {
+  try {
+    const response = await fetch(`${PLANS_API_URL}/due`);
+    if (!response.ok) {
+      console.error('[PlanReminder] API error:', response.status);
+      return;
+    }
+
+    const data = await response.json();
+    const plans = data.plans || [];
+
+    for (const plan of plans) {
+      // Skip if reminder already being shown
+      if (currentReminders.has(plan.id)) {
+        continue;
+      }
+
+      console.log('[PlanReminder] Due plan found:', plan.title);
+
+      // Mark as being shown
+      currentReminders.add(plan.id);
+
+      // Send reminder event to Live2D
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('plan:reminder', {
+          id: plan.id,
+          title: plan.title,
+          description: plan.description,
+          target_time: plan.target_time,
+          repeat_type: plan.repeat_type,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[PlanReminder] Poll error:', error.message);
+  }
+}
+
+/**
+ * Start plan polling service
+ */
+function startPlanPolling() {
+  if (planPollIntervalId) {
+    return; // Already running
+  }
+
+  console.log('[PlanReminder] Starting polling service');
+
+  // Poll immediately on start
+  pollDuePlans();
+
+  // Then poll every interval
+  planPollIntervalId = setInterval(pollDuePlans, PLAN_POLL_INTERVAL);
+}
+
+/**
+ * Stop plan polling service
+ */
+function stopPlanPolling() {
+  if (planPollIntervalId) {
+    console.log('[PlanReminder] Stopping polling service');
+    clearInterval(planPollIntervalId);
+    planPollIntervalId = null;
+  }
+}
+
+// Start polling when app is ready
+app.whenReady().then(() => {
+  // Delay start to allow main window to initialize
+  setTimeout(startPlanPolling, 5000);
+});
+
+// Stop polling when all windows close
+app.on('window-all-closed', () => {
+  stopPlanPolling();
+});
+
+// ============ Plan Reminder IPC Handlers ============
+
+/**
+ * Handle plan completion from Live2D
+ */
+ipcMain.handle('plan:complete', async (event, planId) => {
+  console.log('[PlanReminder] Complete plan:', planId);
+
+  try {
+    const response = await fetch(`${PLANS_API_URL}/${planId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `API error: ${response.status}` };
+    }
+
+    const result = await response.json();
+
+    // Remove from current reminders
+    currentReminders.delete(planId);
+
+    return { success: true, plan: result };
+  } catch (error) {
+    console.error('[PlanReminder] Complete error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Handle plan dismissal from Live2D
+ */
+ipcMain.handle('plan:dismiss', async (event, planId) => {
+  console.log('[PlanReminder] Dismiss plan:', planId);
+
+  try {
+    const response = await fetch(`${PLANS_API_URL}/${planId}/dismiss`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `API error: ${response.status}` };
+    }
+
+    const result = await response.json();
+
+    // Remove from current reminders
+    currentReminders.delete(planId);
+
+    return { success: true, plan: result };
+  } catch (error) {
+    console.error('[PlanReminder] Dismiss error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Handle plan snooze from Live2D
+ */
+ipcMain.handle('plan:snooze', async (event, data) => {
+  const { planId, snoozeMinutes } = data;
+  console.log('[PlanReminder] Snooze plan:', planId, 'for', snoozeMinutes, 'minutes');
+
+  try {
+    const response = await fetch(`${PLANS_API_URL}/${planId}/snooze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snooze_minutes: snoozeMinutes }),
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `API error: ${response.status}` };
+    }
+
+    const result = await response.json();
+
+    // Remove from current reminders (will reappear after snooze)
+    currentReminders.delete(planId);
+
+    return { success: true, plan: result };
+  } catch (error) {
+    console.error('[PlanReminder] Snooze error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Handle reminder acknowledged (user saw it, waiting for action)
+ */
+ipcMain.handle('plan:acknowledge', async (event, planId) => {
+  console.log('[PlanReminder] Acknowledge reminder:', planId);
+  // Just mark as acknowledged, no API call needed
+  return { success: true };
+});

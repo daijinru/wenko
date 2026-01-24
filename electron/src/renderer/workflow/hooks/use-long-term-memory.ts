@@ -9,6 +9,7 @@ import type {
   DeleteResponse,
   BatchDeleteRequest,
   MemoryCategory,
+  MemoryFormData,
 } from '@/types/api';
 
 export function useLongTermMemory() {
@@ -44,10 +45,26 @@ export function useLongTermMemory() {
   );
 
   const createMemory = useCallback(
-    async (data: CreateMemoryRequest) => {
+    async (data: CreateMemoryRequest | MemoryFormData) => {
       try {
-        await api.post('/memory/long-term', data);
-        toast.success('记忆创建成功');
+        // For plan category, include plan-specific fields
+        if (data.category === 'plan') {
+          const formData = data as MemoryFormData;
+          const planRequest = {
+            category: 'plan',
+            key: formData.key,
+            value: formData.value,
+            confidence: formData.confidence ?? 1.0,
+            target_time: formData.target_time,
+            reminder_offset_minutes: formData.reminder_offset_minutes ?? 10,
+            repeat_type: formData.repeat_type ?? 'none',
+          };
+          await api.post('/memory/long-term', planRequest);
+          toast.success('计划创建成功');
+        } else {
+          await api.post('/memory/long-term', data);
+          toast.success('记忆创建成功');
+        }
         loadMemories();
         return true;
       } catch (error) {
@@ -60,10 +77,26 @@ export function useLongTermMemory() {
   );
 
   const updateMemory = useCallback(
-    async (id: string, data: UpdateMemoryRequest) => {
+    async (id: string, data: UpdateMemoryRequest | MemoryFormData) => {
       try {
-        await api.put(`/memory/long-term/${id}`, data);
-        toast.success('记忆更新成功');
+        // For plan category, include plan-specific fields
+        if (data.category === 'plan') {
+          const formData = data as MemoryFormData;
+          const planRequest = {
+            category: 'plan',
+            key: formData.key,
+            value: formData.value,
+            confidence: formData.confidence,
+            target_time: formData.target_time,
+            reminder_offset_minutes: formData.reminder_offset_minutes,
+            repeat_type: formData.repeat_type,
+          };
+          await api.put(`/memory/long-term/${id}`, planRequest);
+          toast.success('计划更新成功');
+        } else {
+          await api.put(`/memory/long-term/${id}`, data);
+          toast.success('记忆更新成功');
+        }
         loadMemories();
         return true;
       } catch (error) {
@@ -79,14 +112,14 @@ export function useLongTermMemory() {
     async (id: string) => {
       try {
         await api.delete(`/memory/long-term/${id}`);
-        toast.success('记忆已删除');
+        toast.success(categoryFilter === 'plan' ? '计划已删除' : '记忆已删除');
         loadMemories();
       } catch (error) {
         const message = error instanceof ApiError ? error.message : '删除失败';
         toast.error(message);
       }
     },
-    [toast, loadMemories]
+    [toast, loadMemories, categoryFilter]
   );
 
   const batchDelete = useCallback(async () => {
@@ -98,14 +131,14 @@ export function useLongTermMemory() {
       const data = await api.post<DeleteResponse>('/memory/long-term/batch-delete', {
         ids: selectedIds,
       } as BatchDeleteRequest);
-      toast.success(`已删除 ${data.deleted_count} 条记忆`);
+      toast.success(`已删除 ${data.deleted_count} 条${categoryFilter === 'plan' ? '计划' : '记忆'}`);
       setSelectedIds([]);
       loadMemories();
     } catch (error) {
       const message = error instanceof ApiError ? error.message : '批量删除失败';
       toast.error(message);
     }
-  }, [toast, selectedIds, loadMemories]);
+  }, [toast, selectedIds, loadMemories, categoryFilter]);
 
   const clearAll = useCallback(async () => {
     try {

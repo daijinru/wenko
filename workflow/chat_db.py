@@ -23,7 +23,7 @@ _DB_DIR = os.path.join(os.path.dirname(__file__), "data")
 _DB_PATH = os.path.join(_DB_DIR, "chat_history.db")
 
 # Database schema version for migrations
-_DB_VERSION = 2
+_DB_VERSION = 4
 
 
 @contextmanager
@@ -187,6 +187,48 @@ def init_database() -> None:
                     INSERT INTO memory_fts(memory_id, key, value_text, category)
                     VALUES (NEW.id, NEW.key, NEW.value, NEW.category);
                 END
+            """)
+
+        # ============ V3: Plan fields in long_term_memory ============
+        # Note: V3 originally created a separate plans table, but V4 merged plans
+        # into long_term_memory. For new databases, we skip V3 and go directly to V4.
+
+        # ============ V4: Plan fields in long_term_memory ============
+        if current_version < 4:
+            # Add plan-specific columns to long_term_memory table
+            try:
+                conn.execute("ALTER TABLE long_term_memory ADD COLUMN target_time TIMESTAMP")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+            try:
+                conn.execute("ALTER TABLE long_term_memory ADD COLUMN reminder_offset_minutes INTEGER DEFAULT 10")
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                conn.execute("ALTER TABLE long_term_memory ADD COLUMN repeat_type TEXT DEFAULT 'none'")
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                conn.execute("ALTER TABLE long_term_memory ADD COLUMN plan_status TEXT DEFAULT 'pending'")
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                conn.execute("ALTER TABLE long_term_memory ADD COLUMN snooze_until TIMESTAMP")
+            except sqlite3.OperationalError:
+                pass
+
+            # Create index for plan queries
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ltm_target_time
+                ON long_term_memory(target_time)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ltm_plan_status
+                ON long_term_memory(plan_status)
             """)
 
         # Update schema version

@@ -21,6 +21,7 @@ class HITLFieldType(str, Enum):
     NUMBER = "number"
     SLIDER = "slider"
     DATE = "date"
+    DATETIME = "datetime"
     BOOLEAN = "boolean"
 
 
@@ -185,3 +186,85 @@ def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[HITLRequest]:
         )
     except Exception:
         return None
+
+
+def create_plan_hitl_request(
+    title: str = "",
+    description: str = "",
+    target_datetime: str = "",
+) -> HITLRequest:
+    """Create a HITL request for collecting plan/reminder details.
+
+    Args:
+        title: Pre-filled plan title (from LLM extraction)
+        description: Pre-filled description
+        target_datetime: Pre-filled target datetime (ISO format)
+
+    Returns:
+        HITLRequest configured for plan collection
+    """
+    return HITLRequest(
+        title="创建计划提醒",
+        description="请确认或修改以下计划信息，系统将在指定时间提醒您。",
+        fields=[
+            HITLField(
+                name="title",
+                type=HITLFieldType.TEXT,
+                label="计划标题",
+                required=True,
+                placeholder="例如：开会、提交报告",
+                default=title,
+            ),
+            HITLField(
+                name="description",
+                type=HITLFieldType.TEXTAREA,
+                label="详细描述",
+                required=False,
+                placeholder="可选，添加更多细节",
+                default=description,
+            ),
+            HITLField(
+                name="target_datetime",
+                type=HITLFieldType.DATETIME,
+                label="目标时间",
+                required=True,
+                default=target_datetime,
+            ),
+            HITLField(
+                name="reminder_offset",
+                type=HITLFieldType.SELECT,
+                label="提前提醒",
+                required=True,
+                default="10",
+                options=[
+                    HITLOption(value="0", label="准时提醒"),
+                    HITLOption(value="5", label="提前5分钟"),
+                    HITLOption(value="10", label="提前10分钟"),
+                    HITLOption(value="30", label="提前30分钟"),
+                    HITLOption(value="60", label="提前1小时"),
+                ],
+            ),
+            HITLField(
+                name="repeat_type",
+                type=HITLFieldType.SELECT,
+                label="重复",
+                required=True,
+                default="none",
+                options=[
+                    HITLOption(value="none", label="不重复"),
+                    HITLOption(value="daily", label="每天"),
+                    HITLOption(value="weekly", label="每周"),
+                    HITLOption(value="monthly", label="每月"),
+                ],
+            ),
+        ],
+        actions=HITLActions(
+            approve=HITLActionButton(label="创建提醒", style=HITLActionStyle.PRIMARY),
+            edit=HITLActionButton(label="修改后创建", style=HITLActionStyle.DEFAULT),
+            reject=HITLActionButton(label="取消", style=HITLActionStyle.SECONDARY),
+        ),
+        context=HITLContext(
+            intent="collect_plan",
+            memory_category="plan",
+        ),
+    )

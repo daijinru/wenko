@@ -179,6 +179,18 @@ hitl_request 格式:
 【核心原则】
 凡是你想向用户提问的内容，都应该优先考虑用表单收集！表单比纯文本提问更友好、更高效。
 
+6. 计划提醒触发 (Plan/Reminder Detection) - 重要:
+   - 当用户提到时间相关的计划、安排、提醒时，触发计划表单
+   - 时间关键词：明天、后天、下周、下月、X点、X日、X号、周X、月X
+   - 计划关键词：提醒、记得、别忘了、要、需要、打算、计划、安排、会议、开会、约、预约
+   - 识别到时间意图后，提取标题、描述和预估时间，预填到表单
+   示例1：用户说"提醒我明天下午3点开会"
+   {{"response":"好的，让我帮你设置这个提醒","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"开会"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
+   示例2：用户说"下周三10点要交报告，别让我忘了"
+   {{"response":"没问题，我来帮你记住这件事","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"交报告"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
+   示例3：用户说"每天早上8点提醒我吃药"
+   {{"response":"好的，我来帮你设置每日提醒","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"吃药"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"0","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"daily","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
+
 【不要使用表单的情况】
 - 用户正在寻求帮助解决紧急问题（如"帮我快速解决..."）
 - 用户已在消息中给出明确答案（如"我要Python"、"选A"）

@@ -619,6 +619,12 @@ class MemoryEntryInfo(BaseModel):
     created_at: str
     last_accessed: str
     access_count: int
+    # Plan-specific fields (only when category == 'plan')
+    target_time: Optional[str] = None
+    reminder_offset_minutes: Optional[int] = None
+    repeat_type: Optional[str] = None
+    plan_status: Optional[str] = None
+    snooze_until: Optional[str] = None
 
 
 class MemoryEntryCreateRequest(BaseModel):
@@ -628,6 +634,10 @@ class MemoryEntryCreateRequest(BaseModel):
     value: Any
     confidence: float = 0.9
     source: str = "user_stated"
+    # Plan-specific fields (only when category == 'plan')
+    target_time: Optional[str] = None
+    reminder_offset_minutes: Optional[int] = None
+    repeat_type: Optional[str] = None
 
 
 class MemoryEntryUpdateRequest(BaseModel):
@@ -636,6 +646,10 @@ class MemoryEntryUpdateRequest(BaseModel):
     value: Optional[Any] = None
     category: Optional[str] = None
     confidence: Optional[float] = None
+    # Plan-specific fields (only when category == 'plan')
+    target_time: Optional[str] = None
+    reminder_offset_minutes: Optional[int] = None
+    repeat_type: Optional[str] = None
 
 
 class MemoryListResponse(BaseModel):
@@ -692,6 +706,11 @@ def _memory_entry_to_info(entry: memory_manager.MemoryEntry) -> MemoryEntryInfo:
         created_at=entry.created_at.isoformat(),
         last_accessed=entry.last_accessed.isoformat(),
         access_count=entry.access_count,
+        target_time=entry.target_time.isoformat() if entry.target_time else None,
+        reminder_offset_minutes=entry.reminder_offset_minutes,
+        repeat_type=entry.repeat_type,
+        plan_status=entry.plan_status,
+        snooze_until=entry.snooze_until.isoformat() if entry.snooze_until else None,
     )
 
 
@@ -737,34 +756,96 @@ async def get_long_term_memory(memory_id: str):
 
 @app.post("/memory/long-term", response_model=MemoryEntryInfo)
 async def create_long_term_memory(request: MemoryEntryCreateRequest):
-    """手动创建长期记忆条目"""
+    """手动创建长期记忆条目
+
+    如果 category 是 'plan'，则创建计划条目并设置提醒相关字段。
+    """
     try:
-        entry = memory_manager.create_memory_entry(
-            category=request.category,
-            key=request.key,
-            value=request.value,
-            confidence=request.confidence,
-            source=request.source,
-        )
-        return _memory_entry_to_info(entry)
+        if request.category == 'plan' and request.target_time:
+            # Create as plan entry with time-specific fields
+            from datetime import datetime as dt
+            target_time = dt.fromisoformat(request.target_time.replace("Z", "+00:00"))
+            plan = memory_manager.create_plan(
+                title=request.key,
+                description=request.value if isinstance(request.value, str) else str(request.value),
+                target_time=target_time,
+                reminder_offset_minutes=request.reminder_offset_minutes if request.reminder_offset_minutes is not None else 10,
+                repeat_type=request.repeat_type or "none",
+            )
+            # Get the memory entry to return full info
+            entry = memory_manager.get_memory_entry(plan.id)
+            if entry:
+                return _memory_entry_to_info(entry)
+            # Fallback: construct from plan
+            return MemoryEntryInfo(
+                id=plan.id,
+                category='plan',
+                key=plan.title,
+                value=plan.description or '',
+                confidence=1.0,
+                source='user_stated',
+                created_at=plan.created_at.isoformat(),
+                last_accessed=plan.updated_at.isoformat(),
+                access_count=0,
+                target_time=plan.target_time.isoformat(),
+                reminder_offset_minutes=plan.reminder_offset_minutes,
+                repeat_type=plan.repeat_type,
+                plan_status=plan.status,
+            )
+        else:
+            entry = memory_manager.create_memory_entry(
+                category=request.category,
+                key=request.key,
+                value=request.value,
+                confidence=request.confidence,
+                source=request.source,
+            )
+            return _memory_entry_to_info(entry)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"创建记忆失败: {str(e)}")
 
 
 @app.put("/memory/long-term/{memory_id}", response_model=MemoryEntryInfo)
 async def update_long_term_memory(memory_id: str, request: MemoryEntryUpdateRequest):
-    """更新长期记忆条目"""
+    """更新长期记忆条目
+
+    如果是 plan 类别，同时更新计划相关字段。
+    """
     try:
-        entry = memory_manager.update_memory_entry(
-            memory_id=memory_id,
-            key=request.key,
-            value=request.value,
-            category=request.category,
-            confidence=request.confidence,
-        )
-        if not entry:
+        # Check if this is a plan entry
+        existing = memory_manager.get_memory_entry(memory_id)
+        if existing and existing.category == 'plan':
+            # Update as plan entry
+            from datetime import datetime as dt
+            target_time = None
+            if request.target_time:
+                target_time = dt.fromisoformat(request.target_time.replace("Z", "+00:00"))
+
+            plan = memory_manager.update_plan(
+                plan_id=memory_id,
+                title=request.key,
+                description=request.value if isinstance(request.value, str) else str(request.value) if request.value else None,
+                target_time=target_time,
+                reminder_offset_minutes=request.reminder_offset_minutes,
+                repeat_type=request.repeat_type,
+            )
+            if not plan:
+                raise HTTPException(status_code=404, detail="记忆不存在")
+            entry = memory_manager.get_memory_entry(memory_id)
+            if entry:
+                return _memory_entry_to_info(entry)
             raise HTTPException(status_code=404, detail="记忆不存在")
-        return _memory_entry_to_info(entry)
+        else:
+            entry = memory_manager.update_memory_entry(
+                memory_id=memory_id,
+                key=request.key,
+                value=request.value,
+                category=request.category,
+                confidence=request.confidence,
+            )
+            if not entry:
+                raise HTTPException(status_code=404, detail="记忆不存在")
+            return _memory_entry_to_info(entry)
     except HTTPException:
         raise
     except Exception as e:
@@ -1282,6 +1363,229 @@ async def hitl_continue(request: HITLContinueRequest):
             "X-Accel-Buffering": "no"
         }
     )
+
+
+# ============ Plans API ============
+
+class PlanInfo(BaseModel):
+    """计划信息"""
+    id: str
+    session_id: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    target_time: str
+    reminder_offset_minutes: int
+    repeat_type: str
+    status: str
+    snooze_until: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class PlanCreateRequest(BaseModel):
+    """创建计划请求"""
+    title: str
+    description: Optional[str] = None
+    target_time: str  # ISO format datetime
+    reminder_offset_minutes: int = 10
+    repeat_type: str = "none"
+    session_id: Optional[str] = None
+
+
+class PlanUpdateRequest(BaseModel):
+    """更新计划请求"""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    target_time: Optional[str] = None
+    reminder_offset_minutes: Optional[int] = None
+    repeat_type: Optional[str] = None
+    status: Optional[str] = None
+
+
+class PlanListResponse(BaseModel):
+    """计划列表响应"""
+    plans: List[PlanInfo]
+    total: int
+
+
+class PlanSnoozeRequest(BaseModel):
+    """推迟计划请求"""
+    snooze_minutes: int = 10
+
+
+def _plan_entry_to_info(entry: memory_manager.PlanEntry) -> PlanInfo:
+    """Convert PlanEntry to PlanInfo."""
+    return PlanInfo(
+        id=entry.id,
+        session_id=entry.session_id,
+        title=entry.title,
+        description=entry.description,
+        target_time=entry.target_time.isoformat(),
+        reminder_offset_minutes=entry.reminder_offset_minutes,
+        repeat_type=entry.repeat_type,
+        status=entry.status,
+        snooze_until=entry.snooze_until.isoformat() if entry.snooze_until else None,
+        created_at=entry.created_at.isoformat(),
+        updated_at=entry.updated_at.isoformat(),
+    )
+
+
+@app.get("/plans", response_model=PlanListResponse)
+async def list_plans(
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """获取计划列表
+
+    支持按状态筛选和分页。
+    """
+    try:
+        entries = memory_manager.list_plans(
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        total = memory_manager.count_plans(status=status)
+
+        plans = [_plan_entry_to_info(e) for e in entries]
+        return PlanListResponse(plans=plans, total=total)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取计划列表失败: {str(e)}")
+
+
+@app.get("/plans/due", response_model=PlanListResponse)
+async def get_due_plans(limit: int = 10):
+    """获取到期的计划
+
+    返回所有 status 为 pending 且提醒时间已到的计划。
+    用于 Electron 轮询。
+    """
+    try:
+        entries = memory_manager.get_due_plans(limit=limit)
+        plans = [_plan_entry_to_info(e) for e in entries]
+        return PlanListResponse(plans=plans, total=len(plans))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取到期计划失败: {str(e)}")
+
+
+@app.post("/plans", response_model=PlanInfo)
+async def create_plan(request: PlanCreateRequest):
+    """创建新计划"""
+    try:
+        target_time = datetime.fromisoformat(request.target_time.replace("Z", "+00:00"))
+        entry = memory_manager.create_plan(
+            title=request.title,
+            description=request.description,
+            target_time=target_time,
+            session_id=request.session_id,
+            reminder_offset_minutes=request.reminder_offset_minutes,
+            repeat_type=request.repeat_type,
+        )
+        return _plan_entry_to_info(entry)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"时间格式错误: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"创建计划失败: {str(e)}")
+
+
+@app.get("/plans/{plan_id}", response_model=PlanInfo)
+async def get_plan(plan_id: str):
+    """获取特定计划详情"""
+    try:
+        entry = memory_manager.get_plan(plan_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="计划不存在")
+        return _plan_entry_to_info(entry)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取计划失败: {str(e)}")
+
+
+@app.put("/plans/{plan_id}", response_model=PlanInfo)
+async def update_plan(plan_id: str, request: PlanUpdateRequest):
+    """更新计划"""
+    try:
+        target_time = None
+        if request.target_time:
+            target_time = datetime.fromisoformat(request.target_time.replace("Z", "+00:00"))
+
+        entry = memory_manager.update_plan(
+            plan_id=plan_id,
+            title=request.title,
+            description=request.description,
+            target_time=target_time,
+            reminder_offset_minutes=request.reminder_offset_minutes,
+            repeat_type=request.repeat_type,
+            status=request.status,
+        )
+        if not entry:
+            raise HTTPException(status_code=404, detail="计划不存在")
+        return _plan_entry_to_info(entry)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"更新计划失败: {str(e)}")
+
+
+@app.delete("/plans/{plan_id}", response_model=DeleteResponse)
+async def delete_plan(plan_id: str):
+    """删除计划"""
+    try:
+        success = memory_manager.delete_plan(plan_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="计划不存在")
+        return DeleteResponse(success=True, message="计划删除成功")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除计划失败: {str(e)}")
+
+
+@app.post("/plans/{plan_id}/complete", response_model=PlanInfo)
+async def complete_plan(plan_id: str):
+    """完成计划
+
+    如果是重复计划，会自动创建下一个周期的计划。
+    """
+    try:
+        entry = memory_manager.complete_plan(plan_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="计划不存在")
+        return _plan_entry_to_info(entry)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"完成计划失败: {str(e)}")
+
+
+@app.post("/plans/{plan_id}/dismiss", response_model=PlanInfo)
+async def dismiss_plan(plan_id: str):
+    """取消计划"""
+    try:
+        entry = memory_manager.dismiss_plan(plan_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="计划不存在")
+        return _plan_entry_to_info(entry)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"取消计划失败: {str(e)}")
+
+
+@app.post("/plans/{plan_id}/snooze", response_model=PlanInfo)
+async def snooze_plan(plan_id: str, request: PlanSnoozeRequest):
+    """推迟计划提醒"""
+    try:
+        entry = memory_manager.snooze_plan(plan_id, request.snooze_minutes)
+        if not entry:
+            raise HTTPException(status_code=404, detail="计划不存在")
+        return _plan_entry_to_info(entry)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"推迟计划失败: {str(e)}")
 
 
 if __name__ == "__main__":

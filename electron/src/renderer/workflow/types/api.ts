@@ -38,7 +38,7 @@ export interface WorkingMemoriesResponse {
 }
 
 // Long-term memory types
-export type MemoryCategory = 'preference' | 'fact' | 'pattern';
+export type MemoryCategory = 'preference' | 'fact' | 'pattern' | 'plan';
 export type MemorySource = 'user_stated' | 'inferred' | 'system';
 
 export interface LongTermMemory {
@@ -51,6 +51,12 @@ export interface LongTermMemory {
   access_count: number;
   created_at: string;
   last_accessed: string;
+  // Plan-specific fields (only when category === 'plan')
+  target_time?: string;
+  reminder_offset_minutes?: number;
+  repeat_type?: RepeatType;
+  plan_status?: PlanStatus;
+  snooze_until?: string | null;
 }
 
 export interface LongTermMemoriesResponse {
@@ -92,6 +98,10 @@ export interface MemoryFormData {
   key: string;
   value: string;
   confidence: number;
+  // Plan-specific fields (only when category === 'plan')
+  target_time?: string;
+  reminder_offset_minutes?: number;
+  repeat_type?: RepeatType;
 }
 
 // Memory extraction types
@@ -106,3 +116,7 @@ export interface MemoryExtractResponse {
   category: MemoryCategory;
   confidence: number;
 }
+
+// Plan types (used by LongTermMemory for category='plan')
+export type PlanStatus = 'pending' | 'completed' | 'dismissed' | 'snoozed';
+export type RepeatType = 'none' | 'daily' | 'weekly' | 'monthly';

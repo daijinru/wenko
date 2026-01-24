@@ -167,6 +167,17 @@ export function HITLField({ field, value, onChange, readonly }: HITLFieldProps) 
           />
         );
 
+      case 'datetime':
+        return (
+          <input
+            type="datetime-local"
+            value={(value as string) ?? ''}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={readonly}
+            className={cn("w-full px-2 py-1 text-xs bg-white border-classic-inset", disabledClass)}
+          />
+        );
+
       default:
         return (
           <input

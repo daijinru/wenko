@@ -17,10 +17,44 @@ interface MemoryListProps {
   onDelete: (id: string) => void
 }
 
-const CATEGORY_VARIANTS: Record<MemoryCategory, "blue" | "green" | "orange"> = {
+const CATEGORY_VARIANTS: Record<MemoryCategory, "blue" | "green" | "orange" | "purple"> = {
   preference: "blue",
   fact: "green",
   pattern: "orange",
+  plan: "purple",
+}
+
+const REPEAT_TYPE_LABELS: Record<string, string> = {
+  none: '不重复',
+  daily: '每天',
+  weekly: '每周',
+  monthly: '每月',
+}
+
+const PLAN_STATUS_LABELS: Record<string, string> = {
+  pending: '待执行',
+  completed: '已完成',
+  dismissed: '已取消',
+  snoozed: '已暂停',
+}
+
+function formatPlanTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const isToday = date.toDateString() === now.toDateString()
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const isTomorrow = date.toDateString() === tomorrow.toDateString()
+
+  const timeStr = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+
+  if (isToday) {
+    return `今天 ${timeStr}`
+  } else if (isTomorrow) {
+    return `明天 ${timeStr}`
+  } else {
+    return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) + ' ' + timeStr
+  }
 }
 
 export function LongTermMemoryList({
@@ -91,11 +125,39 @@ export function LongTermMemoryList({
                 </Badge>
               </td>
               <td className="p-2 border-b border-r border-border max-w-[300px]">
-                <div className="line-clamp-3 whitespace-pre-wrap text-[11px] font-mono opacity-90">
-                  {typeof memory.value === "object"
-                    ? JSON.stringify(memory.value, null, 2)
-                    : memory.value}
-                </div>
+                {memory.category === 'plan' && memory.target_time ? (
+                  <div className="space-y-1">
+                    <div className="line-clamp-2 whitespace-pre-wrap text-[11px] font-mono opacity-90">
+                      {typeof memory.value === "object"
+                        ? JSON.stringify(memory.value, null, 2)
+                        : memory.value}
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      <Badge variant="purple" className="text-[9px] px-1 h-4">
+                        {formatPlanTime(memory.target_time)}
+                      </Badge>
+                      {memory.repeat_type && memory.repeat_type !== 'none' && (
+                        <Badge variant="cyan" className="text-[9px] px-1 h-4">
+                          {REPEAT_TYPE_LABELS[memory.repeat_type] || memory.repeat_type}
+                        </Badge>
+                      )}
+                      {memory.plan_status && (
+                        <Badge
+                          variant={memory.plan_status === 'completed' ? 'green' : memory.plan_status === 'dismissed' ? 'orange' : 'blue'}
+                          className="text-[9px] px-1 h-4"
+                        >
+                          {PLAN_STATUS_LABELS[memory.plan_status] || memory.plan_status}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="line-clamp-3 whitespace-pre-wrap text-[11px] font-mono opacity-90">
+                    {typeof memory.value === "object"
+                      ? JSON.stringify(memory.value, null, 2)
+                      : memory.value}
+                  </div>
+                )}
               </td>
               <td className="p-2 border-b border-r border-border">
                 <div className="flex flex-col space-y-1">

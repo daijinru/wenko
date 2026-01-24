@@ -200,9 +200,11 @@ def _process_form_data(
                 error=f"必填字段 '{field.label}' 未填写",
             )
 
-    # Check if we should save to memory
+    # Check if we should save to memory based on intent
     if request.context and request.context.intent == "collect_preference":
         _save_to_memory(request, data, session_id)
+    elif request.context and request.context.intent == "collect_plan":
+        _save_plan(request, data, session_id)
 
     # Persist form data to working memory for session context continuity
     _persist_to_working_memory(request, data, session_id)
@@ -338,6 +340,52 @@ def _evict_oldest_context_entries(
             break
 
     return result
+
+
+def _save_plan(
+    request: HITLRequest,
+    data: Dict[str, Any],
+    session_id: str,
+) -> None:
+    """Save HITL plan form data as a plan entry in long_term_memory.
+
+    Plans are stored as memory entries with category='plan' and time-specific
+    fields (target_time, reminder_offset_minutes, repeat_type, etc.)
+
+    Args:
+        request: Original HITL request
+        data: Form data containing plan fields
+        session_id: Session ID
+    """
+    try:
+        title = data.get("title", "")
+        description = data.get("description", "")
+        target_datetime_str = data.get("target_datetime", "")
+        reminder_offset_raw = data.get("reminder_offset")
+        reminder_offset = int(reminder_offset_raw) if reminder_offset_raw is not None and reminder_offset_raw != "" else 10
+        repeat_type = data.get("repeat_type", "none")
+
+        if not title or not target_datetime_str:
+            logger.warning("[HITL] Plan form missing required fields")
+            return
+
+        # Parse target datetime
+        target_time = datetime.fromisoformat(target_datetime_str.replace("Z", "+00:00"))
+
+        # Create the plan in long_term_memory table
+        plan = memory_manager.create_plan(
+            title=title,
+            description=description if description else None,
+            target_time=target_time,
+            session_id=session_id,
+            reminder_offset_minutes=reminder_offset,
+            repeat_type=repeat_type,
+        )
+
+        logger.info(f"[HITL] Created plan in long_term_memory: {plan.id} - {title} at {target_time}")
+
+    except Exception as e:
+        logger.warning(f"[HITL] Failed to create plan: {e}")
 
 
 def _save_to_memory(

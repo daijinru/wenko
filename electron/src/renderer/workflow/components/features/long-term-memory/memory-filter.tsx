@@ -12,6 +12,7 @@ const FILTERS: { key: MemoryCategory | ""; label: string }[] = [
   { key: "preference", label: "偏好" },
   { key: "fact", label: "事实" },
   { key: "pattern", label: "模式" },
+  { key: "plan", label: "计划" },
 ]
 
 export function MemoryFilter({
