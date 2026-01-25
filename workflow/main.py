@@ -191,10 +191,25 @@ async def stream_chat_response(request: ChatRequest):
 
     # 构建消息列表
     chat_context = None
+    intent_result = None
+
     if use_memory_system:
         try:
+            # 先运行意图识别（使用 async 版本支持 Layer 2 LLM）
+            if chat_processor.is_intent_recognition_enabled():
+                async with httpx.AsyncClient() as intent_client:
+                    intent_result = await chat_processor.recognize_intent_async(
+                        message=request.message,
+                        llm_client=intent_client,
+                        api_base=config.api_base,
+                        api_key=config.api_key,
+                        model=config.model,
+                    )
+
             # 构建带记忆的上下文
             chat_context = chat_processor.build_chat_context(session_id, request.message)
+            # 将意图识别结果注入到上下文
+            chat_context.intent_result = intent_result
             messages = chat_processor.build_memory_aware_messages(chat_context)
         except Exception as e:
             print(f"构建记忆上下文失败，回退到简单模式: {e}")
@@ -210,7 +225,7 @@ async def stream_chat_response(request: ChatRequest):
 
     # 调用 OpenAI 兼容 API
     api_url = f"{config.api_base.rstrip('/')}/chat/completions"
-
+    print(messages)
     request_body = {
         "model": config.model,
         "messages": messages,

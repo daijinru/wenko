@@ -2,9 +2,11 @@
 
 Handles the complete chat flow with memory and emotion system integration.
 Provides prompt templates and LLM output parsing.
+Integrates multi-layer intent recognition for token optimization.
 """
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -16,6 +18,7 @@ from emotion_detector import (
     apply_confidence_threshold,
     parse_llm_output,
 )
+from intent_types import IntentCategory, IntentResult
 from response_strategy import (
     ResponseStrategy,
     build_strategy_prompt,
@@ -34,8 +37,15 @@ USE_MEMORY_EMOTION_SYSTEM = os.environ.get("USE_MEMORY_EMOTION_SYSTEM", "true").
 # Default to True - set USE_HITL_SYSTEM=false to disable
 USE_HITL_SYSTEM = os.environ.get("USE_HITL_SYSTEM", "true").lower() == "true"
 
+# Environment variable to toggle intent recognition system
+# Default to True - set USE_INTENT_RECOGNITION=false to disable
+USE_INTENT_RECOGNITION = os.environ.get("USE_INTENT_RECOGNITION", "true").lower() == "true"
+
 # Confidence threshold for emotion degradation
 EMOTION_CONFIDENCE_THRESHOLD = 0.5
+
+# Logger for this module
+logger = logging.getLogger(__name__)
 
 
 # ============ Prompt Templates ============
@@ -57,57 +67,11 @@ CHAT_PROMPT_TEMPLATE = """你是一个友好的 AI 助手。
 emotion.primary 可选值: neutral, happy, excited, grateful, curious, sad, anxious, frustrated, confused, help_seeking, info_seeking, validation_seeking
 emotion.category 可选值: neutral, positive, negative, seeking
 
-【记忆自动保存规则 - 非常重要】
-你必须主动识别并保存以下类型的信息到 memory_update：
-
-1. 用户偏好 (preference)：
-   - 喜欢/不喜欢的事物（食物、颜色、音乐、编程语言等）
-   - 习惯和风格（沟通方式、工作习惯等）
-   - 选择和倾向（工具、方法、平台等）
-   - 价值观和信念（对事物的态度、立场）
-
-2. 用户事实 (fact)：
-   - 个人信息（姓名、职业、年龄、地点等）
-   - 技能和专长（会的语言、擅长的领域等）
-   - 状态和情况（正在做什么、遇到什么问题等）
-   - 经历和发现（学到的东西、遇到的情况）
-
-3. 行为模式 (pattern)：
-   - 重复出现的需求或问题
-   - 特定的交流风格
-   - 使用习惯
-   - 思维方式和认知模式
-
-4. 个人观点和看法 (preference)：【特别重要】
-   - 用户表达的观点、看法、认为、觉得
-   - 深度思考和洞见
-   - 对某个主题的理解和结论
-   - 个人发现和领悟
-   - 关键词识别：我认为、我觉得、我发现、我相信、在我看来、我的观点是、我认同、我不认同
-
-保存规则：
-- should_store 设为 true
-- entries 中添加条目，key 和 value 必须使用中文
-- key 应该是简洁的标签（3-15字），如"编程语言偏好"、"用户姓名"、"对AI学习的看法"
-- value 应该是具体信息，对于长篇观点可以保存核心要点
-- category 必须是: preference | fact | pattern
-
-示例1：用户说"我叫小明，喜欢用Python"
-{{"should_store":true,"entries":[{{"category":"fact","key":"用户姓名","value":"小明"}},{{"category":"preference","key":"编程语言偏好","value":"Python"}}]}}
-
-示例2：用户说"我是前端开发，主要用React"
-{{"should_store":true,"entries":[{{"category":"fact","key":"用户职业","value":"前端开发"}},{{"category":"preference","key":"前端框架偏好","value":"React"}}]}}
-
-示例3：用户说"我在北京工作，每天9点上班"
-{{"should_store":true,"entries":[{{"category":"fact","key":"工作地点","value":"北京"}},{{"category":"pattern","key":"上班时间","value":"每天9点"}}]}}
-
-示例4：用户说"我认为AI最重要的价值不是提升效率，而是让我们能学习更复杂的知识"
-{{"should_store":true,"entries":[{{"category":"preference","key":"对AI价值的看法","value":"AI最重要的价值不是提升效率，而是让我们能学习更复杂、更抽象、更具挑战性的知识"}}]}}
-
-示例5：用户说"我发现当效率提升逐渐累积时，很多以前因太耗时而难以实践的学习方式变得可行了"
-{{"should_store":true,"entries":[{{"category":"fact","key":"关于效率累积的发现","value":"效率提升逐渐累积时，以前因太耗时而难以实践的学习方式变得可行"}}]}}
-
-注意：只有简单的问候、确认（如"好的"、"谢谢"）不需要保存。其他包含有价值信息的消息都应该保存，特别是用户表达个人观点和深度思考时。
+【记忆保存格式】
+memory_update 用于保存用户信息，格式：
+- should_store: true/false
+- entries: [{{"category":"preference|fact|pattern","key":"简洁标签","value":"具体内容"}}]
+示例：{{"should_store":true,"entries":[{{"category":"fact","key":"用户姓名","value":"小明"}}]}}
 
 {hitl_instruction}
 
@@ -203,6 +167,99 @@ HITL_INSTRUCTION_DISABLED = ""
 SIMPLE_SYSTEM_PROMPT = """你是一个友好的 AI 助手。"""
 
 
+# ============ Intent-Specific Prompt Snippets ============
+# These are much smaller (~200-400 chars) than the full HITL_INSTRUCTION (~3K chars)
+# Used when intent recognition matches a specific intent type
+
+# HITL base format - included with all HITL snippets
+HITL_BASE_FORMAT = """
+hitl_request 格式:
+{{"hitl_request":{{"type":"form","title":"表单标题","description":"可选描述","fields":[{{"name":"字段名","type":"select|multiselect|text|textarea|radio|checkbox|number|slider|datetime","label":"显示标签","required":true/false,"options":[{{"value":"值","label":"显示文字"}}],"default":"默认值"}}],"context":{{"intent":"意图","memory_category":"类别"}}}}}}
+"""
+
+# Memory intent snippets (for 4 memory save rules)
+MEMORY_INTENT_SNIPPETS = {
+    "preference": """【记忆保存指令】用户正在表达偏好。请在 memory_update 中保存:
+- category: "preference"
+- key: 简洁的偏好标签（如"编程语言偏好"、"音乐类型偏好"）
+- value: 具体的偏好内容""",
+
+    "fact": """【记忆保存指令】用户正在分享个人事实。请在 memory_update 中保存:
+- category: "fact"
+- key: 简洁的事实标签（如"用户姓名"、"用户职业"、"工作地点"）
+- value: 具体的事实信息""",
+
+    "pattern": """【记忆保存指令】用户正在描述行为模式。请在 memory_update 中保存:
+- category: "pattern"
+- key: 简洁的模式标签（如"上班时间"、"学习习惯"）
+- value: 具体的行为模式""",
+
+    "opinion": """【记忆保存指令】用户正在表达个人观点。请在 memory_update 中保存:
+- category: "preference"
+- key: 简洁的观点标签（如"对AI的看法"、"对学习的理解"）
+- value: 观点的核心要点""",
+}
+
+# HITL intent snippets (for 6 HITL strategies)
+HITL_INTENT_SNIPPETS = {
+    "proactive_inquiry": HITL_BASE_FORMAT + """
+【HITL指令】检测到问候意图。必须生成 hitl_request 表单主动了解用户:
+示例：{{"response":"你好！让我更好地了解你","hitl_request":{{"type":"form","title":"认识你","fields":[{{"name":"name","type":"text","label":"怎么称呼你","required":false}},{{"name":"interests","type":"multiselect","label":"你感兴趣的话题","required":false,"options":[{{"value":"tech","label":"科技"}},{{"value":"music","label":"音乐"}},{{"value":"sports","label":"运动"}},{{"value":"food","label":"美食"}},{{"value":"travel","label":"旅行"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+
+    "topic_deepening": HITL_BASE_FORMAT + """
+【HITL指令】用户提到感兴趣的话题。必须生成 hitl_request 表单深入了解该话题的具体偏好:
+- 根据用户提到的话题类型设计合适的 fields
+- 使用 multiselect 收集多个选项
+- context.intent: "collect_preference"
+示例（音乐话题）：{{"response":"音乐是很棒的爱好！让我了解你的音乐品味","hitl_request":{{"type":"form","title":"音乐偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的音乐类型","required":true,"options":[{{"value":"pop","label":"流行"}},{{"value":"rock","label":"摇滚"}},{{"value":"classical","label":"古典"}},{{"value":"jazz","label":"爵士"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+
+    "emotion_driven": HITL_BASE_FORMAT + """
+【HITL指令】检测到用户情绪表达。必须生成 hitl_request 表单:
+- 积极情绪: 用表单了解让用户开心的事物
+- 消极情绪: 用表单了解用户的困扰
+- context.intent: "collect_preference"
+示例：{{"response":"听起来很棒！好奇你喜欢什么类型的电影","hitl_request":{{"type":"form","title":"电影偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的电影类型","required":true,"options":[{{"value":"action","label":"动作片"}},{{"value":"comedy","label":"喜剧片"}},{{"value":"scifi","label":"科幻片"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+
+    "memory_gap": HITL_BASE_FORMAT + """
+【HITL指令】用户请求推荐/建议，但相关记忆不足。必须生成 hitl_request 表单收集偏好:
+示例（推荐书）：{{"response":"我来帮你推荐！先了解下你的阅读口味","hitl_request":{{"type":"form","title":"阅读偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的书籍类型","required":true,"options":[{{"value":"fiction","label":"小说"}},{{"value":"nonfiction","label":"非虚构"}},{{"value":"tech","label":"技术"}},{{"value":"selfhelp","label":"自我提升"}}]}},{{"name":"format","type":"select","label":"偏好的阅读方式","required":false,"options":[{{"value":"paper","label":"纸质书"}},{{"value":"ebook","label":"电子书"}},{{"value":"audio","label":"有声书"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+
+    "question_to_form": HITL_BASE_FORMAT + """
+【HITL指令】用户的问题可以转化为表单。必须将问题转换为结构化的 hitl_request 表单:
+- 使用 select/multiselect 提供选项
+- 比纯文本提问更友好高效
+示例（旅行计划）：{{"response":"听说你想去日本，真不错呢！","hitl_request":{{"type":"form","title":"日本旅行计划","fields":[{{"name":"city","type":"select","label":"最想去的城市","required":false,"options":[{{"value":"tokyo","label":"东京"}},{{"value":"osaka","label":"大阪"}},{{"value":"kyoto","label":"京都"}}]}},{{"name":"experience","type":"multiselect","label":"想体验的活动","required":false,"options":[{{"value":"food","label":"美食探店"}},{{"value":"anime","label":"动漫圣地巡礼"}},{{"value":"temple","label":"寺庙神社"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+
+    "plan_reminder": HITL_BASE_FORMAT + """
+【HITL指令】检测到时间相关的计划/提醒意图。必须生成计划提醒表单:
+- 从用户消息中提取标题和时间信息预填到 default
+- context.intent: "collect_plan", memory_category: "plan"
+示例：{{"response":"好的，让我帮你设置这个提醒","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"开会"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}""",
+}
+
+
+def get_intent_snippet(intent_result: Optional[IntentResult]) -> str:
+    """Get the appropriate prompt snippet for an intent.
+
+    Args:
+        intent_result: Result from intent recognition
+
+    Returns:
+        Intent-specific prompt snippet, or empty string if no match
+    """
+    if not intent_result or intent_result.is_normal():
+        return ""
+
+    intent_type = intent_result.intent_type
+
+    if intent_result.is_memory():
+        return MEMORY_INTENT_SNIPPETS.get(intent_type, "")
+    elif intent_result.is_hitl():
+        return HITL_INTENT_SNIPPETS.get(intent_type, "")
+
+    return ""
+
+
 # ============ Data Classes ============
 
 @dataclass
@@ -214,6 +271,7 @@ class ChatContext:
     relevant_memories: List[memory_manager.RetrievalResult] = None
     previous_emotion: Optional[str] = None
     strategy: Optional[ResponseStrategy] = None
+    intent_result: Optional[IntentResult] = None  # Result from intent recognition
 
     def __post_init__(self):
         if self.relevant_memories is None:
@@ -354,6 +412,10 @@ def format_relevant_memories(memories: List[memory_manager.RetrievalResult]) -> 
 def build_system_prompt(context: ChatContext) -> str:
     """Build complete system prompt with context and strategy.
 
+    Uses intent recognition to optimize prompt size:
+    - If intent matched: use small intent-specific snippet (~200-400 chars)
+    - If no intent: use full HITL_INSTRUCTION (~3K chars) for backward compatibility
+
     Args:
         context: ChatContext with all information
 
@@ -364,8 +426,23 @@ def build_system_prompt(context: ChatContext) -> str:
     relevant_memory_str = format_relevant_memories(context.relevant_memories)
     strategy_prompt = build_strategy_prompt(context.strategy)
 
-    # Include HITL instruction if enabled
-    hitl_instruction = HITL_INSTRUCTION if USE_HITL_SYSTEM else HITL_INSTRUCTION_DISABLED
+    # Determine HITL instruction based on intent recognition
+    if USE_INTENT_RECOGNITION and context.intent_result:
+        intent_snippet = get_intent_snippet(context.intent_result)
+        if intent_snippet:
+            # Use intent-specific snippet (much smaller)
+            hitl_instruction = intent_snippet
+            print(f"[Intent] Using optimized prompt snippet for: {context.intent_result.intent_type}")
+        elif context.intent_result.is_normal():
+            # Normal conversation: minimal instructions
+            hitl_instruction = ""
+            print("[Intent] Using minimal prompt (normal conversation)")
+        else:
+            # Fallback to full instruction
+            hitl_instruction = HITL_INSTRUCTION if USE_HITL_SYSTEM else HITL_INSTRUCTION_DISABLED
+    else:
+        # No intent recognition: use full instruction for backward compatibility
+        hitl_instruction = HITL_INSTRUCTION if USE_HITL_SYSTEM else HITL_INSTRUCTION_DISABLED
 
     return CHAT_PROMPT_TEMPLATE.format(
         user_message=context.user_message,
@@ -549,6 +626,85 @@ def is_hitl_enabled() -> bool:
         True if enabled
     """
     return USE_HITL_SYSTEM
+
+
+def is_intent_recognition_enabled() -> bool:
+    """Check if intent recognition system is enabled.
+
+    Returns:
+        True if enabled
+    """
+    return USE_INTENT_RECOGNITION
+
+
+def run_intent_recognition(message: str) -> Optional[IntentResult]:
+    """Run Layer 1 intent recognition synchronously.
+
+    This is a synchronous wrapper that only uses Layer 1 (rule-based matching).
+    For Layer 2 (LLM-based), use the async recognize_intent_async function.
+
+    Args:
+        message: User message to analyze
+
+    Returns:
+        IntentResult if matched, None otherwise (will be normal conversation)
+    """
+    if not USE_INTENT_RECOGNITION:
+        print("[Intent] Intent recognition disabled")
+        return None
+
+    from intent_recognizer import RuleBasedMatcher
+
+    matcher = RuleBasedMatcher()
+    result = matcher.match(message)
+
+    if result:
+        return result
+
+    # Layer 1 didn't match, return normal intent
+    # Layer 2 would require async, handled separately if needed
+    print("[Intent] Layer1: no match, returning normal intent")
+    return IntentResult.normal()
+
+
+async def recognize_intent_async(
+    message: str,
+    llm_client: Any = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    layer2_enabled: bool = True,
+    layer2_threshold: float = 0.7,
+) -> IntentResult:
+    """Run full multi-layer intent recognition asynchronously.
+
+    Args:
+        message: User message to analyze
+        llm_client: HTTP client for Layer 2 LLM calls
+        api_base: LLM API base URL
+        api_key: API key
+        model: Model to use for Layer 2 (defaults to main chat model)
+        layer2_enabled: Whether to use Layer 2
+        layer2_threshold: Confidence threshold for Layer 2 (default 0.7)
+
+    Returns:
+        IntentResult with matched intent
+    """
+    if not USE_INTENT_RECOGNITION:
+        print("[Intent] Intent recognition disabled")
+        return IntentResult.normal()
+
+    from intent_recognizer import recognize_intent
+
+    return await recognize_intent(
+        message=message,
+        llm_client=llm_client,
+        api_base=api_base,
+        api_key=api_key,
+        model=model,
+        layer2_enabled=layer2_enabled,
+        layer2_threshold=layer2_threshold,
+    )
 
 
 def extract_response_text(llm_output: str) -> str:
