@@ -559,7 +559,7 @@ ipcMain.handle('image-preview:close', async (event) => {
 // ============ Plan Reminder Polling ============
 
 const PLANS_API_URL = 'http://localhost:8002/plans';
-const PLAN_POLL_INTERVAL = 60 * 1000; // 60 seconds
+const PLAN_POLL_INTERVAL = 15 * 1000; // 15 seconds - more responsive for timely reminders
 let planPollIntervalId = null;
 let currentReminders = new Set(); // Track reminders being shown to avoid duplicates
 

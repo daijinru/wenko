@@ -207,7 +207,7 @@ export function MemoryFormDialog({
               <div className="space-y-2">
                 <label className="text-xs font-bold">提前提醒</label>
                 <select
-                  value={form.reminder_offset_minutes || 10}
+                  value={form.reminder_offset_minutes ?? 10}
                   onChange={(e) => setForm((f) => ({ ...f, reminder_offset_minutes: Number(e.target.value) }))}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >

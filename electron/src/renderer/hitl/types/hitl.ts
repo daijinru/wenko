@@ -7,7 +7,7 @@ export interface HITLOption {
 
 export interface HITLField {
   name: string;
-  type: 'text' | 'textarea' | 'select' | 'multiselect' | 'radio' | 'checkbox' | 'number' | 'slider' | 'date' | 'boolean';
+  type: 'text' | 'textarea' | 'select' | 'multiselect' | 'radio' | 'checkbox' | 'number' | 'slider' | 'date' | 'datetime' | 'boolean';
   label: string;
   required?: boolean;
   placeholder?: string;
