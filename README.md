@@ -3,6 +3,7 @@
 > **Your Intelligent Desktop Companion with Heart & Memory.**
 > 打造你的专属桌面 AI 伴侣，具备情感记忆与 Live2D 形象。
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/daijinru/wenko)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Electron](https://img.shields.io/badge/Electron-Desktop-blueviolet)](https://www.electronjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)](https://fastapi.tiangolo.com/)
