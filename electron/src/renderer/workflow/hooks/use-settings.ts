@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-client';
 
 export interface Settings {
+  // LLM 配置
   'llm.api_base': string;
   'llm.api_key': string;
   'llm.model': string;
@@ -9,6 +10,12 @@ export interface Settings {
   'llm.max_tokens': number;
   'llm.temperature': number;
   'llm.vision_model': string;
+  // 系统开关
+  'system.memory_emotion_enabled': boolean;
+  'system.hitl_enabled': boolean;
+  'system.intent_recognition_enabled': boolean;
+  'system.emotion_confidence_threshold': number;
+  // 扩展字段
   [key: string]: string | number | boolean;
 }
 

@@ -1,0 +1,86 @@
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import type { Settings } from '@/hooks/use-settings';
+
+interface SystemConfigSectionProps {
+  settings: Partial<Settings>;
+  onChange: (key: keyof Settings, value: string | number | boolean) => void;
+}
+
+export function SystemConfigSection({ settings, onChange }: SystemConfigSectionProps) {
+  return (
+    <div className="space-y-4 !p-[8px]">
+      <div className="flex items-center space-x-3 gap-2 !mb-2">
+        <Checkbox
+          id="memory-emotion"
+          checked={settings['system.memory_emotion_enabled'] === true}
+          onCheckedChange={(checked) =>
+            onChange('system.memory_emotion_enabled', checked === true)
+          }
+        />
+        <div className="flex-1">
+          <label htmlFor="memory-emotion" className="text-sm font-medium cursor-pointer">
+            启用记忆和情绪系统
+          </label>
+          <p className="text-xs text-muted-foreground">
+            自动检测用户情绪并存储长期记忆
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center space-x-3 gap-2 !mb-2">
+        <Checkbox
+          id="hitl"
+          checked={settings['system.hitl_enabled'] === true}
+          onCheckedChange={(checked) =>
+            onChange('system.hitl_enabled', checked === true)
+          }
+        />
+        <div className="flex-1">
+          <label htmlFor="hitl" className="text-sm font-medium cursor-pointer">
+            启用 HITL (人机交互) 系统
+          </label>
+          <p className="text-xs text-muted-foreground">
+            允许 AI 请求用户确认敏感操作（如保存记忆、创建计划）
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center space-x-3 gap-2 !mb-2">
+        <Checkbox
+          id="intent-recognition"
+          checked={settings['system.intent_recognition_enabled'] === true}
+          onCheckedChange={(checked) =>
+            onChange('system.intent_recognition_enabled', checked === true)
+          }
+        />
+        <div className="flex-1">
+          <label htmlFor="intent-recognition" className="text-sm font-medium cursor-pointer">
+            启用意图识别系统
+          </label>
+          <p className="text-xs text-muted-foreground">
+            自动识别用户意图以优化响应（减少 token 消耗）
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-2 pt-2 border-t">
+        <label className="text-sm font-medium">情绪识别置信度阈值</label>
+        <Input
+          type="number"
+          value={settings['system.emotion_confidence_threshold'] ?? 0.5}
+          onChange={(e) =>
+            onChange('system.emotion_confidence_threshold', parseFloat(e.target.value) || 0.5)
+          }
+          min={0}
+          max={1}
+          step={0.1}
+          className="w-32"
+        />
+        <p className="text-xs text-muted-foreground">
+          低于此阈值的情绪检测将被视为中性 (0.0 - 1.0)
+        </p>
+      </div>
+    </div>
+  );
+}

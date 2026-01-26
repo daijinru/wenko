@@ -27,6 +27,7 @@ _DB_VERSION = 5
 
 # Default settings configuration
 _DEFAULT_SETTINGS = {
+    # LLM 配置
     "llm.api_base": ("https://api.openai.com/v1", "string", "LLM API 端点"),
     "llm.api_key": ("", "string", "API 密钥"),
     "llm.model": ("gpt-4o-mini", "string", "对话模型"),
@@ -34,6 +35,11 @@ _DEFAULT_SETTINGS = {
     "llm.max_tokens": ("1024", "number", "最大 token 数"),
     "llm.temperature": ("0.7", "number", "采样温度"),
     "llm.vision_model": ("volcengine/doubao-embedding-vision", "string", "视觉模型"),
+    # 系统开关
+    "system.memory_emotion_enabled": ("true", "boolean", "启用记忆和情绪系统"),
+    "system.hitl_enabled": ("true", "boolean", "启用 HITL (人机交互) 系统"),
+    "system.intent_recognition_enabled": ("true", "boolean", "启用意图识别系统"),
+    "system.emotion_confidence_threshold": ("0.5", "number", "情绪识别置信度阈值"),
 }
 
 

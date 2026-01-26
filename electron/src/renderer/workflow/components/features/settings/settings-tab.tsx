@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useSettings, type Settings } from '@/hooks/use-settings';
 import { LlmConfigSection } from './llm-config-section';
+import { SystemConfigSection } from './system-config-section';
 import { useToast } from '@/hooks/use-toast';
 
 interface ConfirmDialogState {
@@ -31,6 +33,7 @@ export function SettingsTab({ onConfirmDialog }: SettingsTabProps) {
   // Local form state for editing
   const [formData, setFormData] = useState<Partial<Settings>>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState('llm');
 
   // Initialize form data when settings load
   useEffect(() => {
@@ -40,7 +43,7 @@ export function SettingsTab({ onConfirmDialog }: SettingsTabProps) {
     }
   }, [settings]);
 
-  const handleChange = (key: keyof Settings, value: string | number) => {
+  const handleChange = (key: keyof Settings, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
   };
@@ -87,8 +90,8 @@ export function SettingsTab({ onConfirmDialog }: SettingsTabProps) {
   }
 
   return (
-    <div className="h-full flex flex-col !p-2">
-      <div className="flex gap-1 !mb-1 !mt-1 !px-1 flex-wrap">
+    <div className="h-full flex flex-col">
+      <div className="flex gap-1 !mb-2 !mt-1 !px-1 flex-wrap">
         <Button size="sm" onClick={loadSettings} disabled={loading}>
           {loading ? '加载中...' : '刷新'}
         </Button>
@@ -124,9 +127,24 @@ export function SettingsTab({ onConfirmDialog }: SettingsTabProps) {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-auto px-2 pb-4">
-        <LlmConfigSection settings={formData} onChange={handleChange} />
-      </div>
+      <Tabs
+        value={activeSubTab}
+        onValueChange={setActiveSubTab}
+        className="flex-1 flex flex-col min-h-0"
+      >
+        <TabsList className="w-full justify-start shrink-0">
+          <TabsTrigger value="llm">LLM 配置</TabsTrigger>
+          <TabsTrigger value="system">系统功能开关</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="llm" className="flex-1 min-h-0 overflow-auto px-2 pb-4">
+          <LlmConfigSection settings={formData} onChange={handleChange} />
+        </TabsContent>
+
+        <TabsContent value="system" className="flex-1 min-h-0 overflow-auto px-2 pb-4">
+          <SystemConfigSection settings={formData} onChange={handleChange} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

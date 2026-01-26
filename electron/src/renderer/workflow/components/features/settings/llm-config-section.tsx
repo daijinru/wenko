@@ -10,10 +10,10 @@ interface LlmConfigSectionProps {
 
 export function LlmConfigSection({ settings, onChange }: LlmConfigSectionProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 !p-[8px]">
       <h3 className="font-semibold text-lg border-b pb-2">LLM 配置</h3>
 
-      <div className="grid gap-4">
+      <div className="grid gap-2">
         <div className="space-y-2">
           <label className="text-sm font-medium">API Base URL</label>
           <Input

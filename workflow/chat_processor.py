@@ -7,10 +7,10 @@ Integrates multi-layer intent recognition for token optimization.
 
 import json
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import chat_db
 import memory_manager
 from emotion_detector import (
     EmotionResult,
@@ -29,20 +29,48 @@ from response_strategy import (
 
 # ============ Configuration ============
 
-# Environment variable to toggle memory/emotion system
-# Default to True - set USE_MEMORY_EMOTION_SYSTEM=false to disable
-USE_MEMORY_EMOTION_SYSTEM = os.environ.get("USE_MEMORY_EMOTION_SYSTEM", "true").lower() == "true"
+def _get_system_setting(key: str, default: bool) -> bool:
+    """Get a boolean system setting from database."""
+    value = chat_db.get_setting(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes")
+    return bool(value)
 
-# Environment variable to toggle HITL system
-# Default to True - set USE_HITL_SYSTEM=false to disable
-USE_HITL_SYSTEM = os.environ.get("USE_HITL_SYSTEM", "true").lower() == "true"
 
-# Environment variable to toggle intent recognition system
-# Default to True - set USE_INTENT_RECOGNITION=false to disable
-USE_INTENT_RECOGNITION = os.environ.get("USE_INTENT_RECOGNITION", "true").lower() == "true"
+def _get_system_threshold(key: str, default: float) -> float:
+    """Get a numeric system setting from database."""
+    value = chat_db.get_setting(key)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
 
-# Confidence threshold for emotion degradation
-EMOTION_CONFIDENCE_THRESHOLD = 0.5
+
+def is_memory_emotion_enabled() -> bool:
+    """Check if memory/emotion system is enabled."""
+    return _get_system_setting("system.memory_emotion_enabled", True)
+
+
+def is_hitl_enabled() -> bool:
+    """Check if HITL system is enabled."""
+    return _get_system_setting("system.hitl_enabled", True)
+
+
+def is_intent_recognition_enabled() -> bool:
+    """Check if intent recognition system is enabled."""
+    return _get_system_setting("system.intent_recognition_enabled", True)
+
+
+def get_emotion_confidence_threshold() -> float:
+    """Get emotion confidence threshold."""
+    return _get_system_threshold("system.emotion_confidence_threshold", 0.5)
+
 
 # Logger for this module
 logger = logging.getLogger(__name__)
@@ -427,7 +455,7 @@ def build_system_prompt(context: ChatContext) -> str:
     strategy_prompt = build_strategy_prompt(context.strategy)
 
     # Determine HITL instruction based on intent recognition
-    if USE_INTENT_RECOGNITION and context.intent_result:
+    if is_intent_recognition_enabled() and context.intent_result:
         intent_snippet = get_intent_snippet(context.intent_result)
         if intent_snippet:
             # Use intent-specific snippet (much smaller)
@@ -439,10 +467,10 @@ def build_system_prompt(context: ChatContext) -> str:
             print("[Intent] Using minimal prompt (normal conversation)")
         else:
             # Fallback to full instruction
-            hitl_instruction = HITL_INSTRUCTION if USE_HITL_SYSTEM else HITL_INSTRUCTION_DISABLED
+            hitl_instruction = HITL_INSTRUCTION if is_hitl_enabled() else HITL_INSTRUCTION_DISABLED
     else:
         # No intent recognition: use full instruction for backward compatibility
-        hitl_instruction = HITL_INSTRUCTION if USE_HITL_SYSTEM else HITL_INSTRUCTION_DISABLED
+        hitl_instruction = HITL_INSTRUCTION if is_hitl_enabled() else HITL_INSTRUCTION_DISABLED
 
     return CHAT_PROMPT_TEMPLATE.format(
         user_message=context.user_message,
@@ -474,7 +502,7 @@ def process_llm_response(
     # Apply confidence threshold
     emotion = apply_confidence_threshold(
         parsed.emotion,
-        threshold=EMOTION_CONFIDENCE_THRESHOLD,
+        threshold=get_emotion_confidence_threshold(),
     )
 
     # Update working memory
@@ -610,33 +638,6 @@ def build_memory_aware_messages(context: ChatContext) -> List[Dict[str, str]]:
 
 # ============ Utility Functions ============
 
-def is_memory_emotion_enabled() -> bool:
-    """Check if memory/emotion system is enabled.
-
-    Returns:
-        True if enabled
-    """
-    return USE_MEMORY_EMOTION_SYSTEM
-
-
-def is_hitl_enabled() -> bool:
-    """Check if HITL system is enabled.
-
-    Returns:
-        True if enabled
-    """
-    return USE_HITL_SYSTEM
-
-
-def is_intent_recognition_enabled() -> bool:
-    """Check if intent recognition system is enabled.
-
-    Returns:
-        True if enabled
-    """
-    return USE_INTENT_RECOGNITION
-
-
 def run_intent_recognition(message: str) -> Optional[IntentResult]:
     """Run Layer 1 intent recognition synchronously.
 
@@ -649,7 +650,7 @@ def run_intent_recognition(message: str) -> Optional[IntentResult]:
     Returns:
         IntentResult if matched, None otherwise (will be normal conversation)
     """
-    if not USE_INTENT_RECOGNITION:
+    if not is_intent_recognition_enabled():
         print("[Intent] Intent recognition disabled")
         return None
 
@@ -690,7 +691,7 @@ async def recognize_intent_async(
     Returns:
         IntentResult with matched intent
     """
-    if not USE_INTENT_RECOGNITION:
+    if not is_intent_recognition_enabled():
         print("[Intent] Intent recognition disabled")
         return IntentResult.normal()
 
@@ -795,7 +796,7 @@ def build_hitl_continuation_prompt(
     strategy_prompt = build_strategy_prompt(strategy)
 
     # Include HITL instruction if enabled
-    hitl_instruction = HITL_INSTRUCTION if USE_HITL_SYSTEM else HITL_INSTRUCTION_DISABLED
+    hitl_instruction = HITL_INSTRUCTION if is_hitl_enabled() else HITL_INSTRUCTION_DISABLED
 
     return HITL_CONTINUATION_PROMPT_TEMPLATE.format(
         hitl_context=hitl_context,
