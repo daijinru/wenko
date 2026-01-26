@@ -6,12 +6,12 @@ for conversion to long-term memory.
 """
 
 import base64
-import json
-import os
 import re
 from typing import Optional
 
 import httpx
+
+import chat_db
 
 
 # Vision analysis prompt
@@ -27,28 +27,17 @@ VISION_PROMPT = """请识别并提取图片中的所有文本内容。
 
 
 def load_vision_config() -> dict:
-    """Load vision configuration from chat_config.json.
+    """Load vision configuration from database.
 
     Returns:
         Configuration dict with api_base, api_key, and vision_model.
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist.
     """
-    config_path = os.path.join(os.path.dirname(__file__), "chat_config.json")
-
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(
-            f"配置文件不存在: {config_path}。请复制 chat_config.example.json 为 chat_config.json 并填写 API Key。"
-        )
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
+    settings = chat_db.get_all_settings()
 
     return {
-        "api_base": config.get("api_base", "https://api.openai.com/v1"),
-        "api_key": config.get("api_key", ""),
-        "vision_model": config.get("vision_model", config.get("model", "gpt-4o-mini")),
+        "api_base": settings.get("llm.api_base", "https://api.openai.com/v1"),
+        "api_key": settings.get("llm.api_key", ""),
+        "vision_model": settings.get("llm.vision_model", settings.get("llm.model", "gpt-4o-mini")),
     }
 
 

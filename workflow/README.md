@@ -68,24 +68,32 @@ uv run python main.py
 
 ## AI 对话功能配置
 
-### 配置文件
+### 配置方式
 
-1. 复制示例配置文件:
-```bash
-cp chat_config.example.json chat_config.json
-```
+配置存储在 SQLite 数据库中，可以通过以下两种方式管理：
 
-2. 编辑 `chat_config.json`，填写您的 API 配置:
-```json
-{
-  "api_base": "https://api.openai.com/v1",
-  "api_key": "your-api-key-here",
-  "model": "gpt-4o-mini",
-  "system_prompt": "你是一个友好的 AI 助手。",
-  "max_tokens": 1024,
-  "temperature": 0.7
-}
-```
+**方式一：通过 Workflow 面板（推荐）**
+
+打开 Electron 应用的 Workflow 面板，切换到"设置"选项卡，可以在图形界面中配置所有 LLM 相关选项。
+
+**方式二：通过 API**
+
+使用 Settings API 端点管理配置：
+- `GET /api/settings` - 获取所有配置
+- `PUT /api/settings` - 批量更新配置
+- `POST /api/settings/reset` - 重置为默认值
+
+### 配置项说明
+
+| 配置项 | 类型 | 默认值 | 描述 |
+|--------|------|--------|------|
+| `llm.api_base` | string | `https://api.openai.com/v1` | LLM API 端点 |
+| `llm.api_key` | string | `""` | API 密钥 |
+| `llm.model` | string | `gpt-4o-mini` | 对话模型 |
+| `llm.system_prompt` | string | `你是一个友好的 AI 助手。` | 系统提示词 |
+| `llm.max_tokens` | number | `1024` | 最大 token 数 |
+| `llm.temperature` | number | `0.7` | 采样温度 |
+| `llm.vision_model` | string | `volcengine/doubao-embedding-vision` | 视觉模型 |
 
 ### 支持的 LLM 服务商
 

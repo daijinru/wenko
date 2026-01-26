@@ -68,18 +68,17 @@ class ChatConfig(BaseModel):
 
 
 def load_chat_config() -> ChatConfig:
-    """加载对话配置文件"""
-    config_path = os.path.join(os.path.dirname(__file__), "chat_config.json")
+    """从数据库加载对话配置"""
+    settings = chat_db.get_all_settings()
 
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(
-            f"配置文件不存在: {config_path}。请复制 chat_config.example.json 为 chat_config.json 并填写 API Key。"
-        )
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        config_data = json.load(f)
-
-    return ChatConfig(**config_data)
+    return ChatConfig(
+        api_base=settings.get("llm.api_base", "https://api.openai.com/v1"),
+        api_key=settings.get("llm.api_key", ""),
+        model=settings.get("llm.model", "gpt-4o-mini"),
+        system_prompt=settings.get("llm.system_prompt", "你是一个友好的 AI 助手。"),
+        max_tokens=settings.get("llm.max_tokens", 1024),
+        temperature=settings.get("llm.temperature", 0.7),
+    )
 
 
 class HealthResponse(BaseModel):
@@ -1378,6 +1377,130 @@ async def hitl_continue(request: HITLContinueRequest):
             "X-Accel-Buffering": "no"
         }
     )
+
+
+# ============ Settings API ============
+
+class SettingInfo(BaseModel):
+    """设置项信息"""
+    key: str
+    value: Any
+    value_type: str
+    description: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class SettingsListResponse(BaseModel):
+    """设置列表响应"""
+    settings: Dict[str, Any]
+
+
+class SettingsDetailListResponse(BaseModel):
+    """设置详情列表响应"""
+    settings: List[SettingInfo]
+
+
+class SettingUpdateRequest(BaseModel):
+    """更新单个设置请求"""
+    value: Any
+    value_type: Optional[str] = None
+
+
+class SettingsBatchUpdateRequest(BaseModel):
+    """批量更新设置请求"""
+    settings: Dict[str, Any]
+
+
+class SettingsBatchUpdateResponse(BaseModel):
+    """批量更新设置响应"""
+    success: bool
+    updated_count: int
+
+
+class SettingsResetResponse(BaseModel):
+    """重置设置响应"""
+    success: bool
+    reset_count: int
+
+
+@app.get("/api/settings", response_model=SettingsListResponse)
+async def get_all_settings():
+    """获取所有配置项"""
+    try:
+        settings = chat_db.get_all_settings()
+        return SettingsListResponse(settings=settings)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
+
+@app.get("/api/settings/detail", response_model=SettingsDetailListResponse)
+async def get_all_settings_detail():
+    """获取所有配置项的详细信息（包括元数据）"""
+    try:
+        settings_list = chat_db.get_all_settings_with_metadata()
+        result = [
+            SettingInfo(
+                key=s["key"],
+                value=s["typed_value"],
+                value_type=s["value_type"],
+                description=s.get("description"),
+                created_at=s["created_at"],
+                updated_at=s["updated_at"],
+            )
+            for s in settings_list
+        ]
+        return SettingsDetailListResponse(settings=result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取配置详情失败: {str(e)}")
+
+
+@app.get("/api/settings/{key:path}")
+async def get_setting(key: str):
+    """获取单个配置项"""
+    try:
+        value = chat_db.get_setting(key)
+        if value is None:
+            raise HTTPException(status_code=404, detail=f"配置项 '{key}' 不存在")
+        return {"key": key, "value": value}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
+
+@app.put("/api/settings/{key:path}")
+async def update_setting(key: str, request: SettingUpdateRequest):
+    """更新单个配置项"""
+    try:
+        success = chat_db.set_setting(key, request.value, request.value_type)
+        if not success:
+            raise HTTPException(status_code=500, detail="更新配置失败")
+        return {"key": key, "value": request.value, "success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
+
+
+@app.put("/api/settings", response_model=SettingsBatchUpdateResponse)
+async def batch_update_settings(request: SettingsBatchUpdateRequest):
+    """批量更新配置项"""
+    try:
+        updated_count = chat_db.set_settings(request.settings)
+        return SettingsBatchUpdateResponse(success=True, updated_count=updated_count)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"批量更新配置失败: {str(e)}")
+
+
+@app.post("/api/settings/reset", response_model=SettingsResetResponse)
+async def reset_settings():
+    """重置所有配置为默认值"""
+    try:
+        reset_count = chat_db.reset_settings()
+        return SettingsResetResponse(success=True, reset_count=reset_count)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重置配置失败: {str(e)}")
 
 
 # ============ Plans API ============

@@ -97,8 +97,9 @@ Wenko 是一个情感记忆 AI 系统，专注于提供智能对话、情感检�
 
 ### 远程 LLM API（AI 对话功能）
 - 支持 OpenAI 兼容接口（OpenAI、DeepSeek、Azure OpenAI 等）
-- 配置文件: `workflow/chat_config.json`（git 忽略，保护 API Key）
-- 示例配置: `workflow/chat_config.example.json`
+- 配置存储在 SQLite 数据库 `workflow/data/chat_history.db` 的 `app_settings` 表中
+- 可通过 Workflow 面板的"设置"选项卡进行图形化配置
+- 可通过 Settings API (`/api/settings`) 进行程序化配置
 
 ### Live2D
 - Live2D Cubism SDK Web

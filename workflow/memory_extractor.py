@@ -4,12 +4,12 @@ Provides smart memory extraction from messages using LLM.
 Extracts key, value, category, and confidence from message content.
 """
 
-import json
-import os
 from dataclasses import dataclass
 from typing import Optional
 
 import httpx
+
+import chat_db
 
 
 @dataclass
@@ -60,17 +60,12 @@ async def extract_memory_from_message(
     Returns:
         ExtractedMemory if extraction successful, None otherwise
     """
-    # Load config
-    config_path = os.path.join(os.path.dirname(__file__), "chat_config.json")
-    if not os.path.exists(config_path):
-        return None
+    # Load config from database
+    settings = chat_db.get_all_settings()
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-
-    api_base = config.get("api_base", "https://api.openai.com/v1")
-    api_key = config.get("api_key", "")
-    model = config.get("model", "gpt-4o-mini")
+    api_base = settings.get("llm.api_base", "https://api.openai.com/v1")
+    api_key = settings.get("llm.api_key", "")
+    model = settings.get("llm.model", "gpt-4o-mini")
 
     if not api_key:
         return None

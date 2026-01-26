@@ -23,7 +23,18 @@ _DB_DIR = os.path.join(os.path.dirname(__file__), "data")
 _DB_PATH = os.path.join(_DB_DIR, "chat_history.db")
 
 # Database schema version for migrations
-_DB_VERSION = 4
+_DB_VERSION = 5
+
+# Default settings configuration
+_DEFAULT_SETTINGS = {
+    "llm.api_base": ("https://api.openai.com/v1", "string", "LLM API 端点"),
+    "llm.api_key": ("", "string", "API 密钥"),
+    "llm.model": ("gpt-4o-mini", "string", "对话模型"),
+    "llm.system_prompt": ("你是一个友好的 AI 助手。", "string", "系统提示词"),
+    "llm.max_tokens": ("1024", "number", "最大 token 数"),
+    "llm.temperature": ("0.7", "number", "采样温度"),
+    "llm.vision_model": ("volcengine/doubao-embedding-vision", "string", "视觉模型"),
+}
 
 
 @contextmanager
@@ -230,6 +241,23 @@ def init_database() -> None:
                 CREATE INDEX IF NOT EXISTS idx_ltm_plan_status
                 ON long_term_memory(plan_status)
             """)
+
+        # ============ V5: App Settings ============
+        if current_version < 5:
+            # Create app_settings table for configuration storage
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    value_type TEXT DEFAULT 'string',
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Initialize default settings
+            _initialize_default_settings(conn)
 
         # Update schema version
         if current_version < _DB_VERSION:
@@ -471,3 +499,220 @@ def get_session_with_messages(session_id: str) -> Optional[Dict[str, Any]]:
         "session": session,
         "messages": messages
     }
+
+
+# ============ Settings Operations ============
+
+def _initialize_default_settings(conn: sqlite3.Connection) -> None:
+    """Initialize default settings in the database.
+
+    Also attempts to migrate from chat_config.json if it exists.
+    """
+    now = datetime.utcnow().isoformat()
+
+    # Check if chat_config.json exists and migrate from it
+    config_path = os.path.join(os.path.dirname(__file__), "chat_config.json")
+    migrated_values = {}
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+
+            # Map JSON keys to setting keys
+            key_mapping = {
+                "api_base": "llm.api_base",
+                "api_key": "llm.api_key",
+                "model": "llm.model",
+                "system_prompt": "llm.system_prompt",
+                "max_tokens": "llm.max_tokens",
+                "temperature": "llm.temperature",
+                "vision_model": "llm.vision_model",
+            }
+
+            for json_key, setting_key in key_mapping.items():
+                if json_key in config_data:
+                    migrated_values[setting_key] = str(config_data[json_key])
+        except (json.JSONDecodeError, IOError):
+            pass  # Ignore errors, use defaults
+
+    # Insert default settings (with migrated values if available)
+    for key, (default_value, value_type, description) in _DEFAULT_SETTINGS.items():
+        value = migrated_values.get(key, default_value)
+        conn.execute(
+            """INSERT OR IGNORE INTO app_settings
+               (key, value, value_type, description, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (key, value, value_type, description, now, now)
+        )
+
+
+def get_setting(key: str) -> Optional[Any]:
+    """Get a single setting value by key.
+
+    Args:
+        key: Setting key (e.g., 'llm.api_key')
+
+    Returns:
+        Setting value with proper type conversion, or None if not found.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT value, value_type FROM app_settings WHERE key = ?",
+            (key,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return _convert_setting_value(row["value"], row["value_type"])
+    return None
+
+
+def _convert_setting_value(value: str, value_type: str) -> Any:
+    """Convert setting value from string to proper type."""
+    if value_type == "number":
+        try:
+            if "." in value:
+                return float(value)
+            return int(value)
+        except ValueError:
+            return value
+    elif value_type == "boolean":
+        return value.lower() in ("true", "1", "yes")
+    elif value_type == "json":
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def set_setting(key: str, value: Any, value_type: Optional[str] = None) -> bool:
+    """Set a single setting value.
+
+    Args:
+        key: Setting key
+        value: New value (will be converted to string for storage)
+        value_type: Optional type hint ('string', 'number', 'boolean', 'json')
+
+    Returns:
+        True if setting was updated/inserted successfully.
+    """
+    now = datetime.utcnow().isoformat()
+    str_value = str(value) if not isinstance(value, str) else value
+
+    # Infer value_type if not provided
+    if value_type is None:
+        if isinstance(value, bool):
+            value_type = "boolean"
+            str_value = "true" if value else "false"
+        elif isinstance(value, (int, float)):
+            value_type = "number"
+        elif isinstance(value, (dict, list)):
+            value_type = "json"
+            str_value = json.dumps(value)
+        else:
+            value_type = "string"
+
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """INSERT INTO app_settings (key, value, value_type, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                   value = excluded.value,
+                   value_type = excluded.value_type,
+                   updated_at = excluded.updated_at""",
+            (key, str_value, value_type, now)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_all_settings() -> Dict[str, Any]:
+    """Get all settings as a dictionary.
+
+    Returns:
+        Dictionary mapping setting keys to their typed values.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT key, value, value_type FROM app_settings"
+        )
+        return {
+            row["key"]: _convert_setting_value(row["value"], row["value_type"])
+            for row in cursor.fetchall()
+        }
+
+
+def get_all_settings_with_metadata() -> List[Dict[str, Any]]:
+    """Get all settings with full metadata.
+
+    Returns:
+        List of setting dicts with key, value, value_type, description, timestamps.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """SELECT key, value, value_type, description, created_at, updated_at
+               FROM app_settings ORDER BY key"""
+        )
+        result = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["typed_value"] = _convert_setting_value(
+                row["value"], row["value_type"]
+            )
+            result.append(item)
+        return result
+
+
+def set_settings(settings_dict: Dict[str, Any]) -> int:
+    """Batch update multiple settings.
+
+    Args:
+        settings_dict: Dictionary of key-value pairs to update.
+
+    Returns:
+        Number of settings updated.
+    """
+    count = 0
+    for key, value in settings_dict.items():
+        if set_setting(key, value):
+            count += 1
+    return count
+
+
+def reset_settings() -> int:
+    """Reset all settings to default values.
+
+    Returns:
+        Number of settings reset.
+    """
+    now = datetime.utcnow().isoformat()
+    count = 0
+
+    with get_connection() as conn:
+        for key, (default_value, value_type, description) in _DEFAULT_SETTINGS.items():
+            cursor = conn.execute(
+                """UPDATE app_settings
+                   SET value = ?, value_type = ?, description = ?, updated_at = ?
+                   WHERE key = ?""",
+                (default_value, value_type, description, now, key)
+            )
+            count += cursor.rowcount
+        conn.commit()
+
+    return count
+
+
+def delete_setting(key: str) -> bool:
+    """Delete a setting.
+
+    Args:
+        key: Setting key to delete.
+
+    Returns:
+        True if setting was deleted, False if not found.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+        conn.commit()
+        return cursor.rowcount > 0
