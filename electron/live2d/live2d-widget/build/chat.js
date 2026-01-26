@@ -293,6 +293,7 @@ export function createChatInput(shadowRoot) {
   `;
     const input = container.querySelector('#wenko-chat-text');
     const sendBtn = container.querySelector('#wenko-chat-send');
+    let isComposing = false;
     const handleSend = () => {
         const text = input.value.trim();
         if (!text || isLoading)
@@ -336,8 +337,14 @@ export function createChatInput(shadowRoot) {
         });
     };
     sendBtn.addEventListener('click', handleSend);
+    input.addEventListener('compositionstart', () => {
+        isComposing = true;
+    });
+    input.addEventListener('compositionend', () => {
+        isComposing = false;
+    });
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
             e.preventDefault();
             handleSend();
         }

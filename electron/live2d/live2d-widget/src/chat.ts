@@ -471,6 +471,9 @@ export function createChatInput(shadowRoot: ShadowRoot): HTMLElement {
   const input = container.querySelector('#wenko-chat-text') as HTMLInputElement;
   const sendBtn = container.querySelector('#wenko-chat-send') as HTMLButtonElement;
 
+  // 输入法组合状态标记
+  let isComposing = false;
+
   const handleSend = () => {
     const text = input.value.trim();
     if (!text || isLoading) return;
@@ -531,8 +534,17 @@ export function createChatInput(shadowRoot: ShadowRoot): HTMLElement {
   };
 
   sendBtn.addEventListener('click', handleSend);
+
+  // 监听输入法组合事件
+  input.addEventListener('compositionstart', () => {
+    isComposing = true;
+  });
+  input.addEventListener('compositionend', () => {
+    isComposing = false;
+  });
+
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
       e.preventDefault();
       handleSend();
     }
