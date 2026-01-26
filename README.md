@@ -110,20 +110,13 @@ Wenko 是一个开源的桌面 AI 助手。它不仅是一个聊天机器人，�
     uv sync
     ```
 
-2.  **Configure AI**
-    ```bash
-    cd workflow
-    cp chat_config.example.json chat_config.json
-    # Edit chat_config.json and add your API Key
-    ```
-
-3.  **Setup Frontend (Electron)**
+2.  **Setup Frontend (Electron)**
     ```bash
     cd electron
     npm install
     ```
 
-4.  **Setup Live2D Widget**
+3.  **Setup Live2D Widget**
     ```bash
     cd electron/live2d/live2d-widget
     npm install
@@ -138,6 +131,12 @@ cd workflow && ./start.sh
 # Start Electron (in another terminal)
 cd electron && ./start.sh
 ```
+
+在启动应用后，首先填写 LLM 配置信息：
+![LLM 配置](./docs/llm-config-open.png)
+
+额外系统功能相关配置，建议都开启：
+![系统功能开关](./docs/system-func-open.png)
 
 ### Building (构建)
 
@@ -173,10 +172,6 @@ cd workflow
 
 # 安装依赖
 uv sync
-
-# 配置 API Key
-cp chat_config.example.json chat_config.json
-# 编辑 chat_config.json 填入你的 API Key
 
 # 启动服务
 ./start.sh
