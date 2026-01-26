@@ -200,11 +200,16 @@ def _process_form_data(
                 error=f"必填字段 '{field.label}' 未填写",
             )
 
-    # Check if we should save to memory based on intent
+    # Check if we should save to memory based on intent or request type
     if request.context and request.context.intent == "collect_preference":
         _save_to_memory(request, data, session_id)
     elif request.context and request.context.intent == "collect_plan":
         _save_plan(request, data, session_id)
+    # Handle image memory/plan types
+    elif request.type == "image_memory_confirm":
+        _save_image_memory(request, data, session_id)
+    elif request.type == "image_plan_confirm":
+        _save_image_plan(request, data, session_id)
 
     # Persist form data to working memory for session context continuity
     _persist_to_working_memory(request, data, session_id)
@@ -340,6 +345,96 @@ def _evict_oldest_context_entries(
             break
 
     return result
+
+
+def _save_image_memory(
+    request: HITLRequest,
+    data: Dict[str, Any],
+    session_id: str,
+) -> None:
+    """Save image-extracted memory to long-term memory.
+
+    Handles the image_memory_confirm HITL type with fields: key, value, category.
+
+    Args:
+        request: Original HITL request
+        data: Form data containing key, value, category
+        session_id: Session ID
+    """
+    try:
+        key = data.get("key", "")
+        value = data.get("value", "")
+        category = data.get("category", "fact")
+
+        if not key or not value:
+            logger.warning("[HITL] Image memory form missing required fields")
+            return
+
+        memory_manager.create_memory_entry(
+            category=category,
+            key=key,
+            value=value,
+            session_id=session_id,
+            confidence=0.9,
+            source="image_extraction",
+        )
+        logger.info(f"[HITL] Saved image memory: [{category}] {key}")
+
+    except Exception as e:
+        logger.warning(f"[HITL] Failed to save image memory: {e}")
+
+
+def _save_image_plan(
+    request: HITLRequest,
+    data: Dict[str, Any],
+    session_id: str,
+) -> None:
+    """Save image-extracted plan to long-term memory.
+
+    Handles the image_plan_confirm HITL type with fields:
+    key, value, category, target_time, location, participants.
+
+    Args:
+        request: Original HITL request
+        data: Form data containing plan fields
+        session_id: Session ID
+    """
+    try:
+        title = data.get("key", "")
+        value = data.get("value", "")
+        target_time_str = data.get("target_time", "")
+        location = data.get("location", "")
+        participants = data.get("participants", "")
+
+        if not title or not target_time_str:
+            logger.warning("[HITL] Image plan form missing required fields")
+            return
+
+        # Build description with location and participants
+        description_parts = [value] if value else []
+        if location:
+            description_parts.append(f"地点: {location}")
+        if participants:
+            description_parts.append(f"参与者: {participants}")
+        description = "\n".join(description_parts) if description_parts else None
+
+        # Parse target datetime
+        target_time = datetime.fromisoformat(target_time_str.replace("Z", "+00:00"))
+
+        # Create the plan
+        plan = memory_manager.create_plan(
+            title=title,
+            description=description,
+            target_time=target_time,
+            session_id=session_id,
+            reminder_offset_minutes=10,  # Default reminder
+            repeat_type="none",
+        )
+
+        logger.info(f"[HITL] Created image plan: {plan.id} - {title} at {target_time}")
+
+    except Exception as e:
+        logger.warning(f"[HITL] Failed to create image plan: {e}")
 
 
 def _save_plan(

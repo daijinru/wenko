@@ -78,7 +78,7 @@ export default function App() {
           )}
 
           {/* Action buttons */}
-          <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
+          <div className="flex justify-end gap-2 !pt-2 border-t border-gray-200">
             <button
               className="button"
               onClick={cancel}

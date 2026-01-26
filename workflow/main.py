@@ -423,47 +423,97 @@ async def stream_image_analysis(request: ImageChatRequest):
                         HITLActions,
                         HITLActionButton,
                         HITLActionStyle,
+                        HITLContext,
                     )
+
+                    # 基础字段
+                    fields = [
+                        HITLField(
+                            name="key",
+                            type=HITLFieldType.TEXT,
+                            label="记忆名称",
+                            required=True,
+                            placeholder="例如：会议笔记、书籍摘录、周五聚餐",
+                            default=memory_result.key,
+                        ),
+                        HITLField(
+                            name="value",
+                            type=HITLFieldType.TEXTAREA,
+                            label="记忆内容",
+                            required=True,
+                            placeholder="提取的文本内容",
+                            default=memory_result.value,
+                        ),
+                        HITLField(
+                            name="category",
+                            type=HITLFieldType.SELECT,
+                            label="类别",
+                            required=True,
+                            default=memory_result.category,
+                            options=[
+                                HITLOption(value="preference", label="偏好"),
+                                HITLOption(value="fact", label="事实"),
+                                HITLOption(value="pattern", label="模式"),
+                                HITLOption(value="plan", label="计划"),
+                            ],
+                        ),
+                    ]
+
+                    # 如果是计划类别，添加计划特定字段
+                    if memory_result.category == "plan":
+                        fields.extend([
+                            HITLField(
+                                name="target_time",
+                                type=HITLFieldType.TEXT,
+                                label="目标时间",
+                                required=True,
+                                placeholder="例如：2025-01-28T14:00:00",
+                                default=memory_result.target_time or "",
+                            ),
+                            HITLField(
+                                name="location",
+                                type=HITLFieldType.TEXT,
+                                label="地点",
+                                required=False,
+                                placeholder="例如：会议室A、星巴克",
+                                default=memory_result.location or "",
+                            ),
+                            HITLField(
+                                name="participants",
+                                type=HITLFieldType.TEXT,
+                                label="参与者",
+                                required=False,
+                                placeholder="例如：张三,李四",
+                                default=memory_result.participants or "",
+                            ),
+                        ])
+
+                    # 确定 intent 和 memory_category
+                    if memory_result.category == "plan":
+                        intent = "collect_plan"
+                        hitl_type = "image_plan_confirm"
+                        hitl_title = "保存计划到日程"
+                        hitl_description = "AI 从图片中识别到计划安排，请确认是否保存到日程。"
+                    else:
+                        intent = "collect_preference"
+                        hitl_type = "image_memory_confirm"
+                        hitl_title = "保存图片内容到长期记忆"
+                        hitl_description = "AI 从图片中提取了以下信息，请确认是否保存。"
 
                     hitl_request = HITLRequestModel(
                         id=str(uuid.uuid4()),
-                        type="image_memory_confirm",
-                        title="保存图片内容到长期记忆",
-                        description="AI 从图片中提取了以下信息，请确认是否保存到长期记忆。",
-                        fields=[
-                            HITLField(
-                                name="key",
-                                type=HITLFieldType.TEXT,
-                                label="记忆名称",
-                                required=True,
-                                placeholder="例如：会议笔记、书籍摘录",
-                                default=memory_result.key,
-                            ),
-                            HITLField(
-                                name="value",
-                                type=HITLFieldType.TEXTAREA,
-                                label="记忆内容",
-                                required=True,
-                                placeholder="提取的文本内容",
-                                default=memory_result.value,
-                            ),
-                            HITLField(
-                                name="category",
-                                type=HITLFieldType.SELECT,
-                                label="类别",
-                                required=True,
-                                default=memory_result.category,
-                                options=[
-                                    HITLOption(value="preference", label="偏好"),
-                                    HITLOption(value="fact", label="事实"),
-                                    HITLOption(value="pattern", label="模式"),
-                                ],
-                            ),
-                        ],
+                        type=hitl_type,
+                        title=hitl_title,
+                        description=hitl_description,
+                        fields=fields,
                         actions=HITLActions(
                             approve=HITLActionButton(label="保存", style=HITLActionStyle.PRIMARY),
                             edit=HITLActionButton(label="编辑", style=HITLActionStyle.DEFAULT),
                             reject=HITLActionButton(label="跳过", style=HITLActionStyle.SECONDARY),
+                        ),
+                        context=HITLContext(
+                            intent=intent,
+                            memory_category=memory_result.category,
                         ),
                     )
 
