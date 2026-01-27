@@ -11,6 +11,7 @@
 
 ![HITL](./docs/Snipaste_2026-01-21.png)
 ![记忆管理](./docs/Snipaste_2026-01-20.png)
+![计划提醒](./docs/plan-reminder.png)
 
 ## 📖 Introduction (简介)
 
@@ -53,6 +54,12 @@ Wenko 是一个开源的桌面 AI 助手。它不仅是一个聊天机器人，�
   - Visual management of Chat History, Working Memory, and Long-term Memory.
   - Browse, search, and organize your AI's memory data.
   - Transfer important context from Working Memory to Long-term Memory.
+
+- **⏰ Plan Reminder (计划提醒)**
+  - Create reminders using natural language (e.g., "今天下午15点30分提醒我吃下午茶").
+  - Supports popup window alerts and OS-level notifications (macOS/Windows).
+  - Snooze, dismiss, or mark plans as complete directly from the reminder.
+  - Recurring reminders for daily, weekly, or custom schedules.
 
 - **🔒 Privacy First (隐私优先)**
   - All chat history and memory data are stored locally (`workflow/data/`).
