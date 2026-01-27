@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src/renderer/workflow'),
       '@hitl': resolve(__dirname, 'src/renderer/hitl'),
+      '@reminder': resolve(__dirname, 'src/renderer/reminder'),
     },
   },
 
@@ -21,6 +22,7 @@ export default defineConfig({
         main: resolve(__dirname, 'src/renderer/workflow/index.html'),
         hitl: resolve(__dirname, 'src/renderer/hitl/index.html'),
         'image-preview': resolve(__dirname, 'src/renderer/image-preview/index.html'),
+        reminder: resolve(__dirname, 'src/renderer/reminder/index.html'),
       },
     },
   },

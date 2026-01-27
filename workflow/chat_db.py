@@ -40,6 +40,9 @@ _DEFAULT_SETTINGS = {
     "system.hitl_enabled": ("true", "boolean", "启用 HITL (人机交互) 系统"),
     "system.intent_recognition_enabled": ("true", "boolean", "启用意图识别系统"),
     "system.emotion_confidence_threshold": ("0.5", "number", "情绪识别置信度阈值"),
+    # 提醒设置
+    "system.reminder_window_enabled": ("true", "boolean", "启用弹窗提醒"),
+    "system.os_notification_enabled": ("true", "boolean", "启用系统通知"),
 }
 
 

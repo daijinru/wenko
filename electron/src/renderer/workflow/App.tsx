@@ -38,7 +38,7 @@ function AppInner() {
   return (
     <AppLayout className="theme-classic">
       <AppHeader
-        title="Emotion & Memory System"
+        title="Wenko Assistant"
         online={online}
         checking={checking}
       />

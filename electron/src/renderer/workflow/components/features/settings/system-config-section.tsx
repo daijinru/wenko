@@ -65,6 +65,45 @@ export function SystemConfigSection({ settings, onChange }: SystemConfigSectionP
       </div>
 
       <div className="space-y-2 pt-2 border-t">
+        <div className="text-sm font-medium mb-2">提醒设置</div>
+        <div className="flex items-center space-x-3 gap-2 !mb-2">
+          <Checkbox
+            id="reminder-window"
+            checked={settings['system.reminder_window_enabled'] !== false}
+            onCheckedChange={(checked) =>
+              onChange('system.reminder_window_enabled', checked === true)
+            }
+          />
+          <div className="flex-1">
+            <label htmlFor="reminder-window" className="text-sm font-medium cursor-pointer">
+              启用弹窗提醒
+            </label>
+            <p className="text-xs text-muted-foreground">
+              计划到期时弹出独立窗口提醒
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-3 gap-2 !mb-2">
+          <Checkbox
+            id="os-notification"
+            checked={settings['system.os_notification_enabled'] !== false}
+            onCheckedChange={(checked) =>
+              onChange('system.os_notification_enabled', checked === true)
+            }
+          />
+          <div className="flex-1">
+            <label htmlFor="os-notification" className="text-sm font-medium cursor-pointer">
+              启用系统通知
+            </label>
+            <p className="text-xs text-muted-foreground">
+              计划到期时发送操作系统通知（macOS/Windows 通知中心）
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2 pt-2 border-t">
         <label className="text-sm font-medium">情绪识别置信度阈值</label>
         <Input
           type="number"

@@ -88,11 +88,3 @@ export declare function bindHITLFormEvents(hitlRequest: HITLRequest, onComplete?
 export declare function triggerHITLContinuation(sessionId: string, continuationData: HITLContinuationData, onChunk: (text: string) => void, onDone?: () => void, onError?: (error: string) => void, onHITL?: (hitlRequest: HITLRequest) => void): void;
 export declare function sendImageMessage(imageData: string, action: 'analyze_only' | 'analyze_for_memory', onChunk: (text: string) => void, onDone?: () => void, onError?: (error: string) => void, onHITL?: (hitlRequest: HITLRequest) => void): void;
 export declare function handleImagePaste(event: ClipboardEvent, shadowRoot: ShadowRoot, chatInputContainer: HTMLElement): Promise<boolean>;
-export interface PlanReminder {
-    id: string;
-    title: string;
-    description?: string;
-    target_time: string;
-    repeat_type: string;
-}
-export declare function getCurrentPlanReminder(): PlanReminder | null;

@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Notification } = require('electron');
 const path = require('path');
 const { ipcMain } = require('electron');
 const express = require('express');
@@ -14,6 +14,11 @@ let currentHITLRequest = null;
 // Image preview window management
 let imagePreviewWindow = null;
 let currentImageData = null;
+
+// Reminder window management
+let reminderWindow = null;
+let currentReminderPlan = null;
+let reminderQueue = []; // Queue for multiple reminders
 
 // API configuration
 const HITL_API_URL = 'http://localhost:8002/hitl/respond';
@@ -556,6 +561,180 @@ ipcMain.handle('image-preview:close', async (event) => {
   return { success: true };
 });
 
+// ============ Reminder Window Management ============
+
+const SETTINGS_API_URL = 'http://localhost:8002/api/settings';
+
+/**
+ * Get reminder settings from backend
+ */
+async function getReminderSettings() {
+  try {
+    const response = await fetch(SETTINGS_API_URL);
+    if (!response.ok) {
+      console.error('[Reminder] Settings API error:', response.status);
+      return { windowEnabled: true, notificationEnabled: true };
+    }
+    const data = await response.json();
+    const settings = data.settings || {};
+    return {
+      windowEnabled: settings['system.reminder_window_enabled'] !== false,
+      notificationEnabled: settings['system.os_notification_enabled'] !== false,
+    };
+  } catch (error) {
+    console.error('[Reminder] Failed to get settings:', error.message);
+    return { windowEnabled: true, notificationEnabled: true };
+  }
+}
+
+/**
+ * Create Reminder window for plan display
+ */
+function createReminderWindow(plan) {
+  if (reminderWindow && !reminderWindow.isDestroyed()) {
+    reminderWindow.focus();
+    return reminderWindow;
+  }
+
+  reminderWindow = new BrowserWindow({
+    width: 400,
+    height: 320,
+    title: '计划提醒',
+    parent: mainWindow,
+    modal: false,
+    show: false,
+    center: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 10, y: 10 },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false
+    }
+  });
+
+  reminderWindow.loadFile(path.join(__dirname, 'dist/src/renderer/reminder/index.html'));
+
+  reminderWindow.once('ready-to-show', () => {
+    // Show without stealing focus
+    reminderWindow.showInactive();
+  });
+
+  // Wait for React to mount before sending data
+  reminderWindow.webContents.once('did-finish-load', () => {
+    if (currentReminderPlan) {
+      reminderWindow.webContents.send('reminder:data', currentReminderPlan);
+    }
+  });
+
+  reminderWindow.on('closed', () => {
+    // If window closed without action, treat as dismiss
+    if (currentReminderPlan) {
+      currentReminders.delete(currentReminderPlan.id);
+    }
+    currentReminderPlan = null;
+    reminderWindow = null;
+    // Process next reminder in queue
+    processReminderQueue();
+  });
+
+  return reminderWindow;
+}
+
+/**
+ * Close reminder window
+ */
+function closeReminderWindow() {
+  // Clear plan reference before close to prevent 'closed' event from double-processing
+  const planId = currentReminderPlan?.id;
+  currentReminderPlan = null;
+  if (reminderWindow && !reminderWindow.isDestroyed()) {
+    reminderWindow.close();
+  }
+  reminderWindow = null;
+  // Ensure ID is removed from tracking set
+  if (planId) {
+    currentReminders.delete(planId);
+  }
+}
+
+/**
+ * Get current reminder data (called by renderer)
+ */
+ipcMain.handle('reminder:get-data', async (event) => {
+  if (currentReminderPlan) {
+    return currentReminderPlan;
+  }
+  return null;
+});
+
+/**
+ * Show OS notification for a plan
+ */
+function showOSNotification(plan, openWindowOnClick = false) {
+  if (!Notification.isSupported()) {
+    console.log('[Reminder] Notifications not supported');
+    return;
+  }
+
+  const notification = new Notification({
+    title: '计划提醒',
+    body: plan.title,
+    silent: false,
+  });
+
+  notification.on('click', () => {
+    if (openWindowOnClick) {
+      triggerReminderWindow(plan);
+    }
+  });
+
+  notification.show();
+}
+
+/**
+ * Add reminder to queue and process
+ */
+function queueReminder(plan, settings) {
+  reminderQueue.push({ plan, settings });
+  if (!reminderWindow || reminderWindow.isDestroyed()) {
+    processReminderQueue();
+  }
+}
+
+/**
+ * Process next reminder in queue
+ */
+function processReminderQueue() {
+  if (reminderQueue.length === 0) return;
+  if (reminderWindow && !reminderWindow.isDestroyed()) return;
+
+  const { plan, settings } = reminderQueue.shift();
+
+  if (settings.windowEnabled) {
+    currentReminderPlan = plan;
+    createReminderWindow(plan);
+  }
+}
+
+/**
+ * Trigger reminder window for a plan (from notification click)
+ */
+function triggerReminderWindow(plan) {
+  currentReminderPlan = plan;
+  currentReminders.add(plan.id);
+  createReminderWindow(plan);
+  // Focus the window since user clicked notification
+  if (reminderWindow && !reminderWindow.isDestroyed()) {
+    reminderWindow.focus();
+  }
+}
+
 // ============ Plan Reminder Polling ============
 
 const PLANS_API_URL = 'http://localhost:8002/plans';
@@ -577,6 +756,17 @@ async function pollDuePlans() {
     const data = await response.json();
     const plans = data.plans || [];
 
+    if (plans.length === 0) return;
+
+    // Get user settings
+    const settings = await getReminderSettings();
+
+    // If both disabled, skip all reminders
+    if (!settings.windowEnabled && !settings.notificationEnabled) {
+      console.log('[PlanReminder] Both reminder methods disabled, skipping');
+      return;
+    }
+
     for (const plan of plans) {
       // Skip if reminder already being shown
       if (currentReminders.has(plan.id)) {
@@ -588,15 +778,25 @@ async function pollDuePlans() {
       // Mark as being shown
       currentReminders.add(plan.id);
 
-      // Send reminder event to Live2D
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('plan:reminder', {
-          id: plan.id,
-          title: plan.title,
-          description: plan.description,
-          target_time: plan.target_time,
-          repeat_type: plan.repeat_type,
-        });
+      const planData = {
+        id: plan.id,
+        title: plan.title,
+        description: plan.description,
+        target_time: plan.target_time,
+        repeat_type: plan.repeat_type,
+      };
+
+      // Trigger based on settings
+      if (settings.notificationEnabled && settings.windowEnabled) {
+        // Both enabled: send notification, click opens window
+        showOSNotification(planData, true);
+        queueReminder(planData, settings);
+      } else if (settings.windowEnabled) {
+        // Only window enabled: directly open window
+        queueReminder(planData, settings);
+      } else if (settings.notificationEnabled) {
+        // Only notification enabled: just send notification
+        showOSNotification(planData, false);
       }
     }
   } catch (error) {
@@ -646,10 +846,10 @@ app.on('window-all-closed', () => {
 // ============ Plan Reminder IPC Handlers ============
 
 /**
- * Handle plan completion from Live2D
+ * Handle plan completion from Reminder window
  */
-ipcMain.handle('plan:complete', async (event, planId) => {
-  console.log('[PlanReminder] Complete plan:', planId);
+ipcMain.handle('reminder:complete', async (event, planId) => {
+  console.log('[Reminder] Complete plan:', planId);
 
   try {
     const response = await fetch(`${PLANS_API_URL}/${planId}/complete`, {
@@ -666,18 +866,21 @@ ipcMain.handle('plan:complete', async (event, planId) => {
     // Remove from current reminders
     currentReminders.delete(planId);
 
+    // Close reminder window
+    closeReminderWindow();
+
     return { success: true, plan: result };
   } catch (error) {
-    console.error('[PlanReminder] Complete error:', error);
+    console.error('[Reminder] Complete error:', error);
     return { success: false, error: error.message };
   }
 });
 
 /**
- * Handle plan dismissal from Live2D
+ * Handle plan dismissal from Reminder window
  */
-ipcMain.handle('plan:dismiss', async (event, planId) => {
-  console.log('[PlanReminder] Dismiss plan:', planId);
+ipcMain.handle('reminder:dismiss', async (event, planId) => {
+  console.log('[Reminder] Dismiss plan:', planId);
 
   try {
     const response = await fetch(`${PLANS_API_URL}/${planId}/dismiss`, {
@@ -694,19 +897,22 @@ ipcMain.handle('plan:dismiss', async (event, planId) => {
     // Remove from current reminders
     currentReminders.delete(planId);
 
+    // Close reminder window
+    closeReminderWindow();
+
     return { success: true, plan: result };
   } catch (error) {
-    console.error('[PlanReminder] Dismiss error:', error);
+    console.error('[Reminder] Dismiss error:', error);
     return { success: false, error: error.message };
   }
 });
 
 /**
- * Handle plan snooze from Live2D
+ * Handle plan snooze from Reminder window
  */
-ipcMain.handle('plan:snooze', async (event, data) => {
+ipcMain.handle('reminder:snooze', async (event, data) => {
   const { planId, snoozeMinutes } = data;
-  console.log('[PlanReminder] Snooze plan:', planId, 'for', snoozeMinutes, 'minutes');
+  console.log('[Reminder] Snooze plan:', planId, 'for', snoozeMinutes, 'minutes');
 
   try {
     const response = await fetch(`${PLANS_API_URL}/${planId}/snooze`, {
@@ -724,18 +930,12 @@ ipcMain.handle('plan:snooze', async (event, data) => {
     // Remove from current reminders (will reappear after snooze)
     currentReminders.delete(planId);
 
+    // Close reminder window
+    closeReminderWindow();
+
     return { success: true, plan: result };
   } catch (error) {
-    console.error('[PlanReminder] Snooze error:', error);
+    console.error('[Reminder] Snooze error:', error);
     return { success: false, error: error.message };
   }
-});
-
-/**
- * Handle reminder acknowledged (user saw it, waiting for action)
- */
-ipcMain.handle('plan:acknowledge', async (event, planId) => {
-  console.log('[PlanReminder] Acknowledge reminder:', planId);
-  // Just mark as acknowledged, no API call needed
-  return { success: true };
 });

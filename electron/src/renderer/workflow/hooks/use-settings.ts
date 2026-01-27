@@ -15,6 +15,9 @@ export interface Settings {
   'system.hitl_enabled': boolean;
   'system.intent_recognition_enabled': boolean;
   'system.emotion_confidence_threshold': number;
+  // 提醒设置
+  'system.reminder_window_enabled': boolean;
+  'system.os_notification_enabled': boolean;
   // 扩展字段
   [key: string]: string | number | boolean;
 }
