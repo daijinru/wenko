@@ -738,7 +738,7 @@ function triggerReminderWindow(plan) {
 // ============ Plan Reminder Polling ============
 
 const PLANS_API_URL = 'http://localhost:8002/plans';
-const PLAN_POLL_INTERVAL = 15 * 1000; // 15 seconds - more responsive for timely reminders
+const PLAN_POLL_INTERVAL = 30 * 1000; // 30 seconds - more responsive for timely reminders
 let planPollIntervalId = null;
 let currentReminders = new Set(); // Track reminders being shown to avoid duplicates
 
@@ -768,16 +768,6 @@ async function pollDuePlans() {
     }
 
     for (const plan of plans) {
-      // Skip if reminder already being shown
-      if (currentReminders.has(plan.id)) {
-        continue;
-      }
-
-      console.log('[PlanReminder] Due plan found:', plan.title);
-
-      // Mark as being shown
-      currentReminders.add(plan.id);
-
       const planData = {
         id: plan.id,
         title: plan.title,
@@ -787,15 +777,25 @@ async function pollDuePlans() {
       };
 
       // Trigger based on settings
-      if (settings.notificationEnabled && settings.windowEnabled) {
-        // Both enabled: send notification, click opens window
-        showOSNotification(planData, true);
-        queueReminder(planData, settings);
-      } else if (settings.windowEnabled) {
-        // Only window enabled: directly open window
+      if (settings.windowEnabled) {
+        // Window is enabled: need to track to prevent duplicate popups
+        if (currentReminders.has(plan.id)) {
+          continue; // Skip if reminder window already being shown
+        }
+
+        console.log('[PlanReminder] Due plan found:', plan.title);
+        currentReminders.add(plan.id);
+
+        if (settings.notificationEnabled) {
+          // Both enabled: send notification, click opens window
+          showOSNotification(planData, true);
+        }
+        // Open reminder window
         queueReminder(planData, settings);
       } else if (settings.notificationEnabled) {
-        // Only notification enabled: just send notification
+        // Only notification enabled: send notification on every poll
+        // No tracking needed - notifications should keep appearing until plan is handled
+        console.log('[PlanReminder] Sending OS notification for:', plan.title);
         showOSNotification(planData, false);
       }
     }
