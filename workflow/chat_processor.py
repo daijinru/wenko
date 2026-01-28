@@ -72,6 +72,15 @@ def get_emotion_confidence_threshold() -> float:
     return _get_system_threshold("system.emotion_confidence_threshold", 0.5)
 
 
+def is_deep_thinking_enabled() -> bool:
+    """Check if deep thinking mode is enabled."""
+    return _get_system_setting("llm.deep_thinking_enabled", False)
+
+
+# 深度思考关闭时追加的提示词
+DISABLE_THINKING_PROMPT_SUFFIX = "\n\n请直接回答问题，不需要展示思考过程。保持简洁明了。\n /no_think"
+
+
 # Logger for this module
 logger = logging.getLogger(__name__)
 
@@ -455,30 +464,47 @@ def build_system_prompt(context: ChatContext) -> str:
     strategy_prompt = build_strategy_prompt(context.strategy)
 
     # Determine HITL instruction based on intent recognition
+    hitl_enabled = is_hitl_enabled()
+    hitl_instruction_type = "none"  # 用于日志
+
     if is_intent_recognition_enabled() and context.intent_result:
         intent_snippet = get_intent_snippet(context.intent_result)
         if intent_snippet:
             # Use intent-specific snippet (much smaller)
             hitl_instruction = intent_snippet
+            hitl_instruction_type = f"intent_snippet({context.intent_result.intent_type})"
             print(f"[Intent] Using optimized prompt snippet for: {context.intent_result.intent_type}")
         elif context.intent_result.is_normal():
             # Normal conversation: minimal instructions
             hitl_instruction = ""
+            hitl_instruction_type = "minimal"
             print("[Intent] Using minimal prompt (normal conversation)")
         else:
             # Fallback to full instruction
-            hitl_instruction = HITL_INSTRUCTION if is_hitl_enabled() else HITL_INSTRUCTION_DISABLED
+            hitl_instruction = HITL_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
+            hitl_instruction_type = "full" if hitl_enabled else "disabled"
     else:
         # No intent recognition: use full instruction for backward compatibility
-        hitl_instruction = HITL_INSTRUCTION if is_hitl_enabled() else HITL_INSTRUCTION_DISABLED
+        hitl_instruction = HITL_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
+        hitl_instruction_type = "full" if hitl_enabled else "disabled"
 
-    return CHAT_PROMPT_TEMPLATE.format(
+    # 打印 HITL 状态日志
+    hitl_instruction_len = len(hitl_instruction)
+    print(f"[HITL] Prompt contains HITL: enabled={hitl_enabled}, instruction_type={hitl_instruction_type}, instruction_length={hitl_instruction_len}")
+
+    prompt = CHAT_PROMPT_TEMPLATE.format(
         user_message=context.user_message,
         working_memory_summary=working_memory_summary,
         relevant_long_term_memory=relevant_memory_str,
         strategy_prompt=strategy_prompt,
         hitl_instruction=hitl_instruction,
     )
+
+    # 深度思考关闭时追加提示词
+    if not is_deep_thinking_enabled():
+        prompt += DISABLE_THINKING_PROMPT_SUFFIX
+
+    return prompt
 
 
 # ============ Response Processing ============
@@ -638,6 +664,43 @@ def build_memory_aware_messages(context: ChatContext) -> List[Dict[str, str]]:
 
 # ============ Utility Functions ============
 
+import re
+
+# Pattern to match <thinking>...</thinking> blocks
+_THINKING_TAG_PATTERN = re.compile(
+    r'<thinking>.*?</thinking>',
+    re.IGNORECASE | re.DOTALL
+)
+
+
+def filter_thinking_tags(text: str) -> str:
+    """Filter out <thinking>...</thinking> tags from LLM response.
+
+    This is a fallback strategy to remove thinking content when
+    deep thinking mode is disabled but the model still outputs it.
+
+    Args:
+        text: LLM response text
+
+    Returns:
+        Text with thinking tags removed
+    """
+    if not text:
+        return text
+
+    # Only filter if deep thinking is disabled
+    if is_deep_thinking_enabled():
+        return text
+
+    # Remove <thinking>...</thinking> blocks
+    filtered = _THINKING_TAG_PATTERN.sub('', text)
+
+    # Clean up extra whitespace
+    filtered = filtered.strip()
+
+    return filtered
+
+
 def run_intent_recognition(message: str) -> Optional[IntentResult]:
     """Run Layer 1 intent recognition synchronously.
 
@@ -796,7 +859,11 @@ def build_hitl_continuation_prompt(
     strategy_prompt = build_strategy_prompt(strategy)
 
     # Include HITL instruction if enabled
-    hitl_instruction = HITL_INSTRUCTION if is_hitl_enabled() else HITL_INSTRUCTION_DISABLED
+    hitl_enabled = is_hitl_enabled()
+    hitl_instruction = HITL_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
+
+    # 打印 HITL 状态日志
+    print(f"[HITL] Continuation prompt contains HITL: enabled={hitl_enabled}, instruction_length={len(hitl_instruction)}")
 
     return HITL_CONTINUATION_PROMPT_TEMPLATE.format(
         hitl_context=hitl_context,

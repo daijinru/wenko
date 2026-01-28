@@ -81,6 +81,114 @@ def load_chat_config() -> ChatConfig:
     )
 
 
+def is_deep_thinking_enabled() -> bool:
+    """检查是否启用深度思考模式"""
+    value = chat_db.get_setting("llm.deep_thinking_enabled")
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes")
+    return bool(value)
+
+
+def get_deep_thinking_params(config: ChatConfig) -> dict:
+    """根据深度思考设置返回 LLM API 参数
+
+    当深度思考关闭时：
+    - 使用较低的温度减少发散思考
+    - 添加 reasoning_effort: "low" (OpenAI o1/o3 系列)
+    - 不添加 thinking 参数 (Claude 默认关闭)
+
+    当深度思考开启时：
+    - 保持用户配置的温度
+    - 添加 reasoning_effort: "high" (OpenAI o1/o3 系列)
+    - 添加 thinking 参数启用深度思考 (Claude API)
+
+    注意：不同 API 支持的参数不同，不支持的参数会被忽略。
+
+    Args:
+        config: 对话配置
+
+    Returns:
+        包含 temperature 和其他思考控制参数的字典
+    """
+    if is_deep_thinking_enabled():
+        return {
+            "temperature": config.temperature,
+            # OpenAI o1/o3 系列模型支持的参数
+            "reasoning_effort": "high",
+            # Claude API 支持的参数（需要启用 extended thinking）
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 10000,  # 默认 10K tokens 思考预算
+            },
+        }
+    else:
+        # 深度思考关闭：使用多种策略减弱思考
+        return {
+            # 基础策略：降低温度减少发散思考
+            "temperature": min(config.temperature, 0.3),
+            # OpenAI o1/o3 系列：使用低推理努力
+            "reasoning_effort": "low",
+            # Claude API：不添加 thinking 参数即为关闭
+            # DeepSeek：reasoning 模型无法关闭思考，只能通过模型选择
+        }
+
+
+def build_request_body_with_thinking(
+    config: ChatConfig,
+    messages: list,
+    stream: bool = True,
+) -> dict:
+    """构建包含深度思考参数的请求体
+
+    根据深度思考设置和 API 兼容性构建请求体。
+    对于不支持某些参数的 API，这些参数会被安全忽略。
+
+    Args:
+        config: 对话配置
+        messages: 消息列表
+        stream: 是否流式响应
+
+    Returns:
+        完整的 API 请求体
+    """
+    deep_thinking_enabled = is_deep_thinking_enabled()
+    deep_thinking_params = get_deep_thinking_params(config)
+
+    request_body = {
+        "model": config.model,
+        "messages": messages,
+        "max_tokens": config.max_tokens,
+        "temperature": deep_thinking_params["temperature"],
+        "stream": stream,
+    }
+
+    # 根据深度思考状态添加额外参数
+    if deep_thinking_enabled:
+        # 添加 reasoning_effort（OpenAI 兼容）
+        request_body["reasoning_effort"] = deep_thinking_params.get("reasoning_effort", "high")
+        # 添加 thinking 参数（Claude 兼容）
+        if "thinking" in deep_thinking_params:
+            request_body["thinking"] = deep_thinking_params["thinking"]
+    else:
+        # 关闭时也设置 reasoning_effort 为 low
+        request_body["reasoning_effort"] = deep_thinking_params.get("reasoning_effort", "low")
+
+    # 打印请求参数日志（不包含 messages 内容，避免日志过大）
+    log_params = {k: v for k, v in request_body.items() if k != "messages"}
+    log_params["messages_count"] = len(messages)
+    print(f"[DeepThinking] enabled={deep_thinking_enabled}, request_params={log_params}")
+
+    return request_body
+
+
+# 深度思考关闭时追加的提示词
+DISABLE_THINKING_PROMPT_SUFFIX = "\n\n请直接回答问题，不需要展示思考过程。保持简洁明了。"
+
+
 class HealthResponse(BaseModel):
     """健康检查响应"""
     status: str
@@ -216,7 +324,11 @@ async def stream_chat_response(request: ChatRequest):
 
     if not use_memory_system:
         # 简单模式：使用配置的 system_prompt
-        messages = [{"role": "system", "content": config.system_prompt}]
+        system_prompt = config.system_prompt
+        # 深度思考关闭时追加提示词
+        if not is_deep_thinking_enabled():
+            system_prompt += DISABLE_THINKING_PROMPT_SUFFIX
+        messages = [{"role": "system", "content": system_prompt}]
         if request.history:
             for msg in request.history:
                 messages.append({"role": msg.role, "content": msg.content})
@@ -224,14 +336,9 @@ async def stream_chat_response(request: ChatRequest):
 
     # 调用 OpenAI 兼容 API
     api_url = f"{config.api_base.rstrip('/')}/chat/completions"
-    print(messages)
-    request_body = {
-        "model": config.model,
-        "messages": messages,
-        "max_tokens": config.max_tokens,
-        "temperature": config.temperature,
-        "stream": True
-    }
+
+    # 使用统一的请求体构建函数，包含深度思考参数（会打印请求参数日志）
+    request_body = build_request_body_with_thinking(config, messages, stream=True)
 
     headers = {
         "Authorization": f"Bearer {config.api_key}",
@@ -273,7 +380,18 @@ async def stream_chat_response(request: ChatRequest):
                             continue
 
         # 处理完整响应
-        final_response = assistant_response
+        # 打印响应状态日志
+        has_thinking_tags = "<thinking>" in assistant_response.lower() if assistant_response else False
+        deep_thinking_mode = is_deep_thinking_enabled()
+        print(f"[DeepThinking] Response received: length={len(assistant_response)}, has_thinking_tags={has_thinking_tags}, deep_thinking_enabled={deep_thinking_mode}")
+
+        # 应用 thinking 标签过滤（深度思考关闭时）
+        final_response = chat_processor.filter_thinking_tags(assistant_response)
+
+        # 如果进行了过滤，打印过滤结果
+        if len(final_response) != len(assistant_response):
+            print(f"[DeepThinking] Thinking tags filtered: original_length={len(assistant_response)}, filtered_length={len(final_response)}")
+
         hitl_request = None
 
         if use_memory_system and assistant_response and chat_context:
@@ -1285,19 +1403,18 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
     # Build the continuation prompt
     system_prompt = chat_processor.build_hitl_continuation_prompt(session_id, hitl_context)
 
+    # 深度思考关闭时追加提示词
+    if not is_deep_thinking_enabled():
+        system_prompt += DISABLE_THINKING_PROMPT_SUFFIX
+
     # Prepare messages for LLM
     messages = [{"role": "system", "content": system_prompt}]
 
     # Call LLM API
     api_url = f"{config.api_base.rstrip('/')}/chat/completions"
 
-    request_body = {
-        "model": config.model,
-        "messages": messages,
-        "max_tokens": config.max_tokens,
-        "temperature": config.temperature,
-        "stream": True
-    }
+    # 使用统一的请求体构建函数，包含深度思考参数
+    request_body = build_request_body_with_thinking(config, messages, stream=True)
 
     headers = {
         "Authorization": f"Bearer {config.api_key}",
@@ -1335,7 +1452,18 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                             continue
 
         # Process the complete response
-        final_response = assistant_response
+        # 打印响应状态日志
+        has_thinking_tags = "<thinking>" in assistant_response.lower() if assistant_response else False
+        deep_thinking_mode = is_deep_thinking_enabled()
+        print(f"[DeepThinking] HITL continuation response: length={len(assistant_response)}, has_thinking_tags={has_thinking_tags}, deep_thinking_enabled={deep_thinking_mode}")
+
+        # 应用 thinking 标签过滤（深度思考关闭时）
+        final_response = chat_processor.filter_thinking_tags(assistant_response)
+
+        # 如果进行了过滤，打印过滤结果
+        if len(final_response) != len(assistant_response):
+            print(f"[DeepThinking] Thinking tags filtered: original_length={len(assistant_response)}, filtered_length={len(final_response)}")
+
         hitl_request = None
 
         if assistant_response:

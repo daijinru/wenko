@@ -10,6 +10,7 @@ export interface Settings {
   'llm.max_tokens': number;
   'llm.temperature': number;
   'llm.vision_model': string;
+  'llm.deep_thinking_enabled': boolean;
   // 系统开关
   'system.memory_emotion_enabled': boolean;
   'system.hitl_enabled': boolean;

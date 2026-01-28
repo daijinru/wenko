@@ -1,11 +1,12 @@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ApiKeyInput } from './api-key-input';
 import type { Settings } from '@/hooks/use-settings';
 
 interface LlmConfigSectionProps {
   settings: Partial<Settings>;
-  onChange: (key: keyof Settings, value: string | number) => void;
+  onChange: (key: keyof Settings, value: string | number | boolean) => void;
 }
 
 export function LlmConfigSection({ settings, onChange }: LlmConfigSectionProps) {
@@ -98,6 +99,31 @@ export function LlmConfigSection({ settings, onChange }: LlmConfigSectionProps) 
           <p className="text-xs text-muted-foreground">
             图片分析使用的模型
           </p>
+        </div>
+
+        <div className="space-y-3 pt-4 border-t">
+          <div className="flex items-start space-x-3 gap-2">
+            <Checkbox
+              id="deep-thinking"
+              checked={settings['llm.deep_thinking_enabled'] === true}
+              onCheckedChange={(checked) =>
+                onChange('llm.deep_thinking_enabled', checked === true)
+              }
+            />
+            <div className="flex-1">
+              <label htmlFor="deep-thinking" className="text-sm font-medium cursor-pointer">
+                深度思考模式
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">
+                启用后，AI 将进行更深入的分析和推理，适合处理复杂问题。
+              </p>
+              <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md border border-amber-200 dark:border-amber-800">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  <span className="font-medium">注意：</span>该模式仅对支持深度思考的模型有效。此模式可能会消耗更多 tokens（约 2-5 倍）并增加响应等待时间（约 3-10 秒）。建议仅在需要深度分析时开启。
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -35,6 +35,7 @@ _DEFAULT_SETTINGS = {
     "llm.max_tokens": ("1024", "number", "最大 token 数"),
     "llm.temperature": ("0.7", "number", "采样温度"),
     "llm.vision_model": ("volcengine/doubao-embedding-vision", "string", "视觉模型"),
+    "llm.deep_thinking_enabled": ("false", "boolean", "启用深度思考模式"),
     # 系统开关
     "system.memory_emotion_enabled": ("true", "boolean", "启用记忆和情绪系统"),
     "system.hitl_enabled": ("true", "boolean", "启用 HITL (人机交互) 系统"),
