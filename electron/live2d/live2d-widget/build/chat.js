@@ -999,7 +999,7 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
         return;
     }
     isLoading = true;
-    showSSEMessage('<div class="wenko-chat-loading">AI 思考中...</div>', 'wenko-chat-loading-msg');
+    showSSEMessage('<div class="wenko-chat-loading">AI 正在分析您的信息...</div>', 'wenko-chat-loading-msg');
     let assistantResponse = '';
     const removeLoadingIndicator = () => {
         var _a;

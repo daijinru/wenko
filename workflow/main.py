@@ -1379,6 +1379,10 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
 
     使用 continuation_data 构建上下文，调用 LLM 继续对话。
     """
+    import time
+    start_time = time.time()
+    print(f"[HITL-Continue] Starting continuation for session {request.session_id[:8]}...")
+
     try:
         config = load_chat_config()
     except FileNotFoundError as e:
@@ -1398,10 +1402,15 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
         form_data=request.continuation_data.form_data,
         field_labels=request.continuation_data.field_labels,
     )
+
+    context_start = time.time()
     hitl_context = hitl_handler.build_continuation_context(continuation_data)
+    print(f"[HITL-Continue] Context built in {time.time() - context_start:.2f}s, length={len(hitl_context)}")
 
     # Build the continuation prompt
+    prompt_start = time.time()
     system_prompt = chat_processor.build_hitl_continuation_prompt(session_id, hitl_context)
+    print(f"[HITL-Continue] Prompt built in {time.time() - prompt_start:.2f}s, length={len(system_prompt)}")
 
     # 深度思考关闭时追加提示词
     if not is_deep_thinking_enabled():
@@ -1409,6 +1418,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
 
     # Prepare messages for LLM
     messages = [{"role": "system", "content": system_prompt}]
+    print(f"[HITL-Continue] Total prompt length: {len(system_prompt)} chars")
 
     # Call LLM API
     api_url = f"{config.api_base.rstrip('/')}/chat/completions"
@@ -1425,6 +1435,8 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
     detected_emotion = None
 
     try:
+        print(f"[HITL-Continue] Sending request to {api_url}...")
+        api_start = time.time()
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
                 "POST",
@@ -1432,13 +1444,19 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                 json=request_body,
                 headers=headers
             ) as response:
+                print(f"[HITL-Continue] Got response status {response.status_code} in {time.time() - api_start:.2f}s")
                 if response.status_code != 200:
                     error_text = await response.aread()
+                    print(f"[HITL-Continue] API error: {error_text.decode()}")
                     yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"API 请求失败: {response.status_code} - {error_text.decode()}"}})}\n\n'
                     return
 
+                first_chunk_time = None
                 async for line in response.aiter_lines():
                     if line.startswith("data: "):
+                        if first_chunk_time is None:
+                            first_chunk_time = time.time()
+                            print(f"[HITL-Continue] First chunk received in {first_chunk_time - api_start:.2f}s")
                         data = line[6:]
                         if data.strip() == "[DONE]":
                             break
@@ -1450,6 +1468,8 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                                 assistant_response += content
                         except json.JSONDecodeError:
                             continue
+
+        print(f"[HITL-Continue] Response complete: length={len(assistant_response)}, total_time={time.time() - start_time:.2f}s")
 
         # Process the complete response
         # 打印响应状态日志

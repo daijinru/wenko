@@ -9,6 +9,8 @@ from threading import Lock
 from typing import Any, Dict, Optional
 
 import memory_manager
+from enum import Enum
+
 from hitl_schema import (
     HITLAction,
     HITLContinuationData,
@@ -17,6 +19,13 @@ from hitl_schema import (
     HITLResponseResult,
     parse_hitl_request_from_dict,
 )
+
+
+class ComplexityLevel(Enum):
+    """Form complexity levels for response guidance."""
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 
 logger = logging.getLogger(__name__)
 
@@ -552,6 +561,91 @@ def extract_hitl_from_llm_response(response_text: str) -> Optional[HITLRequest]:
         return None
 
 
+def assess_form_complexity(
+    form_data: Optional[Dict[str, Any]],
+    field_labels: Optional[Dict[str, str]] = None,
+) -> ComplexityLevel:
+    """Assess the complexity of a submitted HITL form.
+
+    Complexity is determined by:
+    - Number of fields with data
+    - Total content length of all field values
+
+    Args:
+        form_data: Dictionary of field names to values
+        field_labels: Optional mapping of field names to labels
+
+    Returns:
+        ComplexityLevel enum value
+    """
+    if not form_data:
+        return ComplexityLevel.LOW
+
+    # Count non-empty fields
+    field_count = 0
+    total_content_length = 0
+
+    for field_name, value in form_data.items():
+        if value is None:
+            continue
+
+        if isinstance(value, list):
+            value_str = ", ".join(str(v) for v in value)
+        else:
+            value_str = str(value)
+
+        if value_str.strip():
+            field_count += 1
+            total_content_length += len(value_str)
+
+    # Determine complexity level based on thresholds
+    # High: >= 5 fields OR >= 200 characters
+    # Medium: >= 3 fields OR >= 100 characters
+    # Low: otherwise
+    if field_count >= 5 or total_content_length >= 200:
+        return ComplexityLevel.HIGH
+    elif field_count >= 3 or total_content_length >= 100:
+        return ComplexityLevel.MEDIUM
+    else:
+        return ComplexityLevel.LOW
+
+
+def get_response_guidance(complexity: ComplexityLevel, action: str) -> str:
+    """Get response quality guidance based on form complexity.
+
+    Args:
+        complexity: The assessed complexity level
+        action: The user's action ("approve" or "reject")
+
+    Returns:
+        Guidance text for LLM prompt
+    """
+    # For reject actions, always use simple guidance
+    if action == "reject":
+        return "请简洁地回应用户的选择，可以换一种方式提问、跳过该话题或表达理解。"
+
+    if complexity == ComplexityLevel.HIGH:
+        return """请根据用户提供的详细信息，给出全面、深入的响应：
+1. 分析用户的需求和偏好
+2. 提供具体、可操作的建议（至少3-5条）
+3. 如适用，给出分步骤的计划或方案
+4. 根据用户的约束条件（预算、时间等）调整建议
+5. 主动补充用户可能没想到但有价值的信息
+
+注意：响应应详尽但有条理，避免冗长的废话。用户花费了大量时间填写表单，请确保你的回复能给他们带来实质性的帮助。"""
+
+    elif complexity == ComplexityLevel.MEDIUM:
+        return """请根据用户的输入提供有价值的响应：
+1. 确认理解用户的需求
+2. 提供2-3条具体建议
+3. 如有疑问，可以追问细节
+
+确保回复有实质性内容，避免空洞的确认。"""
+
+    else:  # LOW
+        return "请简洁地回应用户的选择，并询问是否需要进一步帮助。"
+
+
 def build_continuation_context(continuation_data: HITLContinuationData) -> str:
     """Build context string for LLM continuation based on user's HITL response.
 
@@ -562,12 +656,29 @@ def build_continuation_context(continuation_data: HITLContinuationData) -> str:
         Formatted context string for LLM prompt
     """
     if continuation_data.action == "reject":
+        guidance = get_response_guidance(ComplexityLevel.LOW, "reject")
         return f"""用户刚才跳过了表单 "{continuation_data.request_title}"。
-用户选择不填写此表单。请根据用户的选择适当调整对话，可以换一种方式提问、跳过该话题或表达理解。"""
+用户选择不填写此表单。
+
+【响应要求】
+{guidance}"""
 
     # Action is approve
     if not continuation_data.form_data:
-        return f"""用户确认了表单 "{continuation_data.request_title}"，但未填写任何数据。"""
+        guidance = get_response_guidance(ComplexityLevel.LOW, "approve")
+        return f"""用户确认了表单 "{continuation_data.request_title}"，但未填写任何数据。
+
+【响应要求】
+{guidance}"""
+
+    # Assess form complexity
+    complexity = assess_form_complexity(
+        continuation_data.form_data,
+        continuation_data.field_labels,
+    )
+    guidance = get_response_guidance(complexity, "approve")
+
+    logger.info(f"[HITL] Form complexity assessed: {complexity.value} for '{continuation_data.request_title}'")
 
     # Format the form data with labels
     data_lines = []
@@ -581,11 +692,16 @@ def build_continuation_context(continuation_data: HITLContinuationData) -> str:
             data_lines.append(f"- {label}: {value_str}")
 
     if not data_lines:
-        return f"""用户确认了表单 "{continuation_data.request_title}"，但未填写任何数据。"""
+        guidance = get_response_guidance(ComplexityLevel.LOW, "approve")
+        return f"""用户确认了表单 "{continuation_data.request_title}"，但未填写任何数据。
+
+【响应要求】
+{guidance}"""
 
     data_str = "\n".join(data_lines)
     return f"""用户刚才通过表单提交了以下信息:
 表单标题: {continuation_data.request_title}
 {data_str}
 
-请根据用户的选择继续对话。"""
+【响应要求】
+{guidance}"""

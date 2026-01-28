@@ -1351,8 +1351,8 @@ export function triggerHITLContinuation(
   }
   isLoading = true;
 
-  // Show loading indicator
-  showSSEMessage('<div class="wenko-chat-loading">AI 思考中...</div>', 'wenko-chat-loading-msg');
+  // Show loading indicator - specialized message for HITL form submission
+  showSSEMessage('<div class="wenko-chat-loading">AI 正在分析您的信息...</div>', 'wenko-chat-loading-msg');
 
   let assistantResponse = '';
 

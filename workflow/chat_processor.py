@@ -200,6 +200,14 @@ hitl_request 格式:
 
 HITL_INSTRUCTION_DISABLED = ""
 
+# Simplified HITL instruction for continuation scenarios
+# Much shorter than full HITL_INSTRUCTION (~300 chars vs ~3K chars)
+HITL_CONTINUATION_INSTRUCTION = """
+如果需要继续收集信息，可使用 hitl_request 表单:
+{{"hitl_request":{{"type":"form","title":"表单标题","fields":[{{"name":"字段名","type":"select|text|textarea|radio","label":"标签","required":true,"options":[{{"value":"值","label":"文字"}}]}}]}}}}
+
+注意：只有确实需要追问时才发起新表单，避免过度打扰用户。
+"""
 
 SIMPLE_SYSTEM_PROMPT = """你是一个友好的 AI 助手。"""
 
@@ -791,33 +799,24 @@ def extract_response_text(llm_output: str) -> str:
 
 # ============ HITL Continuation ============
 
-HITL_CONTINUATION_PROMPT_TEMPLATE = """你是一个友好的 AI 助手。
+HITL_CONTINUATION_PROMPT_TEMPLATE = """你是一个友好的 AI 助手。用户刚刚通过表单提供了信息。
 
 {hitl_context}
 
-上下文信息:
-- 工作记忆: {working_memory_summary}
-- 相关记忆: {relevant_long_term_memory}
+上下文: {working_memory_summary}
+记忆: {relevant_long_term_memory}
 
-回复要求:
 {strategy_prompt}
 
-你必须以纯 JSON 格式回复，不要包含任何其他文字或 markdown 标记。JSON 格式如下:
-{{"emotion":{{"primary":"neutral","category":"neutral","confidence":0.8,"indicators":[]}},"response":"你的回复内容","memory_update":{{"should_store":false,"entries":[]}}}}
+以纯 JSON 格式回复:
+{{"emotion":{{"primary":"neutral","category":"neutral","confidence":0.8}},"response":"你的回复","memory_update":{{"should_store":false,"entries":[]}}}}
 
-emotion.primary 可选值: neutral, happy, excited, grateful, curious, sad, anxious, frustrated, confused, help_seeking, info_seeking, validation_seeking
-emotion.category 可选值: neutral, positive, negative, seeking
-
-重要：如果用户表达了偏好、个人信息或重要事实，必须在 memory_update 中保存。
-- should_store 设为 true
-- entries 中添加条目，key 和 value 必须使用中文
-- category 可选: preference(偏好), fact(事实), pattern(习惯)
+emotion.primary: neutral|happy|excited|grateful|curious|sad|anxious|frustrated|confused|help_seeking|info_seeking
+如需保存记忆: should_store=true, entries添加{{key,value,category(preference|fact|pattern)}}
 
 {hitl_instruction}
 
-【特别提醒】这是表单提交后的后续对话。如果你想继续向用户提问或了解更多信息，请继续使用 hitl_request 表单！不要用纯文本提问。
-
-现在请直接输出 JSON:"""
+直接输出 JSON:"""
 
 
 def build_hitl_continuation_prompt(
@@ -858,12 +857,12 @@ def build_hitl_continuation_prompt(
 
     strategy_prompt = build_strategy_prompt(strategy)
 
-    # Include HITL instruction if enabled
+    # Use simplified HITL instruction for continuation (much shorter than full HITL_INSTRUCTION)
     hitl_enabled = is_hitl_enabled()
-    hitl_instruction = HITL_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
+    hitl_instruction = HITL_CONTINUATION_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
 
     # 打印 HITL 状态日志
-    print(f"[HITL] Continuation prompt contains HITL: enabled={hitl_enabled}, instruction_length={len(hitl_instruction)}")
+    print(f"[HITL] Continuation prompt: hitl_enabled={hitl_enabled}, instruction_length={len(hitl_instruction)}")
 
     return HITL_CONTINUATION_PROMPT_TEMPLATE.format(
         hitl_context=hitl_context,
