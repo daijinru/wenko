@@ -999,7 +999,9 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
         return;
     }
     isLoading = true;
+    hitlLog('CONTINUATION_SHOW_LOADING', 'Calling showSSEMessage for loading indicator');
     showSSEMessage('<div class="wenko-chat-loading">AI 正在分析您的信息...</div>', 'wenko-chat-loading-msg');
+    hitlLog('CONTINUATION_SHOW_LOADING_DONE', 'showSSEMessage called');
     let assistantResponse = '';
     const removeLoadingIndicator = () => {
         var _a;
@@ -1021,11 +1023,11 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
         openWhenHidden: true,
         onopen: async (res) => {
             hitlLog('CONTINUATION_SSE_OPEN', { status: res.status, ok: res.ok });
-            removeLoadingIndicator();
             if (res.ok)
                 return;
             const text = await res.text();
             hitlLog('CONTINUATION_SSE_OPEN_ERROR', { status: res.status, text });
+            removeLoadingIndicator();
             throw new Error(`HTTP ${res.status}: ${text}`);
         },
         onmessage: (event) => {
@@ -1033,6 +1035,7 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
             hitlLog('CONTINUATION_SSE_EVENT', { event: event.event, dataLen: (_a = event.data) === null || _a === void 0 ? void 0 : _a.length });
             try {
                 if (event.event === 'text') {
+                    removeLoadingIndicator();
                     const data = JSON.parse(event.data);
                     if (data.type === 'text' && ((_b = data.payload) === null || _b === void 0 ? void 0 : _b.content)) {
                         assistantResponse += data.payload.content;

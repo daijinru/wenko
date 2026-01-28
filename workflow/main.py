@@ -1417,8 +1417,12 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
         system_prompt += DISABLE_THINKING_PROMPT_SUFFIX
 
     # Prepare messages for LLM
-    messages = [{"role": "system", "content": system_prompt}]
-    print(f"[HITL-Continue] Total prompt length: {len(system_prompt)} chars")
+    # Note: Many LLM APIs require at least one user message to respond properly
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "请根据我刚才提交的表单信息给出回复。"},
+    ]
+    print(f"[HITL-Continue] Total prompt length: {len(system_prompt)} chars, messages: {len(messages)}")
 
     # Call LLM API
     api_url = f"{config.api_base.rstrip('/')}/chat/completions"
@@ -1452,7 +1456,13 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                     return
 
                 first_chunk_time = None
+                line_count = 0
                 async for line in response.aiter_lines():
+                    line_count += 1
+                    # Debug: print first few lines
+                    if line_count <= 3:
+                        print(f"[HITL-Continue] Line {line_count}: {line[:100] if len(line) > 100 else line}")
+
                     if line.startswith("data: "):
                         if first_chunk_time is None:
                             first_chunk_time = time.time()
@@ -1466,8 +1476,11 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                             content = delta.get("content", "")
                             if content:
                                 assistant_response += content
-                        except json.JSONDecodeError:
+                        except json.JSONDecodeError as e:
+                            print(f"[HITL-Continue] JSON decode error: {e}, data: {data[:100] if len(data) > 100 else data}")
                             continue
+
+                print(f"[HITL-Continue] Total lines received: {line_count}")
 
         print(f"[HITL-Continue] Response complete: length={len(assistant_response)}, total_time={time.time() - start_time:.2f}s")
 
@@ -1489,10 +1502,12 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
         if assistant_response:
             try:
                 # Parse LLM's JSON output
+                print(f"[HITL-Continue] Processing LLM response: {assistant_response[:200]}...")
                 chat_context = chat_processor.build_chat_context(session_id, hitl_context)
                 chat_result = chat_processor.process_llm_response(assistant_response, chat_context)
                 final_response = chat_result.response
                 detected_emotion = chat_result.emotion
+                print(f"[HITL-Continue] Parsed response: length={len(final_response)}, emotion={detected_emotion}")
 
                 # Check for HITL request (chained HITL support)
                 if chat_processor.is_hitl_enabled():
@@ -1501,6 +1516,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                         hitl_handler.store_hitl_request(hitl_request, session_id)
 
                 # Send parsed response text
+                print(f"[HITL-Continue] Sending text event: {final_response[:100] if len(final_response) > 100 else final_response}")
                 yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
 
                 # Send emotion info

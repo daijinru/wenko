@@ -67,11 +67,22 @@ function showMessage(
  * @param {string} id - Unique identifier for this SSE message session.
  */
 function showSSEMessage(text: string, id: string, timeout: number = 60000) {
+  // Debug logging
+  console.log(`[showSSEMessage] id=${id}, textLen=${text.length}`);
+
   // 从 shadow dom 中获取 tips 元素
   const shadowRoot = document.getElementById('WENKO__CONTAINER-ROOT')?.shadowRoot;
-  if (!shadowRoot) return;
+  if (!shadowRoot) {
+    console.warn('[showSSEMessage] shadowRoot not found');
+    return;
+  }
   const tips = shadowRoot.getElementById('waifu-tips');
-  if (!tips) return;
+  if (!tips) {
+    console.warn('[showSSEMessage] waifu-tips element not found');
+    return;
+  }
+
+  console.log(`[showSSEMessage] tips found, currentSSEId=${tips.getAttribute('data-sse-id')}`);
 
   // 滚动 tips 到最底部，使用异步确保内容更新后滚动
   setTimeout(() => {
@@ -80,11 +91,15 @@ function showSSEMessage(text: string, id: string, timeout: number = 60000) {
 
   // 检查当前的 sse id
   const currentSSEId = tips.getAttribute('data-sse-id');
-  if (currentSSEId === id) {
-    // 同一个 id，追加文本
+
+  // Loading 消息每次都应该重置，而不是追加
+  const isLoadingMessage = id.includes('loading');
+
+  if (currentSSEId === id && !isLoadingMessage) {
+    // 同一个 id 且不是 loading 消息，追加文本
     tips.innerHTML += text;
   } else {
-    // 新的 id，销毁前一个消息
+    // 新的 id 或 loading 消息，重置内容
     tips.classList.remove('waifu-tips-active');
     tips.removeAttribute('data-sse-id');
     // 重置内容

@@ -1352,7 +1352,9 @@ export function triggerHITLContinuation(
   isLoading = true;
 
   // Show loading indicator - specialized message for HITL form submission
+  hitlLog('CONTINUATION_SHOW_LOADING', 'Calling showSSEMessage for loading indicator');
   showSSEMessage('<div class="wenko-chat-loading">AI 正在分析您的信息...</div>', 'wenko-chat-loading-msg');
+  hitlLog('CONTINUATION_SHOW_LOADING_DONE', 'showSSEMessage called');
 
   let assistantResponse = '';
 
@@ -1378,16 +1380,19 @@ export function triggerHITLContinuation(
     openWhenHidden: true, // Keep connection even when page is hidden
     onopen: async (res: Response) => {
       hitlLog('CONTINUATION_SSE_OPEN', { status: res.status, ok: res.ok });
-      removeLoadingIndicator();
+      // Don't remove loading here - wait for first text chunk
       if (res.ok) return;
       const text = await res.text();
       hitlLog('CONTINUATION_SSE_OPEN_ERROR', { status: res.status, text });
+      removeLoadingIndicator();
       throw new Error(`HTTP ${res.status}: ${text}`);
     },
     onmessage: (event: { event: string; data: string }) => {
       hitlLog('CONTINUATION_SSE_EVENT', { event: event.event, dataLen: event.data?.length });
       try {
         if (event.event === 'text') {
+          // Remove loading indicator on first text chunk
+          removeLoadingIndicator();
           const data = JSON.parse(event.data);
           if (data.type === 'text' && data.payload?.content) {
             assistantResponse += data.payload.content;

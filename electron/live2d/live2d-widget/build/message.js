@@ -3,17 +3,24 @@ function showMessage(text, timeout, priority, override = true) {
 }
 function showSSEMessage(text, id, timeout = 60000) {
     var _a;
+    console.log(`[showSSEMessage] id=${id}, textLen=${text.length}`);
     const shadowRoot = (_a = document.getElementById('WENKO__CONTAINER-ROOT')) === null || _a === void 0 ? void 0 : _a.shadowRoot;
-    if (!shadowRoot)
+    if (!shadowRoot) {
+        console.warn('[showSSEMessage] shadowRoot not found');
         return;
+    }
     const tips = shadowRoot.getElementById('waifu-tips');
-    if (!tips)
+    if (!tips) {
+        console.warn('[showSSEMessage] waifu-tips element not found');
         return;
+    }
+    console.log(`[showSSEMessage] tips found, currentSSEId=${tips.getAttribute('data-sse-id')}`);
     setTimeout(() => {
         tips.scrollTop = tips.scrollHeight;
     }, 0);
     const currentSSEId = tips.getAttribute('data-sse-id');
-    if (currentSSEId === id) {
+    const isLoadingMessage = id.includes('loading');
+    if (currentSSEId === id && !isLoadingMessage) {
         tips.innerHTML += text;
     }
     else {
