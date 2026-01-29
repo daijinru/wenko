@@ -43,6 +43,7 @@ Unlike standard AI tools, Wenko:
   - Collaborative workflows where the AI proposes actions and you approve/edit them.
   - Perfect for complex tasks requiring human oversight.
   - Supports readonly replay mode for reviewing past decisions.
+  - Visual display for structured content presentation (tables, lists, code blocks, etc.).
 
 - **🖼️ Image Analysis**
   - Paste images directly into the app for instant preview.
@@ -97,7 +98,7 @@ Unlike standard AI tools, Wenko:
 | Module | Description |
 |--------|-------------|
 | **workflow/** | Memory management system UI. Contains three tabs: Chat History, Working Memory, Long-term Memory. Used to view and manage AI's conversation records and memory data. |
-| **hitl/** | Human-in-the-Loop collaboration UI. Pops up when AI needs human review, allowing users to approve or reject AI operation requests. Supports readonly replay mode. |
+| **hitl/** | Human-in-the-Loop collaboration UI. Pops up when AI needs human review, allowing users to approve or reject AI operation requests. Supports readonly replay mode and visual display for structured content. |
 | **image-preview/** | Image preview and analysis UI. Supports pasting images for OCR text extraction, and saving results to Long-term Memory. |
 
 ## 🚀 Getting Started
