@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { HITLRequest, HITLField, HITLResultResponse } from '../types/hitl';
+import type { HITLRequest, HITLField, AnyHITLRequest } from '../types/hitl';
+import { isDisplayRequest } from '../types/hitl';
 import { submitHITL, onHITLRequestData } from '../lib/ipc-client';
 
 interface HITLWindowState {
-  request: HITLRequest | null;
+  request: AnyHITLRequest | null;
   sessionId: string | null;
   formData: Record<string, unknown>;
   error: string | null;
@@ -42,7 +43,10 @@ export function useHITLWindow() {
   useEffect(() => {
     const unsubscribe = onHITLRequestData((data) => {
       console.log('[HITL Window] Received request data:', data);
-      const initialFormData = initializeFormData(data.request.fields);
+      // For visual display, no form data needed
+      const initialFormData = isDisplayRequest(data.request)
+        ? {}
+        : initializeFormData((data.request as HITLRequest).fields);
       setState({
         request: data.request,
         sessionId: data.sessionId,

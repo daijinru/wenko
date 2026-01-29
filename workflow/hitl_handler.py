@@ -6,7 +6,7 @@ Handles HITL request processing, state management, and memory integration.
 import logging
 from datetime import datetime, timedelta
 from threading import Lock
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import memory_manager
 from enum import Enum
@@ -14,6 +14,7 @@ from enum import Enum
 from hitl_schema import (
     HITLAction,
     HITLContinuationData,
+    HITLDisplayRequest,
     HITLRequest,
     HITLResponseData,
     HITLResponseResult,
@@ -46,6 +47,19 @@ def store_hitl_request(request: HITLRequest, session_id: str) -> None:
     with _lock:
         _pending_requests[request.id] = (request, session_id, expires_at)
     logger.info(f"[HITL] Stored request {request.id} for session {session_id[:8]}...")
+
+
+def store_display_request(request: HITLDisplayRequest, session_id: str) -> None:
+    """Store a pending HITL visual display request.
+
+    Args:
+        request: The HITL display request to store
+        session_id: Associated session ID
+    """
+    expires_at = datetime.now() + timedelta(seconds=request.ttl_seconds)
+    with _lock:
+        _pending_requests[request.id] = (request, session_id, expires_at)
+    logger.info(f"[HITL] Stored display request {request.id} for session {session_id[:8]}...")
 
 
 def get_hitl_request(request_id: str) -> Optional[tuple]:
@@ -140,6 +154,10 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
             error="会话不匹配",
         )
 
+    # Handle visual_display type (dismiss only)
+    if isinstance(request, HITLDisplayRequest):
+        return _process_display_dismiss(request, session_id, response.request_id)
+
     # Build field labels mapping for continuation context
     field_labels = {field.name: field.label for field in request.fields}
 
@@ -179,6 +197,36 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
         success=False,
         next_action="complete",
         error="未知操作",
+    )
+
+
+def _process_display_dismiss(
+    request: HITLDisplayRequest,
+    session_id: str,
+    request_id: str,
+) -> HITLResponseResult:
+    """Process dismiss action for visual display request.
+
+    Args:
+        request: The display request
+        session_id: Session ID
+        request_id: Request ID
+
+    Returns:
+        HITLResponseResult indicating success
+    """
+    # Persist display to working memory before removing
+    _persist_display_to_working_memory(request, session_id)
+
+    # Remove the request
+    remove_hitl_request(request_id)
+    logger.info(f"[HITL] User dismissed display request {request_id}")
+
+    # Visual display doesn't trigger continuation
+    return HITLResponseResult(
+        success=True,
+        next_action="complete",
+        message="已关闭",
     )
 
 
@@ -315,6 +363,60 @@ def _persist_to_working_memory(
 
     except Exception as e:
         logger.warning(f"[HITL] Failed to persist to working memory: {e}")
+
+
+def _persist_display_to_working_memory(
+    request: HITLDisplayRequest,
+    session_id: str,
+) -> None:
+    """Persist HITL visual display data to working memory for session context continuity.
+
+    This ensures that visual displays are available for replay in subsequent sessions.
+
+    Args:
+        request: Original HITL display request
+        session_id: Session ID
+    """
+    import json
+
+    try:
+        # Get or create working memory
+        wm = memory_manager.get_or_create_working_memory(session_id)
+        updated_ctx = wm.context_variables.copy()
+
+        # Serialize displays for storage and replay
+        displays_def = []
+        for display in request.displays:
+            displays_def.append({
+                "type": display.type.value if hasattr(display.type, 'value') else str(display.type),
+                "data": display.data,
+            })
+
+        # Store under a key based on request title
+        ctx_key = f"hitl_{request.title}"
+        updated_ctx[ctx_key] = {
+            "type": "visual_display",
+            "displays": displays_def,
+            "displays_def": displays_def,  # For replay capability
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # Check size limit before updating
+        ctx_json = json.dumps(updated_ctx)
+        if len(ctx_json.encode('utf-8')) > MAX_CONTEXT_VARIABLES_SIZE:
+            # Remove oldest entries to make room (LRU eviction)
+            updated_ctx = _evict_oldest_context_entries(updated_ctx, ctx_key)
+            logger.warning(f"[HITL] Context variables exceeded size limit, evicted oldest entries")
+
+        # Update working memory
+        memory_manager.update_working_memory(
+            session_id,
+            context_variables=updated_ctx,
+        )
+        logger.info(f"[HITL] Persisted display data to working memory: {ctx_key}")
+
+    except Exception as e:
+        logger.warning(f"[HITL] Failed to persist display to working memory: {e}")
 
 
 def _evict_oldest_context_entries(
@@ -535,29 +637,47 @@ def _save_to_memory(
                 logger.warning(f"[HITL] Failed to save memory: {e}")
 
 
-def extract_hitl_from_llm_response(response_text: str) -> Optional[HITLRequest]:
+def extract_hitl_from_llm_response(response_text: str) -> Optional[Union[HITLRequest, HITLDisplayRequest]]:
     """Extract HITL request from LLM JSON response.
 
     Args:
         response_text: Raw LLM response text (should be JSON)
 
     Returns:
-        HITLRequest if found and valid, None otherwise
+        HITLRequest or HITLDisplayRequest if found and valid, None otherwise
     """
     import json
 
     try:
         data = json.loads(response_text)
 
+        # Debug: print all top-level keys in the response
+        print(f"[HITL] LLM response keys: {list(data.keys())}")
+
         if "hitl_request" not in data:
+            print(f"[HITL] No hitl_request found. Response preview: {response_text[:300]}...")
             return None
 
-        return parse_hitl_request_from_dict(data["hitl_request"])
+        hitl_data = data["hitl_request"]
+        hitl_type = hitl_data.get("type", "form")
+        print(f"[HITL] Found hitl_request, type={hitl_type}")
+        print(f"[HITL] Raw hitl_request: {json.dumps(hitl_data, ensure_ascii=False)[:500]}")
 
-    except json.JSONDecodeError:
+        result = parse_hitl_request_from_dict(data["hitl_request"])
+
+        if result:
+            print(f"[HITL] Successfully parsed: id={result.id}, type={result.type}, title={result.title}")
+        else:
+            print(f"[HITL] Failed to parse hitl_request: {json.dumps(hitl_data, ensure_ascii=False)[:200]}")
+
+        return result
+
+    except json.JSONDecodeError as e:
+        print(f"[HITL] Response is not valid JSON: {e}")
+        print(f"[HITL] Raw response: {response_text[:300]}...")
         return None
     except Exception as e:
-        logger.warning(f"[HITL] Failed to parse HITL request: {e}")
+        print(f"[HITL] Failed to parse HITL request: {e}")
         return None
 
 

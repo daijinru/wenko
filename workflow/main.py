@@ -30,6 +30,7 @@ import hitl_handler
 import image_analyzer
 from hitl_schema import (
     HITLAction,
+    HITLDisplayRequest,
     HITLRequest,
     HITLResponseData,
     HITLResponseResult,
@@ -406,9 +407,12 @@ async def stream_chat_response(request: ChatRequest):
                     print(f"[HITL] Checking for HITL in response (length={len(assistant_response)})")
                     hitl_request = hitl_handler.extract_hitl_from_llm_response(assistant_response)
                     if hitl_request:
-                        print(f"[HITL] Found HITL request: id={hitl_request.id}, title={hitl_request.title}, fields={len(hitl_request.fields)}")
-                        # 存储 HITL 请求以便后续响应
-                        hitl_handler.store_hitl_request(hitl_request, session_id)
+                        if isinstance(hitl_request, HITLDisplayRequest):
+                            print(f"[HITL] Found visual_display request: id={hitl_request.id}, title={hitl_request.title}, displays={len(hitl_request.displays)}")
+                            hitl_handler.store_display_request(hitl_request, session_id)
+                        else:
+                            print(f"[HITL] Found form request: id={hitl_request.id}, title={hitl_request.title}, fields={len(hitl_request.fields)}")
+                            hitl_handler.store_hitl_request(hitl_request, session_id)
                     else:
                         print("[HITL] No HITL request found in response")
 
@@ -429,34 +433,53 @@ async def stream_chat_response(request: ChatRequest):
 
                 # 发送 HITL 请求事件
                 if hitl_request:
-                    print(f"[HITL] Sending HITL SSE event for request {hitl_request.id}")
-                    hitl_payload = {
-                        "id": hitl_request.id,
-                        "type": hitl_request.type,
-                        "title": hitl_request.title,
-                        "description": hitl_request.description,
-                        "fields": [
-                            {
-                                "name": f.name,
-                                "type": f.type.value,
-                                "label": f.label,
-                                "required": f.required,
-                                "placeholder": f.placeholder,
-                                "default": f.default,
-                                "options": [{"value": o.value, "label": o.label} for o in f.options] if f.options else None,
-                                "min": f.min,
-                                "max": f.max,
-                                "step": f.step,
-                            }
-                            for f in hitl_request.fields
-                        ],
-                        "actions": {
-                            "approve": {"label": hitl_request.actions.approve.label, "style": hitl_request.actions.approve.style.value},
-                            "edit": {"label": hitl_request.actions.edit.label, "style": hitl_request.actions.edit.style.value},
-                            "reject": {"label": hitl_request.actions.reject.label, "style": hitl_request.actions.reject.style.value},
-                        },
-                        "session_id": session_id,
-                    }
+                    print(f"[HITL] Sending HITL SSE event for request {hitl_request.id}, type={hitl_request.type}")
+                    if isinstance(hitl_request, HITLDisplayRequest):
+                        # visual_display 类型
+                        hitl_payload = {
+                            "id": hitl_request.id,
+                            "type": hitl_request.type,
+                            "title": hitl_request.title,
+                            "description": hitl_request.description,
+                            "displays": [
+                                {
+                                    "type": d.type.value if hasattr(d.type, 'value') else str(d.type),
+                                    "data": d.data,
+                                }
+                                for d in hitl_request.displays
+                            ],
+                            "dismiss_label": hitl_request.dismiss_label,
+                            "session_id": session_id,
+                        }
+                    else:
+                        # form 类型
+                        hitl_payload = {
+                            "id": hitl_request.id,
+                            "type": hitl_request.type,
+                            "title": hitl_request.title,
+                            "description": hitl_request.description,
+                            "fields": [
+                                {
+                                    "name": f.name,
+                                    "type": f.type.value,
+                                    "label": f.label,
+                                    "required": f.required,
+                                    "placeholder": f.placeholder,
+                                    "default": f.default,
+                                    "options": [{"value": o.value, "label": o.label} for o in f.options] if f.options else None,
+                                    "min": f.min,
+                                    "max": f.max,
+                                    "step": f.step,
+                                }
+                                for f in hitl_request.fields
+                            ],
+                            "actions": {
+                                "approve": {"label": hitl_request.actions.approve.label, "style": hitl_request.actions.approve.style.value},
+                                "edit": {"label": hitl_request.actions.edit.label, "style": hitl_request.actions.edit.style.value},
+                                "reject": {"label": hitl_request.actions.reject.label, "style": hitl_request.actions.reject.style.value},
+                            },
+                            "session_id": session_id,
+                        }
                     yield f'event: hitl\ndata: {json.dumps({"type": "hitl", "payload": hitl_payload})}\n\n'
 
             except Exception as e:
@@ -1513,7 +1536,12 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                 if chat_processor.is_hitl_enabled():
                     hitl_request = hitl_handler.extract_hitl_from_llm_response(assistant_response)
                     if hitl_request:
-                        hitl_handler.store_hitl_request(hitl_request, session_id)
+                        if isinstance(hitl_request, HITLDisplayRequest):
+                            print(f"[HITL-Continue] Found visual_display request: id={hitl_request.id}")
+                            hitl_handler.store_display_request(hitl_request, session_id)
+                        else:
+                            print(f"[HITL-Continue] Found form request: id={hitl_request.id}")
+                            hitl_handler.store_hitl_request(hitl_request, session_id)
 
                 # Send parsed response text
                 print(f"[HITL-Continue] Sending text event: {final_response[:100] if len(final_response) > 100 else final_response}")
@@ -1525,33 +1553,51 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
 
                 # Send HITL request event (for chained HITL)
                 if hitl_request:
-                    hitl_payload = {
-                        "id": hitl_request.id,
-                        "type": hitl_request.type,
-                        "title": hitl_request.title,
-                        "description": hitl_request.description,
-                        "fields": [
-                            {
-                                "name": f.name,
-                                "type": f.type.value,
-                                "label": f.label,
-                                "required": f.required,
-                                "placeholder": f.placeholder,
-                                "default": f.default,
-                                "options": [{"value": o.value, "label": o.label} for o in f.options] if f.options else None,
-                                "min": f.min,
-                                "max": f.max,
-                                "step": f.step,
-                            }
-                            for f in hitl_request.fields
-                        ],
-                        "actions": {
-                            "approve": {"label": hitl_request.actions.approve.label, "style": hitl_request.actions.approve.style.value},
-                            "edit": {"label": hitl_request.actions.edit.label, "style": hitl_request.actions.edit.style.value},
-                            "reject": {"label": hitl_request.actions.reject.label, "style": hitl_request.actions.reject.style.value},
-                        },
-                        "session_id": session_id,
-                    }
+                    print(f"[HITL-Continue] Sending HITL SSE event for request {hitl_request.id}, type={hitl_request.type}")
+                    if isinstance(hitl_request, HITLDisplayRequest):
+                        hitl_payload = {
+                            "id": hitl_request.id,
+                            "type": hitl_request.type,
+                            "title": hitl_request.title,
+                            "description": hitl_request.description,
+                            "displays": [
+                                {
+                                    "type": d.type.value if hasattr(d.type, 'value') else str(d.type),
+                                    "data": d.data,
+                                }
+                                for d in hitl_request.displays
+                            ],
+                            "dismiss_label": hitl_request.dismiss_label,
+                            "session_id": session_id,
+                        }
+                    else:
+                        hitl_payload = {
+                            "id": hitl_request.id,
+                            "type": hitl_request.type,
+                            "title": hitl_request.title,
+                            "description": hitl_request.description,
+                            "fields": [
+                                {
+                                    "name": f.name,
+                                    "type": f.type.value,
+                                    "label": f.label,
+                                    "required": f.required,
+                                    "placeholder": f.placeholder,
+                                    "default": f.default,
+                                    "options": [{"value": o.value, "label": o.label} for o in f.options] if f.options else None,
+                                    "min": f.min,
+                                    "max": f.max,
+                                    "step": f.step,
+                                }
+                                for f in hitl_request.fields
+                            ],
+                            "actions": {
+                                "approve": {"label": hitl_request.actions.approve.label, "style": hitl_request.actions.approve.style.value},
+                                "edit": {"label": hitl_request.actions.edit.label, "style": hitl_request.actions.edit.style.value},
+                                "reject": {"label": hitl_request.actions.reject.label, "style": hitl_request.actions.reject.style.value},
+                            },
+                            "session_id": session_id,
+                        }
                     yield f'event: hitl\ndata: {json.dumps({"type": "hitl", "payload": hitl_payload})}\n\n'
 
             except Exception as e:

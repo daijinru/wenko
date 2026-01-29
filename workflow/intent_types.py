@@ -17,13 +17,14 @@ class MemoryIntent(Enum):
 
 
 class HITLIntent(Enum):
-    """HITL form trigger intent types mapping to 6 HITL strategies."""
+    """HITL form trigger intent types mapping to 7 HITL strategies."""
     PROACTIVE_INQUIRY = "proactive_inquiry"   # 主动询问 - 问候、初次对话
     TOPIC_DEEPENING = "topic_deepening"       # 话题深化 - 模糊喜好、领域提及
     EMOTION_DRIVEN = "emotion_driven"         # 情感驱动 - 情绪表达
     MEMORY_GAP = "memory_gap"                 # 记忆补全 - 推荐、建议请求
     QUESTION_TO_FORM = "question_to_form"     # 问答转表单 - 可结构化问题
     PLAN_REMINDER = "plan_reminder"           # 计划提醒 - 时间相关计划
+    VISUAL_DISPLAY = "visual_display"         # 图形化展示 - 比较、对比、列表、流程图
 
 
 class IntentCategory(Enum):

@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import type { WorkingMemory } from "@/types/api"
-import type { HITLField } from "@hitl/types/hitl"
+import type { HITLField, HITLDisplayField } from "@hitl/types/hitl"
 
 interface ContextVariableDialogProps {
   open: boolean
@@ -23,6 +23,28 @@ interface HITLContextValue {
   timestamp: string
 }
 
+// Visual Display context value structure
+interface VisualDisplayContextValue {
+  type: 'visual_display'
+  displays: HITLDisplayField[]
+  displays_def: HITLDisplayField[]
+  timestamp: string
+}
+
+/**
+ * Check if value is a Visual Display context value
+ */
+function isVisualDisplayContextValue(value: unknown): value is VisualDisplayContextValue {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    (value as Record<string, unknown>).type === 'visual_display' &&
+    'displays_def' in value &&
+    'timestamp' in value
+  )
+}
+
 /**
  * Check if value is a HITL context value with fields_def
  */
@@ -31,7 +53,8 @@ function isHITLContextValue(value: unknown): value is HITLContextValue {
     typeof value === 'object' &&
     value !== null &&
     'fields' in value &&
-    'timestamp' in value
+    'timestamp' in value &&
+    !isVisualDisplayContextValue(value)
   )
 }
 
@@ -94,8 +117,26 @@ function getReplayTitle(key: string): string {
  * Open HITL window in readonly mode to display context variable details
  */
 async function handleReplay(key: string, value: unknown, sessionId: string) {
-  const fields = buildReplayFields(key, value)
   const title = getReplayTitle(key)
+
+  // Check if this is a visual display type
+  if (isVisualDisplayContextValue(value)) {
+    await window.electronAPI.invoke('hitl:open-window', {
+      request: {
+        id: `context-replay-${Date.now()}`,
+        type: 'visual_display',
+        title: title,
+        displays: value.displays_def,
+        readonly: true,
+        session_id: sessionId,
+      },
+      sessionId: sessionId,
+    })
+    return
+  }
+
+  // Form type replay
+  const fields = buildReplayFields(key, value)
 
   await window.electronAPI.invoke('hitl:open-window', {
     request: {
@@ -114,6 +155,15 @@ async function handleReplay(key: string, value: unknown, sessionId: string) {
  * Get display info for a context variable entry
  */
 function getEntryDisplayInfo(_: string, value: unknown): { type: string; preview: string } {
+  // Check for visual display type
+  if (isVisualDisplayContextValue(value)) {
+    const displayCount = value.displays_def?.length ?? 0
+    return {
+      type: 'visual_display',
+      preview: `${displayCount} 个组件 (${value.timestamp.split('T')[0]})`,
+    }
+  }
+
   if (isHITLContextValue(value)) {
     const fieldCount = value.fields_def?.length ?? Object.keys(value.fields).length
     return {

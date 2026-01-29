@@ -36,6 +36,46 @@ export interface HITLRequest {
   readonly?: boolean;  // Readonly mode for context variable replay
 }
 
+// Visual Display Types
+export type HITLDisplayType = 'table' | 'ascii';
+
+export interface HITLTableData {
+  headers: string[];
+  rows: string[][];
+  alignment?: ('left' | 'center' | 'right')[];
+  caption?: string;
+}
+
+export interface HITLAsciiData {
+  content: string;
+  title?: string;
+}
+
+export interface HITLDisplayField {
+  type: HITLDisplayType;
+  data: HITLTableData | HITLAsciiData;
+}
+
+export interface HITLDisplayRequest {
+  id: string;
+  type: 'visual_display';
+  title: string;
+  description?: string;
+  displays: HITLDisplayField[];
+  dismiss_label?: string;
+  session_id: string;
+  ttl_seconds?: number;
+  readonly?: boolean;
+}
+
+// Type guard for display request
+export function isDisplayRequest(request: HITLRequest | HITLDisplayRequest): request is HITLDisplayRequest {
+  return request.type === 'visual_display';
+}
+
+// Union type for any HITL request
+export type AnyHITLRequest = HITLRequest | HITLDisplayRequest;
+
 export interface HITLContinuationData {
   request_title: string;
   action: string;
@@ -45,7 +85,7 @@ export interface HITLContinuationData {
 
 // IPC Message Types
 export interface HITLOpenRequest {
-  request: HITLRequest;
+  request: AnyHITLRequest;
   sessionId: string;
 }
 

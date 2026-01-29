@@ -25,6 +25,12 @@ class HITLFieldType(str, Enum):
     BOOLEAN = "boolean"
 
 
+class HITLDisplayType(str, Enum):
+    """Supported HITL display component types."""
+    TABLE = "table"
+    ASCII = "ascii"
+
+
 class HITLActionStyle(str, Enum):
     """Action button styles."""
     PRIMARY = "primary"
@@ -81,6 +87,38 @@ class HITLContext(BaseModel):
     extra: Optional[Dict[str, Any]] = None
 
 
+class HITLTableData(BaseModel):
+    """Data for table display component."""
+    headers: List[str]
+    rows: List[List[str]]
+    alignment: Optional[List[str]] = None  # "left" | "center" | "right"
+    caption: Optional[str] = None
+
+
+class HITLAsciiData(BaseModel):
+    """Data for ASCII art display component."""
+    content: str
+    title: Optional[str] = None
+
+
+class HITLDisplayField(BaseModel):
+    """Display field for visual display request."""
+    type: HITLDisplayType
+    data: Dict[str, Any]  # Will be parsed based on type
+
+
+class HITLDisplayRequest(BaseModel):
+    """HITL visual display request schema."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    type: str = "visual_display"
+    title: str
+    description: Optional[str] = None
+    displays: List[HITLDisplayField]
+    dismiss_label: str = "关闭"
+    created_at: datetime = Field(default_factory=datetime.now)
+    ttl_seconds: int = 300
+
+
 class HITLRequest(BaseModel):
     """HITL form request schema."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -119,20 +157,24 @@ class HITLResponseResult(BaseModel):
     continuation_data: Optional[HITLContinuationData] = None
 
 
-def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[HITLRequest]:
+def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[Union[HITLRequest, HITLDisplayRequest]]:
     """Parse HITL request from a dictionary (e.g., from LLM JSON output).
 
     Args:
         data: Dictionary containing hitl_request data
 
     Returns:
-        HITLRequest if valid, None otherwise
+        HITLRequest or HITLDisplayRequest if valid, None otherwise
     """
     try:
         # Handle nested hitl_request field
         hitl_data = data.get("hitl_request", data)
 
-        # Validate required fields
+        # Check if it's a visual_display type
+        if hitl_data.get("type") == "visual_display":
+            return _parse_display_request(hitl_data)
+
+        # Validate required fields for form type
         if "title" not in hitl_data or "fields" not in hitl_data:
             return None
 
@@ -182,6 +224,49 @@ def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[HITLRequest]:
             fields=fields,
             actions=actions,
             context=context,
+            ttl_seconds=hitl_data.get("ttl_seconds", 300),
+        )
+    except Exception:
+        return None
+
+
+def _parse_display_request(hitl_data: Dict[str, Any]) -> Optional[HITLDisplayRequest]:
+    """Parse visual display request from dictionary.
+
+    Args:
+        hitl_data: Dictionary containing visual_display hitl_request data
+
+    Returns:
+        HITLDisplayRequest if valid, None otherwise
+    """
+    try:
+        # Validate required fields
+        if "title" not in hitl_data or "displays" not in hitl_data:
+            return None
+
+        # Parse display fields
+        displays = []
+        for display_data in hitl_data.get("displays", []):
+            display_type = display_data.get("type")
+            if display_type not in [t.value for t in HITLDisplayType]:
+                continue
+
+            display_field = HITLDisplayField(
+                type=HITLDisplayType(display_type),
+                data=display_data.get("data", {}),
+            )
+            displays.append(display_field)
+
+        if not displays:
+            return None
+
+        return HITLDisplayRequest(
+            id=hitl_data.get("id", str(uuid.uuid4())),
+            type="visual_display",
+            title=hitl_data["title"],
+            description=hitl_data.get("description"),
+            displays=displays,
+            dismiss_label=hitl_data.get("dismiss_label", "关闭"),
             ttl_seconds=hitl_data.get("ttl_seconds", 300),
         )
     except Exception:

@@ -242,6 +242,69 @@ HITL_RULES: List[IntentRule] = [
         intent_type="question_to_form",
         priority=5,
     ),
+
+    # Visual Display - 图形化展示
+    IntentRule(
+        name="visual_compare",
+        pattern=_compile_patterns([
+            r"比较.+和",
+            r"对比.+和",
+            r"对比一下",
+            r"比较一下",
+            r".+和.+有什么区别",
+            r".+和.+哪个好",
+            r".+vs\.?.+",
+            r".+versus.+",
+            r".+跟.+比",
+            r".+与.+对比",
+        ]),
+        intent_type="visual_display",
+        priority=15,
+    ),
+    IntentRule(
+        name="visual_list",
+        pattern=_compile_patterns([
+            r"列出.+",
+            r"列一下",
+            r"列举",
+            r"汇总.+",
+            r"整理.+清单",
+            r"整理.+列表",
+            r"给我一个.+列表",
+            r"给我一个.+清单",
+            r"常用的.+命令",
+            r"常用的.+快捷键",
+        ]),
+        intent_type="visual_display",
+        priority=15,
+    ),
+    IntentRule(
+        name="visual_table",
+        pattern=_compile_patterns([
+            r"用表格",
+            r"以表格",
+            r"表格形式",
+            r"做个表",
+            r"画个表",
+            r"整理成表",
+        ]),
+        intent_type="visual_display",
+        priority=18,  # Higher priority when explicitly requesting table
+    ),
+    IntentRule(
+        name="visual_diagram",
+        pattern=_compile_patterns([
+            r"流程图",
+            r"架构图",
+            r"示意图",
+            r"画一个.+图",
+            r"展示.+结构",
+            r"画个.+流程",
+            r"用图.+展示",
+        ]),
+        intent_type="visual_display",
+        priority=18,
+    ),
 ]
 
 

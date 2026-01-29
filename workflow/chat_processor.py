@@ -192,6 +192,37 @@ hitl_request 格式:
    示例3：用户说"每天早上8点提醒我吃药"
    {{"response":"好的，我来帮你设置每日提醒","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"吃药"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"0","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"daily","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
 
+7. 图形化展示触发 (Visual Display) - 重要:
+   - 当用户请求比较、对比、列表、表格、流程图、架构图等可视化内容时，使用 visual_display 类型
+   - visual_display 用于向用户展示结构化数据，不收集用户输入
+   - 支持两种组件: table（表格）和 ascii（ASCII艺术/流程图）
+
+   visual_display 格式:
+   {{"hitl_request":{{"type":"visual_display","title":"展示标题","description":"可选描述","displays":[{{"type":"table|ascii","data":{{...}}}}],"dismiss_label":"关闭"}}}}
+
+   table 组件格式:
+   {{"type":"table","data":{{"headers":["列1","列2","列3"],"rows":[["值1","值2","值3"],["值4","值5","值6"]],"alignment":["left","center","right"],"caption":"可选表格标题"}}}}
+
+   ascii 组件格式:
+   {{"type":"ascii","data":{{"content":"ASCII艺术内容","title":"可选标题"}}}}
+
+   触发场景示例:
+   示例1：用户说"比较一下 iPhone 和 Android 的优缺点"
+   {{"response":"好的，让我用表格为你展示对比","hitl_request":{{"type":"visual_display","title":"iPhone vs Android 对比","displays":[{{"type":"table","data":{{"headers":["特性","iPhone","Android"],"rows":[["系统流畅度","优秀","因设备而异"],["生态系统","封闭统一","开放多样"],["价格区间","较高","覆盖全价位"],["自定义程度","有限","高度自由"]],"caption":"主要特性对比"}}}}]}}}}
+
+   示例2：用户说"画一个简单的流程图说明登录过程"
+   {{"response":"好的，这是登录流程的示意图","hitl_request":{{"type":"visual_display","title":"登录流程图","displays":[{{"type":"ascii","data":{{"content":"┌─────────┐\\n│  开始   │\\n└────┬────┘\\n     │\\n     v\\n┌─────────┐\\n│输入账号 │\\n└────┬────┘\\n     │\\n     v\\n┌─────────┐\\n│输入密码 │\\n└────┬────┘\\n     │\\n     v\\n◇ 验证 ◇──否──> [错误提示]\\n     │\\n    是\\n     │\\n     v\\n┌─────────┐\\n│登录成功 │\\n└─────────┘","title":"用户登录流程"}}}}]}}}}
+
+   示例3：用户说"列出常用的 Git 命令"
+   {{"response":"好的，这是常用 Git 命令汇总","hitl_request":{{"type":"visual_display","title":"常用 Git 命令","displays":[{{"type":"table","data":{{"headers":["命令","用途","示例"],"rows":[["git init","初始化仓库","git init"],["git clone","克隆仓库","git clone url"],["git add","添加文件","git add ."],["git commit","提交更改","git commit -m 'msg'"],["git push","推送到远程","git push origin main"],["git pull","拉取更新","git pull"]]}}}}]}}}}
+
+【visual_display 触发关键词】
+- 比较、对比、VS、versus、哪个好
+- 列出、列表、清单、汇总
+- 表格、用表格展示、以表格形式
+- 流程图、架构图、示意图
+- 画一个、展示一下结构
+
 【不要使用表单的情况】
 - 用户正在寻求帮助解决紧急问题（如"帮我快速解决..."）
 - 用户已在消息中给出明确答案（如"我要Python"、"选A"）
@@ -280,6 +311,21 @@ HITL_INTENT_SNIPPETS = {
 - 从用户消息中提取标题和时间信息预填到 default
 - context.intent: "collect_plan", memory_category: "plan"
 示例：{{"response":"好的，让我帮你设置这个提醒","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"开会"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}""",
+
+    "visual_display": """
+【HITL指令】检测到图形化展示意图。必须生成 visual_display 类型的 hitl_request:
+- 用于展示结构化数据（表格、流程图等），不收集用户输入
+- 支持 table（表格）和 ascii（ASCII艺术/流程图）两种组件
+
+visual_display 格式:
+{{"hitl_request":{{"type":"visual_display","title":"展示标题","description":"可选描述","displays":[{{"type":"table|ascii","data":{{...}}}}],"dismiss_label":"关闭"}}}}
+
+table 格式: {{"type":"table","data":{{"headers":["列1","列2"],"rows":[["值1","值2"]],"caption":"可选标题"}}}}
+ascii 格式: {{"type":"ascii","data":{{"content":"ASCII内容","title":"可选标题"}}}}
+
+示例1（对比）：{{"response":"好的，让我用表格为你展示对比","hitl_request":{{"type":"visual_display","title":"对比分析","displays":[{{"type":"table","data":{{"headers":["特性","选项A","选项B"],"rows":[["优点","xxx","yyy"],["缺点","aaa","bbb"]]}}}}]}}}}
+示例2（列表）：{{"response":"这是常用命令汇总","hitl_request":{{"type":"visual_display","title":"命令列表","displays":[{{"type":"table","data":{{"headers":["命令","用途"],"rows":[["cmd1","描述1"],["cmd2","描述2"]]}}}}]}}}}
+示例3（流程图）：{{"response":"这是流程示意图","hitl_request":{{"type":"visual_display","title":"流程图","displays":[{{"type":"ascii","data":{{"content":"[开始] -> [步骤1] -> [步骤2] -> [结束]","title":"流程"}}}}]}}}}""",
 }
 
 
