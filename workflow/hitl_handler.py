@@ -649,7 +649,17 @@ def extract_hitl_from_llm_response(response_text: str) -> Optional[Union[HITLReq
     import json
 
     try:
-        data = json.loads(response_text)
+        # Strip markdown code block if present
+        json_text = response_text.strip()
+        if json_text.startswith("```"):
+            lines = json_text.split("\n")
+            # Find start (skip first line with ```)
+            start_idx = 1 if lines[0].startswith("```") else 0
+            # Find end (skip last line with ```)
+            end_idx = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
+            json_text = "\n".join(lines[start_idx:end_idx])
+
+        data = json.loads(json_text.strip())
 
         # Debug: print all top-level keys in the response
         print(f"[HITL] LLM response keys: {list(data.keys())}")
