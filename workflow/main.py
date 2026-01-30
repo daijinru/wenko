@@ -552,7 +552,14 @@ async def stream_image_analysis(request: ImageChatRequest):
                 memory_result = await memory_extractor.extract_memory_from_message(
                     content=extracted_text,
                     role="user",
+                    source="image",  # 标记来源为图片OCR
                 )
+
+                # 调试日志
+                if memory_result:
+                    print(f"[ImageAnalysis] memory_result: key={memory_result.key}, category={memory_result.category}, confidence={memory_result.confidence}")
+                else:
+                    print("[ImageAnalysis] memory_result is None")
 
                 if memory_result and memory_result.confidence >= 0.3:
                     # 生成 HITL 请求让用户确认
