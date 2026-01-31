@@ -27,10 +27,16 @@ class HITLIntent(Enum):
     VISUAL_DISPLAY = "visual_display"         # 图形化展示 - 比较、对比、列表、流程图
 
 
+class MCPIntent(Enum):
+    """MCP tool call intent types."""
+    TOOL_CALL = "mcp_tool_call"  # 工具调用 - 用户请求使用某个工具
+
+
 class IntentCategory(Enum):
     """Top-level intent categories."""
     MEMORY = "memory"      # Triggers memory save rules
     HITL = "hitl"          # Triggers HITL form strategies
+    MCP = "mcp"            # Triggers MCP tool calls
     NORMAL = "normal"      # Normal conversation, no special handling
 
 
@@ -39,17 +45,19 @@ class IntentResult:
     """Result from intent recognition.
 
     Attributes:
-        category: Top-level category (memory, hitl, or normal)
-        intent_type: Specific intent (MemoryIntent or HITLIntent value)
+        category: Top-level category (memory, hitl, mcp, or normal)
+        intent_type: Specific intent (MemoryIntent, HITLIntent, or MCPIntent value)
         confidence: Confidence score (0.0-1.0)
         matched_rule: Name of the rule that matched (for Layer 1)
         source: Which layer produced this result ("layer1", "layer2", "fallback")
+        mcp_service_name: Name of the MCP service for MCP intents
     """
     category: IntentCategory
     intent_type: Optional[str] = None
     confidence: float = 0.0
     matched_rule: Optional[str] = None
     source: str = "fallback"
+    mcp_service_name: Optional[str] = None  # For MCP intents: which service to call
 
     @classmethod
     def memory(cls, intent: MemoryIntent, confidence: float = 1.0,
@@ -76,6 +84,19 @@ class IntentResult:
         )
 
     @classmethod
+    def mcp(cls, service_name: Optional[str] = None, confidence: float = 1.0,
+            matched_rule: Optional[str] = None, source: str = "layer1") -> "IntentResult":
+        """Create an MCP tool call intent result."""
+        return cls(
+            category=IntentCategory.MCP,
+            intent_type=MCPIntent.TOOL_CALL.value,
+            confidence=confidence,
+            matched_rule=matched_rule,
+            source=source,
+            mcp_service_name=service_name,
+        )
+
+    @classmethod
     def normal(cls) -> "IntentResult":
         """Create a normal conversation result (no special intent)."""
         return cls(
@@ -94,6 +115,10 @@ class IntentResult:
         """Check if this is a HITL intent."""
         return self.category == IntentCategory.HITL
 
+    def is_mcp(self) -> bool:
+        """Check if this is an MCP tool call intent."""
+        return self.category == IntentCategory.MCP
+
     def is_normal(self) -> bool:
         """Check if this is normal conversation."""
         return self.category == IntentCategory.NORMAL
@@ -102,13 +127,14 @@ class IntentResult:
 # Intent type string to enum mapping for parsing
 MEMORY_INTENT_MAP = {intent.value: intent for intent in MemoryIntent}
 HITL_INTENT_MAP = {intent.value: intent for intent in HITLIntent}
+MCP_INTENT_MAP = {intent.value: intent for intent in MCPIntent}
 
 
 def parse_intent_type(intent_str: str) -> tuple[Optional[IntentCategory], Optional[str]]:
     """Parse an intent string to category and type.
 
     Args:
-        intent_str: Intent type string (e.g., "preference", "plan_reminder")
+        intent_str: Intent type string (e.g., "preference", "plan_reminder", "mcp_tool_call")
 
     Returns:
         Tuple of (category, intent_type) or (None, None) if not found
@@ -117,4 +143,6 @@ def parse_intent_type(intent_str: str) -> tuple[Optional[IntentCategory], Option
         return IntentCategory.MEMORY, intent_str
     if intent_str in HITL_INTENT_MAP:
         return IntentCategory.HITL, intent_str
+    if intent_str in MCP_INTENT_MAP:
+        return IntentCategory.MCP, intent_str
     return None, None

@@ -14,7 +14,12 @@ Logging format:
 import json
 from typing import Any, List, Optional
 
-from intent_rules import IntentRule, get_all_rules
+from intent_rules import (
+    IntentRule,
+    get_all_rules,
+    get_all_rules_with_dynamic_mcp,
+    create_mcp_keyword_rule,
+)
 from intent_types import (
     IntentCategory,
     IntentResult,
@@ -27,8 +32,8 @@ from intent_types import (
 class RuleBasedMatcher:
     """Layer 1: Fast regex/keyword-based intent matching.
 
-    Matches user messages against predefined patterns for both
-    memory intents and HITL triggers.
+    Matches user messages against predefined patterns for
+    memory intents, HITL triggers, and MCP tool calls.
     """
 
     def __init__(self, rules: Optional[List[IntentRule]] = None):
@@ -38,6 +43,14 @@ class RuleBasedMatcher:
             rules: List of IntentRule to use. Defaults to all rules.
         """
         self.rules = rules if rules is not None else get_all_rules()
+
+    def update_rules_with_mcp(self, mcp_keyword_rules: List[IntentRule]) -> None:
+        """Update rules to include dynamic MCP keyword rules.
+
+        Args:
+            mcp_keyword_rules: Additional rules from MCP service configurations
+        """
+        self.rules = get_all_rules_with_dynamic_mcp(mcp_keyword_rules)
 
     def match(self, message: str) -> Optional[IntentResult]:
         """Match a message against all rules.
@@ -63,6 +76,7 @@ class RuleBasedMatcher:
                     confidence=1.0,
                     matched_rule=rule.name,
                     source="layer1",
+                    mcp_service_name=rule.mcp_service_name,  # Pass through MCP service name
                 )
 
                 print(
@@ -258,6 +272,7 @@ class IntentRecognizer:
         layer2_model: Optional[str] = None,
         layer2_threshold: float = LLMIntentClassifier.DEFAULT_CONFIDENCE_THRESHOLD,
         layer2_enabled: bool = True,
+        mcp_keyword_rules: Optional[List[IntentRule]] = None,
     ):
         """Initialize the recognizer.
 
@@ -266,8 +281,11 @@ class IntentRecognizer:
             layer2_model: Model to use for Layer 2 (defaults to main chat model)
             layer2_threshold: Confidence threshold for Layer 2 (default 0.7)
             layer2_enabled: Whether to use Layer 2 (disable to save API calls)
+            mcp_keyword_rules: Additional MCP rules from service configurations
         """
         self.layer1 = RuleBasedMatcher()
+        if mcp_keyword_rules:
+            self.layer1.update_rules_with_mcp(mcp_keyword_rules)
         self.layer2 = LLMIntentClassifier(
             llm_client=llm_client,
             model=layer2_model,
@@ -326,6 +344,7 @@ async def recognize_intent(
     model: Optional[str] = None,
     layer2_enabled: bool = True,
     layer2_threshold: float = LLMIntentClassifier.DEFAULT_CONFIDENCE_THRESHOLD,
+    mcp_keyword_rules: Optional[List[IntentRule]] = None,
 ) -> IntentResult:
     """Convenience function for one-shot intent recognition.
 
@@ -337,6 +356,7 @@ async def recognize_intent(
         model: Model to use (defaults to main chat model)
         layer2_enabled: Whether to use Layer 2
         layer2_threshold: Confidence threshold for Layer 2 (default 0.7)
+        mcp_keyword_rules: Additional MCP rules from service configurations
 
     Returns:
         IntentResult with matched intent
@@ -346,6 +366,7 @@ async def recognize_intent(
         layer2_model=model,
         layer2_threshold=layer2_threshold,
         layer2_enabled=layer2_enabled,
+        mcp_keyword_rules=mcp_keyword_rules,
     )
     return await recognizer.recognize(
         message=message,
@@ -353,3 +374,22 @@ async def recognize_intent(
         api_key=api_key,
         model=model,
     )
+
+
+def build_mcp_keyword_rules_from_services(running_services: List[Any]) -> List[IntentRule]:
+    """Build MCP keyword rules from running MCP services.
+
+    Args:
+        running_services: List of MCPServerInfo for running services
+
+    Returns:
+        List of IntentRule for MCP keyword matching
+    """
+    rules = []
+    for service in running_services:
+        if hasattr(service, 'trigger_keywords') and service.trigger_keywords:
+            rule = create_mcp_keyword_rule(service.name, service.trigger_keywords)
+            if rule:
+                rules.append(rule)
+                print(f"[Intent] Added MCP keyword rule for service '{service.name}': {service.trigger_keywords}")
+    return rules

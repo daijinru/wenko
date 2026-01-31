@@ -123,7 +123,7 @@ class TestIntentRules:
         rules = get_hitl_rules()
         assert len(rules) > 0
         hitl_intents = ["proactive_inquiry", "topic_deepening", "emotion_driven",
-                        "memory_gap", "question_to_form", "plan_reminder"]
+                        "memory_gap", "question_to_form", "plan_reminder", "visual_display"]
         for rule in rules:
             assert rule.intent_type in hitl_intents
 

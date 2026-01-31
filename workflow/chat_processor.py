@@ -110,6 +110,8 @@ memory_update 用于保存用户信息，格式：
 - entries: [{{"category":"preference|fact|pattern","key":"简洁标签","value":"具体内容"}}]
 示例：{{"should_store":true,"entries":[{{"category":"fact","key":"用户姓名","value":"小明"}}]}}
 
+{mcp_instruction}
+
 {hitl_instruction}
 
 现在请直接输出 JSON:"""
@@ -329,6 +331,52 @@ ascii 格式: {{"type":"ascii","data":{{"content":"ASCII内容","title":"可选�
 }
 
 
+# MCP tool call intent snippet
+# This is a template - actual tool descriptions are injected dynamically
+MCP_INTENT_SNIPPET_TEMPLATE = """
+【MCP工具调用指令】检测到用户想要使用工具。
+
+{mcp_tools_description}
+
+如果你需要调用工具，在JSON响应中添加 tool_call 字段:
+{{"response":"你的回复","tool_call":{{"name":"服务名称","method":"方法名","arguments":{{"参数名":"参数值"}}}}}}
+
+tool_call 字段说明:
+- name: MCP服务名称
+- method: 要调用的方法（如果不确定，使用服务名作为方法名）
+- arguments: 传递给工具的参数对象
+
+注意：只有在确实需要调用工具时才添加 tool_call 字段。
+"""
+
+
+def get_mcp_intent_snippet(service_name: Optional[str] = None) -> str:
+    """Get MCP intent snippet with tool descriptions.
+
+    Args:
+        service_name: Specific service name if known
+
+    Returns:
+        MCP intent snippet with tool descriptions
+    """
+    import mcp_tool_executor
+
+    if service_name:
+        # Get description for specific service
+        desc = mcp_tool_executor.get_executor().get_tool_description_level1(service_name)
+        if desc:
+            tools_desc = desc
+        else:
+            tools_desc = f"[工具] {service_name}: MCP服务"
+    else:
+        # Get all available tools
+        tools_desc = mcp_tool_executor.get_mcp_tools_prompt_snippet()
+        if not tools_desc:
+            tools_desc = "（当前没有可用的MCP工具）"
+
+    return MCP_INTENT_SNIPPET_TEMPLATE.format(mcp_tools_description=tools_desc)
+
+
 def get_intent_snippet(intent_result: Optional[IntentResult]) -> str:
     """Get the appropriate prompt snippet for an intent.
 
@@ -347,6 +395,8 @@ def get_intent_snippet(intent_result: Optional[IntentResult]) -> str:
         return MEMORY_INTENT_SNIPPETS.get(intent_type, "")
     elif intent_result.is_hitl():
         return HITL_INTENT_SNIPPETS.get(intent_type, "")
+    elif intent_result.is_mcp():
+        return get_mcp_intent_snippet(intent_result.mcp_service_name)
 
     return ""
 
@@ -520,10 +570,19 @@ def build_system_prompt(context: ChatContext) -> str:
     # Determine HITL instruction based on intent recognition
     hitl_enabled = is_hitl_enabled()
     hitl_instruction_type = "none"  # 用于日志
+    mcp_instruction = ""  # MCP instruction
 
     if is_intent_recognition_enabled() and context.intent_result:
         intent_snippet = get_intent_snippet(context.intent_result)
-        if intent_snippet:
+
+        # Check if this is an MCP intent
+        if context.intent_result.is_mcp():
+            # MCP intent: use MCP snippet, no HITL instruction
+            mcp_instruction = intent_snippet
+            hitl_instruction = ""
+            hitl_instruction_type = "none (mcp)"
+            print(f"[Intent] Using MCP prompt snippet for: {context.intent_result.mcp_service_name or 'general'}")
+        elif intent_snippet:
             # Use intent-specific snippet (much smaller)
             hitl_instruction = intent_snippet
             hitl_instruction_type = f"intent_snippet({context.intent_result.intent_type})"
@@ -544,13 +603,17 @@ def build_system_prompt(context: ChatContext) -> str:
 
     # 打印 HITL 状态日志
     hitl_instruction_len = len(hitl_instruction)
+    mcp_instruction_len = len(mcp_instruction)
     print(f"[HITL] Prompt contains HITL: enabled={hitl_enabled}, instruction_type={hitl_instruction_type}, instruction_length={hitl_instruction_len}")
+    if mcp_instruction_len > 0:
+        print(f"[MCP] Prompt contains MCP instruction: length={mcp_instruction_len}")
 
     prompt = CHAT_PROMPT_TEMPLATE.format(
         user_message=context.user_message,
         working_memory_summary=working_memory_summary,
         relevant_long_term_memory=relevant_memory_str,
         strategy_prompt=strategy_prompt,
+        mcp_instruction=mcp_instruction,
         hitl_instruction=hitl_instruction,
     )
 
@@ -812,7 +875,13 @@ async def recognize_intent_async(
         print("[Intent] Intent recognition disabled")
         return IntentResult.normal()
 
-    from intent_recognizer import recognize_intent
+    from intent_recognizer import recognize_intent, build_mcp_keyword_rules_from_services
+    import mcp_manager
+
+    # Build dynamic MCP rules from running services
+    pm = mcp_manager.get_process_manager()
+    running_services = pm.get_running_servers()
+    mcp_keyword_rules = build_mcp_keyword_rules_from_services(running_services)
 
     return await recognize_intent(
         message=message,
@@ -822,6 +891,7 @@ async def recognize_intent_async(
         model=model,
         layer2_enabled=layer2_enabled,
         layer2_threshold=layer2_threshold,
+        mcp_keyword_rules=mcp_keyword_rules,
     )
 
 
@@ -841,6 +911,62 @@ def extract_response_text(llm_output: str) -> str:
         return data.get("response", llm_output)
     except json.JSONDecodeError:
         return llm_output
+
+
+@dataclass
+class ToolCallRequest:
+    """Parsed tool call request from LLM output."""
+    name: str  # Service name
+    method: str  # Method to call
+    arguments: Dict[str, Any]  # Arguments to pass
+
+
+def extract_tool_call(llm_output: str) -> Optional[ToolCallRequest]:
+    """Extract tool_call from LLM output if present.
+
+    Args:
+        llm_output: Raw LLM output (JSON string)
+
+    Returns:
+        ToolCallRequest if tool_call found, None otherwise
+    """
+    try:
+        # Handle potential markdown code blocks
+        content = llm_output.strip()
+        if content.startswith("```"):
+            parts = content.split("```")
+            if len(parts) >= 2:
+                content = parts[1]
+                if content.startswith("json"):
+                    content = content[4:]
+            content = content.strip()
+
+        data = json.loads(content)
+        tool_call = data.get("tool_call")
+
+        if not tool_call:
+            return None
+
+        name = tool_call.get("name", "")
+        method = tool_call.get("method", name)  # Default method to service name
+        arguments = tool_call.get("arguments", {})
+
+        if not name:
+            print("[MCP] tool_call found but missing name")
+            return None
+
+        print(f"[MCP] Extracted tool_call: name={name}, method={method}")
+        return ToolCallRequest(
+            name=name,
+            method=method,
+            arguments=arguments,
+        )
+
+    except json.JSONDecodeError:
+        return None
+    except Exception as e:
+        print(f"[MCP] Failed to extract tool_call: {e}")
+        return None
 
 
 # ============ HITL Continuation ============

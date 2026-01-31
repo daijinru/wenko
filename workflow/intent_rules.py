@@ -5,8 +5,8 @@ Rules are organized by intent type for easy maintenance and extension.
 """
 
 import re
-from dataclasses import dataclass
-from typing import List, Pattern
+from dataclasses import dataclass, field
+from typing import List, Optional, Pattern
 
 
 @dataclass
@@ -18,11 +18,13 @@ class IntentRule:
         pattern: Compiled regex pattern
         intent_type: The intent type this rule matches
         priority: Higher priority rules are checked first (default 0)
+        mcp_service_name: For MCP rules, the associated service name
     """
     name: str
     pattern: Pattern
     intent_type: str
     priority: int = 0
+    mcp_service_name: Optional[str] = None  # For MCP intent rules
 
 
 def _compile_patterns(patterns: List[str]) -> Pattern:
@@ -308,11 +310,75 @@ HITL_RULES: List[IntentRule] = [
 ]
 
 
+# ============ MCP Intent Rules ============
+
+MCP_RULES: List[IntentRule] = [
+    # Explicit tool call patterns
+    IntentRule(
+        name="mcp_explicit_tool",
+        pattern=_compile_patterns([
+            r"用.+工具",
+            r"使用.+工具",
+            r"调用.+工具",
+            r"运行.+工具",
+            r"执行.+工具",
+        ]),
+        intent_type="mcp_tool_call",
+        priority=25,  # High priority for explicit tool calls
+    ),
+    IntentRule(
+        name="mcp_explicit_service",
+        pattern=_compile_patterns([
+            r"用.+服务",
+            r"使用.+服务",
+            r"调用.+服务",
+            r"让.+服务",
+        ]),
+        intent_type="mcp_tool_call",
+        priority=25,
+    ),
+]
+
+
+def create_mcp_keyword_rule(service_name: str, keywords: List[str]) -> Optional[IntentRule]:
+    """Create an MCP rule from service trigger keywords.
+
+    Args:
+        service_name: Name of the MCP service
+        keywords: List of trigger keywords
+
+    Returns:
+        IntentRule if keywords provided, None otherwise
+    """
+    if not keywords:
+        return None
+
+    # Escape special regex characters in keywords
+    escaped_keywords = [re.escape(kw) for kw in keywords]
+
+    return IntentRule(
+        name=f"mcp_keyword_{service_name}",
+        pattern=_compile_patterns(escaped_keywords),
+        intent_type="mcp_tool_call",
+        priority=20,  # Medium-high priority for keyword matches
+        mcp_service_name=service_name,
+    )
+
+
 # ============ Combined Rules ============
 
-def get_all_rules() -> List[IntentRule]:
-    """Get all intent rules sorted by priority (highest first)."""
+def get_all_rules(include_mcp: bool = True) -> List[IntentRule]:
+    """Get all intent rules sorted by priority (highest first).
+
+    Args:
+        include_mcp: Whether to include static MCP rules (default True)
+
+    Returns:
+        List of IntentRule sorted by priority
+    """
     all_rules = MEMORY_RULES + HITL_RULES
+    if include_mcp:
+        all_rules = all_rules + MCP_RULES
     return sorted(all_rules, key=lambda r: r.priority, reverse=True)
 
 
@@ -324,3 +390,21 @@ def get_memory_rules() -> List[IntentRule]:
 def get_hitl_rules() -> List[IntentRule]:
     """Get only HITL-related rules."""
     return sorted(HITL_RULES, key=lambda r: r.priority, reverse=True)
+
+
+def get_mcp_rules() -> List[IntentRule]:
+    """Get only MCP-related rules (static rules only)."""
+    return sorted(MCP_RULES, key=lambda r: r.priority, reverse=True)
+
+
+def get_all_rules_with_dynamic_mcp(mcp_keyword_rules: List[IntentRule]) -> List[IntentRule]:
+    """Get all rules including dynamic MCP keyword rules.
+
+    Args:
+        mcp_keyword_rules: Additional rules created from MCP service configurations
+
+    Returns:
+        List of IntentRule sorted by priority
+    """
+    all_rules = MEMORY_RULES + HITL_RULES + MCP_RULES + mcp_keyword_rules
+    return sorted(all_rules, key=lambda r: r.priority, reverse=True)

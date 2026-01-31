@@ -29,6 +29,7 @@ import chat_processor
 import hitl_handler
 import image_analyzer
 import mcp_manager
+import mcp_tool_executor
 from hitl_schema import (
     HITLAction,
     HITLDisplayRequest,
@@ -487,6 +488,27 @@ async def stream_chat_response(request: ChatRequest):
                             "session_id": session_id,
                         }
                     yield f'event: hitl\ndata: {json.dumps({"type": "hitl", "payload": hitl_payload})}\n\n'
+
+                # 检查是否有 MCP 工具调用请求
+                tool_call_request = chat_processor.extract_tool_call(assistant_response)
+                if tool_call_request:
+                    print(f"[MCP] Found tool_call: name={tool_call_request.name}, method={tool_call_request.method}")
+                    # 执行工具调用
+                    tool_result = await mcp_tool_executor.execute_mcp_tool(
+                        service_name=tool_call_request.name,
+                        method=tool_call_request.method,
+                        arguments=tool_call_request.arguments,
+                    )
+                    # 发送工具调用结果 SSE 事件
+                    tool_result_payload = {
+                        "success": tool_result.success,
+                        "tool_name": tool_result.tool_name,
+                        "service_name": tool_result.service_name,
+                        "result": tool_result.result,
+                        "error": tool_result.error,
+                    }
+                    yield f'event: tool_result\ndata: {json.dumps({"type": "tool_result", "payload": tool_result_payload})}\n\n'
+                    print(f"[MCP] Tool result sent: success={tool_result.success}")
 
             except Exception as e:
                 print(f"解析 LLM 响应失败: {e}")
@@ -1613,6 +1635,24 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                         }
                     yield f'event: hitl\ndata: {json.dumps({"type": "hitl", "payload": hitl_payload})}\n\n'
 
+                # 检查是否有 MCP 工具调用请求 (HITL continuation)
+                tool_call_request = chat_processor.extract_tool_call(assistant_response)
+                if tool_call_request:
+                    print(f"[MCP] Found tool_call in continuation: name={tool_call_request.name}, method={tool_call_request.method}")
+                    tool_result = await mcp_tool_executor.execute_mcp_tool(
+                        service_name=tool_call_request.name,
+                        method=tool_call_request.method,
+                        arguments=tool_call_request.arguments,
+                    )
+                    tool_result_payload = {
+                        "success": tool_result.success,
+                        "tool_name": tool_result.tool_name,
+                        "service_name": tool_result.service_name,
+                        "result": tool_result.result,
+                        "error": tool_result.error,
+                    }
+                    yield f'event: tool_result\ndata: {json.dumps({"type": "tool_result", "payload": tool_result_payload})}\n\n'
+
             except Exception as e:
                 print(f"解析 LLM continuation 响应失败: {e}")
                 final_response = chat_processor.extract_response_text(assistant_response)
@@ -2008,6 +2048,8 @@ class MCPServerCreateRequest(BaseModel):
     args: List[str] = []
     env: Dict[str, str] = {}
     enabled: bool = True
+    description: Optional[str] = None
+    trigger_keywords: List[str] = []
 
 
 class MCPServerUpdateRequest(BaseModel):
@@ -2017,6 +2059,8 @@ class MCPServerUpdateRequest(BaseModel):
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
     enabled: Optional[bool] = None
+    description: Optional[str] = None
+    trigger_keywords: Optional[List[str]] = None
 
 
 class MCPServerInfoResponse(BaseModel):
@@ -2031,6 +2075,8 @@ class MCPServerInfoResponse(BaseModel):
     status: str
     error_message: Optional[str] = None
     pid: Optional[int] = None
+    description: Optional[str] = None
+    trigger_keywords: List[str] = []
 
 
 class MCPServerListResponse(BaseModel):
@@ -2059,6 +2105,8 @@ def _mcp_server_to_response(info: mcp_manager.MCPServerInfo) -> MCPServerInfoRes
         status=info.status.value if hasattr(info.status, 'value') else str(info.status),
         error_message=info.error_message,
         pid=info.pid,
+        description=info.description,
+        trigger_keywords=info.trigger_keywords,
     )
 
 
@@ -2087,6 +2135,8 @@ async def create_mcp_server(request: MCPServerCreateRequest):
             args=request.args,
             env=request.env,
             enabled=request.enabled,
+            description=request.description,
+            trigger_keywords=request.trigger_keywords,
         )
         created = registry.add_server(config)
 
@@ -2140,6 +2190,8 @@ async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
             args=request.args,
             env=request.env,
             enabled=request.enabled,
+            description=request.description,
+            trigger_keywords=request.trigger_keywords,
         )
         if not updated:
             raise HTTPException(status_code=404, detail="MCP 服务不存在")

@@ -34,6 +34,9 @@ class MCPServerConfig(BaseModel):
     env: Dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    # New fields for conversation integration
+    description: Optional[str] = None  # Tool description for prompt injection
+    trigger_keywords: List[str] = Field(default_factory=list)  # Keywords for intent recognition
 
     class Config:
         use_enum_values = True
@@ -51,6 +54,9 @@ class MCPServerInfo(BaseModel):
     status: MCPServerStatus = MCPServerStatus.STOPPED
     error_message: Optional[str] = None
     pid: Optional[int] = None
+    # New fields for conversation integration
+    description: Optional[str] = None
+    trigger_keywords: List[str] = Field(default_factory=list)
 
 
 class MCPServerRegistry:
@@ -326,6 +332,8 @@ class MCPProcessManager:
             status=status,
             error_message=self.get_error_message(server_id),
             pid=self.get_pid(server_id),
+            description=config.description,
+            trigger_keywords=config.trigger_keywords,
         )
 
     def list_servers_with_status(self) -> List[MCPServerInfo]:
@@ -336,6 +344,30 @@ class MCPProcessManager:
             if info:
                 result.append(info)
         return result
+
+    def get_running_servers(self) -> List[MCPServerInfo]:
+        """Get only running servers with their info.
+
+        Used for conversation integration to find available tools.
+        """
+        result = []
+        for config in self._registry.list_servers():
+            if self.get_status(config.id) == MCPServerStatus.RUNNING:
+                info = self.get_server_info(config.id)
+                if info:
+                    result.append(info)
+        return result
+
+    def get_process(self, server_id: str) -> Optional[subprocess.Popen]:
+        """Get the subprocess.Popen instance for a running server.
+
+        Used for MCP tool executor to communicate via stdio.
+        Returns None if server is not running.
+        """
+        proc = self._processes.get(server_id)
+        if proc and proc.poll() is None:
+            return proc
+        return None
 
 
 # Global instances
