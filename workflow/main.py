@@ -28,6 +28,7 @@ import memory_extractor
 import chat_processor
 import hitl_handler
 import image_analyzer
+import mcp_manager
 from hitl_schema import (
     HITLAction,
     HITLDisplayRequest,
@@ -247,8 +248,13 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时初始化数据库
     chat_db.init_database()
+    # 初始化 MCP 管理器
+    mcp_manager.init_mcp_manager()
     yield
-    # 关闭时的清理操作（如需要）
+    # 关闭时清理 MCP 服务进程
+    stopped_count = mcp_manager.shutdown_mcp_manager()
+    if stopped_count > 0:
+        print(f"[MCP] Stopped {stopped_count} running MCP servers on shutdown")
 
 
 # 创建 FastAPI 应用
@@ -1991,6 +1997,282 @@ async def snooze_plan(plan_id: str, request: PlanSnoozeRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"推迟计划失败: {str(e)}")
+
+
+# ============ MCP Service Management API ============
+
+class MCPServerCreateRequest(BaseModel):
+    """创建 MCP 服务请求"""
+    name: str
+    command: str
+    args: List[str] = []
+    env: Dict[str, str] = {}
+    enabled: bool = True
+
+
+class MCPServerUpdateRequest(BaseModel):
+    """更新 MCP 服务请求"""
+    name: Optional[str] = None
+    command: Optional[str] = None
+    args: Optional[List[str]] = None
+    env: Optional[Dict[str, str]] = None
+    enabled: Optional[bool] = None
+
+
+class MCPServerInfoResponse(BaseModel):
+    """MCP 服务信息响应"""
+    id: str
+    name: str
+    command: str
+    args: List[str]
+    env: Dict[str, str]
+    enabled: bool
+    created_at: str
+    status: str
+    error_message: Optional[str] = None
+    pid: Optional[int] = None
+
+
+class MCPServerListResponse(BaseModel):
+    """MCP 服务列表响应"""
+    servers: List[MCPServerInfoResponse]
+    total: int
+
+
+class MCPServerActionResponse(BaseModel):
+    """MCP 服务操作响应"""
+    success: bool
+    message: Optional[str] = None
+    server: Optional[MCPServerInfoResponse] = None
+
+
+def _mcp_server_to_response(info: mcp_manager.MCPServerInfo) -> MCPServerInfoResponse:
+    """Convert MCPServerInfo to response model."""
+    return MCPServerInfoResponse(
+        id=info.id,
+        name=info.name,
+        command=info.command,
+        args=info.args,
+        env=info.env,
+        enabled=info.enabled,
+        created_at=info.created_at,
+        status=info.status.value if hasattr(info.status, 'value') else str(info.status),
+        error_message=info.error_message,
+        pid=info.pid,
+    )
+
+
+@app.get("/api/mcp/servers", response_model=MCPServerListResponse)
+async def list_mcp_servers():
+    """获取所有 MCP 服务列表及状态"""
+    try:
+        pm = mcp_manager.get_process_manager()
+        servers = pm.list_servers_with_status()
+        return MCPServerListResponse(
+            servers=[_mcp_server_to_response(s) for s in servers],
+            total=len(servers)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取 MCP 服务列表失败: {str(e)}")
+
+
+@app.post("/api/mcp/servers", response_model=MCPServerInfoResponse, status_code=201)
+async def create_mcp_server(request: MCPServerCreateRequest):
+    """注册新的 MCP 服务"""
+    try:
+        registry = mcp_manager.get_registry()
+        config = mcp_manager.MCPServerConfig(
+            name=request.name,
+            command=request.command,
+            args=request.args,
+            env=request.env,
+            enabled=request.enabled,
+        )
+        created = registry.add_server(config)
+
+        # Get info with status
+        pm = mcp_manager.get_process_manager()
+        info = pm.get_server_info(created.id)
+        if info:
+            return _mcp_server_to_response(info)
+
+        raise HTTPException(status_code=500, detail="服务创建成功但无法获取状态")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建 MCP 服务失败: {str(e)}")
+
+
+@app.get("/api/mcp/servers/{server_id}", response_model=MCPServerInfoResponse)
+async def get_mcp_server(server_id: str):
+    """获取单个 MCP 服务详情"""
+    try:
+        pm = mcp_manager.get_process_manager()
+        info = pm.get_server_info(server_id)
+        if not info:
+            raise HTTPException(status_code=404, detail="MCP 服务不存在")
+        return _mcp_server_to_response(info)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取 MCP 服务失败: {str(e)}")
+
+
+@app.put("/api/mcp/servers/{server_id}", response_model=MCPServerInfoResponse)
+async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
+    """更新 MCP 服务配置"""
+    try:
+        pm = mcp_manager.get_process_manager()
+
+        # Check if running - warn user
+        status = pm.get_status(server_id)
+        if status == mcp_manager.MCPServerStatus.RUNNING:
+            raise HTTPException(
+                status_code=400,
+                detail="服务正在运行，请先停止服务再更新配置"
+            )
+
+        registry = mcp_manager.get_registry()
+        updated = registry.update_server(
+            server_id,
+            name=request.name,
+            command=request.command,
+            args=request.args,
+            env=request.env,
+            enabled=request.enabled,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="MCP 服务不存在")
+
+        info = pm.get_server_info(server_id)
+        if info:
+            return _mcp_server_to_response(info)
+
+        raise HTTPException(status_code=500, detail="更新成功但无法获取状态")
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"更新 MCP 服务失败: {str(e)}")
+
+
+@app.delete("/api/mcp/servers/{server_id}", status_code=204)
+async def delete_mcp_server(server_id: str):
+    """删除 MCP 服务"""
+    try:
+        pm = mcp_manager.get_process_manager()
+        registry = mcp_manager.get_registry()
+
+        # Stop if running
+        pm.stop_server(server_id)
+
+        # Delete config
+        success = registry.delete_server(server_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="MCP 服务不存在")
+
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除 MCP 服务失败: {str(e)}")
+
+
+@app.post("/api/mcp/servers/{server_id}/start", response_model=MCPServerActionResponse)
+async def start_mcp_server(server_id: str):
+    """启动 MCP 服务"""
+    try:
+        pm = mcp_manager.get_process_manager()
+
+        # Check if server exists
+        info = pm.get_server_info(server_id)
+        if not info:
+            raise HTTPException(status_code=404, detail="MCP 服务不存在")
+
+        success = pm.start_server(server_id)
+
+        # Get updated info
+        info = pm.get_server_info(server_id)
+        if info:
+            return MCPServerActionResponse(
+                success=success,
+                message="服务启动成功" if success else info.error_message,
+                server=_mcp_server_to_response(info),
+            )
+
+        return MCPServerActionResponse(
+            success=success,
+            message="服务启动成功" if success else "启动失败",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"启动 MCP 服务失败: {str(e)}")
+
+
+@app.post("/api/mcp/servers/{server_id}/stop", response_model=MCPServerActionResponse)
+async def stop_mcp_server(server_id: str):
+    """停止 MCP 服务"""
+    try:
+        pm = mcp_manager.get_process_manager()
+
+        # Check if server exists
+        info = pm.get_server_info(server_id)
+        if not info:
+            raise HTTPException(status_code=404, detail="MCP 服务不存在")
+
+        success = pm.stop_server(server_id)
+
+        # Get updated info
+        info = pm.get_server_info(server_id)
+        if info:
+            return MCPServerActionResponse(
+                success=success,
+                message="服务已停止" if success else info.error_message,
+                server=_mcp_server_to_response(info),
+            )
+
+        return MCPServerActionResponse(
+            success=success,
+            message="服务已停止" if success else "停止失败",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"停止 MCP 服务失败: {str(e)}")
+
+
+@app.post("/api/mcp/servers/{server_id}/restart", response_model=MCPServerActionResponse)
+async def restart_mcp_server(server_id: str):
+    """重启 MCP 服务"""
+    try:
+        pm = mcp_manager.get_process_manager()
+
+        # Check if server exists
+        info = pm.get_server_info(server_id)
+        if not info:
+            raise HTTPException(status_code=404, detail="MCP 服务不存在")
+
+        success = pm.restart_server(server_id)
+
+        # Get updated info
+        info = pm.get_server_info(server_id)
+        if info:
+            return MCPServerActionResponse(
+                success=success,
+                message="服务重启成功" if success else info.error_message,
+                server=_mcp_server_to_response(info),
+            )
+
+        return MCPServerActionResponse(
+            success=success,
+            message="服务重启成功" if success else "重启失败",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重启 MCP 服务失败: {str(e)}")
 
 
 if __name__ == "__main__":

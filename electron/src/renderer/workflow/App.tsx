@@ -6,6 +6,7 @@ import { ChatHistoryTab } from "@/components/features/chat-history/chat-history-
 import { WorkingMemoryTab } from "@/components/features/working-memory/working-memory-tab"
 import { LongTermMemoryTab } from "@/components/features/long-term-memory/long-term-memory-tab"
 import { SettingsTab } from "@/components/features/settings/settings-tab"
+import { McpTab } from "@/components/features/mcp"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ToastProvider } from "@/hooks/use-toast"
 import { useHealth } from "@/hooks/use-health"
@@ -52,6 +53,7 @@ function AppInner() {
             <TabsTrigger value="chatHistory">聊天历史</TabsTrigger>
             <TabsTrigger value="workingMemory">工作记忆</TabsTrigger>
             <TabsTrigger value="longTermMemory">长期记忆</TabsTrigger>
+            <TabsTrigger value="mcpServices">MCP 服务</TabsTrigger>
             <TabsTrigger value="settings">设置</TabsTrigger>
           </TabsList>
           <TabsContent value="chatHistory" className="flex-1">
@@ -62,6 +64,9 @@ function AppInner() {
           </TabsContent>
           <TabsContent value="longTermMemory" className="flex-1">
             <LongTermMemoryTab onConfirmDialog={handleConfirmDialog} />
+          </TabsContent>
+          <TabsContent value="mcpServices" className="flex-1">
+            <McpTab onConfirmDialog={handleConfirmDialog} />
           </TabsContent>
           <TabsContent value="settings" className="flex-1">
             <SettingsTab onConfirmDialog={handleConfirmDialog} />

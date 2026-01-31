@@ -120,3 +120,46 @@ export interface MemoryExtractResponse {
 // Plan types (used by LongTermMemory for category='plan')
 export type PlanStatus = 'pending' | 'completed' | 'dismissed' | 'snoozed';
 export type RepeatType = 'none' | 'daily' | 'weekly' | 'monthly';
+
+// MCP Service types
+export type MCPServerStatus = 'stopped' | 'running' | 'error';
+
+export interface MCPServer {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  enabled: boolean;
+  created_at: string;
+  status: MCPServerStatus;
+  error_message: string | null;
+  pid: number | null;
+}
+
+export interface MCPServerListResponse {
+  servers: MCPServer[];
+  total: number;
+}
+
+export interface MCPServerCreateRequest {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface MCPServerUpdateRequest {
+  name?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface MCPServerActionResponse {
+  success: boolean;
+  message: string | null;
+  server: MCPServer | null;
+}

@@ -44,6 +44,8 @@ _DEFAULT_SETTINGS = {
     # 提醒设置
     "system.reminder_window_enabled": ("true", "boolean", "启用弹窗提醒"),
     "system.os_notification_enabled": ("true", "boolean", "启用系统通知"),
+    # MCP 服务配置
+    "mcp.servers": ("[]", "json", "MCP 服务器配置列表"),
 }
 
 
@@ -608,20 +610,31 @@ def set_setting(key: str, value: Any, value_type: Optional[str] = None) -> bool:
         True if setting was updated/inserted successfully.
     """
     now = datetime.utcnow().isoformat()
-    str_value = str(value) if not isinstance(value, str) else value
 
     # Infer value_type if not provided
     if value_type is None:
         if isinstance(value, bool):
             value_type = "boolean"
-            str_value = "true" if value else "false"
         elif isinstance(value, (int, float)):
             value_type = "number"
         elif isinstance(value, (dict, list)):
             value_type = "json"
-            str_value = json.dumps(value)
         else:
             value_type = "string"
+
+    # Convert value to string based on type
+    if value_type == "boolean":
+        if isinstance(value, bool):
+            str_value = "true" if value else "false"
+        else:
+            str_value = str(value).lower()
+    elif value_type == "json":
+        if isinstance(value, str):
+            str_value = value  # Already a JSON string
+        else:
+            str_value = json.dumps(value)
+    else:
+        str_value = str(value) if not isinstance(value, str) else value
 
     with get_connection() as conn:
         cursor = conn.execute(
