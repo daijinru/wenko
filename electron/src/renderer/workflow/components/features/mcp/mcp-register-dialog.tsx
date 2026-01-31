@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,8 @@ interface McpRegisterDialogProps {
     command: string;
     args: string[];
     env: Record<string, string>;
+    description?: string;
+    trigger_keywords?: string[];
   }) => void;
   operating: boolean;
   initialData?: {
@@ -25,6 +27,8 @@ interface McpRegisterDialogProps {
     command: string;
     args: string[];
     env: Record<string, string>;
+    description?: string;
+    trigger_keywords?: string[];
   };
   isEditing?: boolean;
 }
@@ -41,11 +45,22 @@ export function McpRegisterDialog({
   const [command, setCommand] = useState('');
   const [argsText, setArgsText] = useState('');
   const [envText, setEnvText] = useState('');
+  const [description, setDescription] = useState('');
+  const [triggerKeywordsText, setTriggerKeywordsText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // Reset form when dialog opens
+  // Track if we've initialized the form for this dialog open
+  const initializedRef = useRef(false);
+  const prevOpenRef = useRef(false);
+
+  // Reset form only when dialog first opens (not on every initialData change)
   useEffect(() => {
-    if (open) {
+    const justOpened = open && !prevOpenRef.current;
+    prevOpenRef.current = open;
+
+    if (justOpened && !initializedRef.current) {
+      // Dialog just opened, initialize form
+      initializedRef.current = true;
       if (initialData) {
         setName(initialData.name);
         setCommand(initialData.command);
@@ -55,13 +70,20 @@ export function McpRegisterDialog({
             .map(([k, v]) => `${k}=${v}`)
             .join('\n')
         );
+        setDescription(initialData.description || '');
+        setTriggerKeywordsText((initialData.trigger_keywords || []).join(', '));
       } else {
         setName('');
         setCommand('');
         setArgsText('');
         setEnvText('');
+        setDescription('');
+        setTriggerKeywordsText('');
       }
       setError(null);
+    } else if (!open) {
+      // Dialog closed, reset the initialized flag for next open
+      initializedRef.current = false;
     }
   }, [open, initialData]);
 
@@ -102,11 +124,19 @@ export function McpRegisterDialog({
       env[key] = value;
     }
 
+    // Parse trigger keywords (comma or newline separated)
+    const trigger_keywords = triggerKeywordsText
+      .split(/[,\n]/)
+      .map(kw => kw.trim())
+      .filter(kw => kw.length > 0);
+
     onSubmit({
       name: name.trim(),
       command: command.trim(),
       args,
       env,
+      description: description.trim() || undefined,
+      trigger_keywords: trigger_keywords.length > 0 ? trigger_keywords : undefined,
     });
   };
 
@@ -163,6 +193,26 @@ export function McpRegisterDialog({
               className="font-mono text-sm h-20"
             />
             <p className="text-xs text-muted-foreground">每行一个，使用 KEY=VALUE 格式</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">服务描述</label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="例如: 查询天气信息的服务"
+            />
+            <p className="text-xs text-muted-foreground">简短描述服务功能，用于 AI 理解</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">触发关键词</label>
+            <Input
+              value={triggerKeywordsText}
+              onChange={(e) => setTriggerKeywordsText(e.target.value)}
+              placeholder="例如: 天气, weather, 气温"
+            />
+            <p className="text-xs text-muted-foreground">用逗号分隔，当用户消息包含这些词时自动触发此服务</p>
           </div>
         </div>
 

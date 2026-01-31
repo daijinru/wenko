@@ -50,7 +50,9 @@ class RuleBasedMatcher:
         Args:
             mcp_keyword_rules: Additional rules from MCP service configurations
         """
+        print(f"[Intent] Updating rules with {len(mcp_keyword_rules)} MCP keyword rules")
         self.rules = get_all_rules_with_dynamic_mcp(mcp_keyword_rules)
+        print(f"[Intent] Total rules after update: {len(self.rules)}")
 
     def match(self, message: str) -> Optional[IntentResult]:
         """Match a message against all rules.
@@ -385,11 +387,15 @@ def build_mcp_keyword_rules_from_services(running_services: List[Any]) -> List[I
     Returns:
         List of IntentRule for MCP keyword matching
     """
+    print(f"[Intent] Building MCP keyword rules from {len(running_services)} services")
     rules = []
     for service in running_services:
         if hasattr(service, 'trigger_keywords') and service.trigger_keywords:
             rule = create_mcp_keyword_rule(service.name, service.trigger_keywords)
             if rule:
                 rules.append(rule)
-                print(f"[Intent] Added MCP keyword rule for service '{service.name}': {service.trigger_keywords}")
+                print(f"[Intent] Created MCP rule: service='{service.name}', keywords={service.trigger_keywords}")
+        else:
+            print(f"[Intent] Service '{service.name}' has no trigger_keywords")
+    print(f"[Intent] Built {len(rules)} MCP keyword rules total")
     return rules

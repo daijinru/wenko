@@ -361,20 +361,29 @@ def get_mcp_intent_snippet(service_name: Optional[str] = None) -> str:
     """
     import mcp_tool_executor
 
+    print(f"[MCP Intent] Getting intent snippet: service_name={service_name}")
+
     if service_name:
         # Get description for specific service
         desc = mcp_tool_executor.get_executor().get_tool_description_level1(service_name)
         if desc:
             tools_desc = desc
+            print(f"[MCP Intent] Found specific service description: {service_name}")
         else:
             tools_desc = f"[工具] {service_name}: MCP服务"
+            print(f"[MCP Intent] Using default description for: {service_name}")
     else:
         # Get all available tools
         tools_desc = mcp_tool_executor.get_mcp_tools_prompt_snippet()
         if not tools_desc:
             tools_desc = "（当前没有可用的MCP工具）"
+            print("[MCP Intent] No available MCP tools")
+        else:
+            print(f"[MCP Intent] Got all tools description: {len(tools_desc)} chars")
 
-    return MCP_INTENT_SNIPPET_TEMPLATE.format(mcp_tools_description=tools_desc)
+    snippet = MCP_INTENT_SNIPPET_TEMPLATE.format(mcp_tools_description=tools_desc)
+    print(f"[MCP Intent] Generated snippet: {len(snippet)} chars")
+    return snippet
 
 
 def get_intent_snippet(intent_result: Optional[IntentResult]) -> str:
@@ -387,17 +396,25 @@ def get_intent_snippet(intent_result: Optional[IntentResult]) -> str:
         Intent-specific prompt snippet, or empty string if no match
     """
     if not intent_result or intent_result.is_normal():
+        print("[Intent Snippet] No intent or normal intent, returning empty")
         return ""
 
     intent_type = intent_result.intent_type
+    print(f"[Intent Snippet] Getting snippet for: category={intent_result.category}, type={intent_type}")
 
     if intent_result.is_memory():
-        return MEMORY_INTENT_SNIPPETS.get(intent_type, "")
+        snippet = MEMORY_INTENT_SNIPPETS.get(intent_type, "")
+        print(f"[Intent Snippet] Memory intent snippet: {len(snippet)} chars")
+        return snippet
     elif intent_result.is_hitl():
-        return HITL_INTENT_SNIPPETS.get(intent_type, "")
+        snippet = HITL_INTENT_SNIPPETS.get(intent_type, "")
+        print(f"[Intent Snippet] HITL intent snippet: {len(snippet)} chars")
+        return snippet
     elif intent_result.is_mcp():
+        print(f"[Intent Snippet] MCP intent, service_name={intent_result.mcp_service_name}")
         return get_mcp_intent_snippet(intent_result.mcp_service_name)
 
+    print("[Intent Snippet] Unknown intent category, returning empty")
     return ""
 
 
@@ -871,8 +888,10 @@ async def recognize_intent_async(
     Returns:
         IntentResult with matched intent
     """
+    print(f"[Intent Async] Starting intent recognition: message_len={len(message)}")
+
     if not is_intent_recognition_enabled():
-        print("[Intent] Intent recognition disabled")
+        print("[Intent Async] Intent recognition disabled")
         return IntentResult.normal()
 
     from intent_recognizer import recognize_intent, build_mcp_keyword_rules_from_services
@@ -881,9 +900,11 @@ async def recognize_intent_async(
     # Build dynamic MCP rules from running services
     pm = mcp_manager.get_process_manager()
     running_services = pm.get_running_servers()
+    print(f"[Intent Async] Building MCP rules from {len(running_services)} running services")
     mcp_keyword_rules = build_mcp_keyword_rules_from_services(running_services)
+    print(f"[Intent Async] Created {len(mcp_keyword_rules)} MCP keyword rules")
 
-    return await recognize_intent(
+    result = await recognize_intent(
         message=message,
         llm_client=llm_client,
         api_base=api_base,
@@ -893,6 +914,12 @@ async def recognize_intent_async(
         layer2_threshold=layer2_threshold,
         mcp_keyword_rules=mcp_keyword_rules,
     )
+
+    print(f"[Intent Async] Recognition result: category={result.category}, type={result.intent_type}, source={result.source}")
+    if result.is_mcp():
+        print(f"[Intent Async] MCP service matched: {result.mcp_service_name}")
+
+    return result
 
 
 def extract_response_text(llm_output: str) -> str:
@@ -986,6 +1013,8 @@ HITL_CONTINUATION_PROMPT_TEMPLATE = """你是一个友好的 AI 助手。用户�
 emotion.primary: neutral|happy|excited|grateful|curious|sad|anxious|frustrated|confused|help_seeking|info_seeking
 如需保存记忆: should_store=true, entries添加{{key,value,category(preference|fact|pattern)}}
 
+{mcp_instruction}
+
 {hitl_instruction}
 
 直接输出 JSON:"""
@@ -1033,6 +1062,33 @@ def build_hitl_continuation_prompt(
     hitl_enabled = is_hitl_enabled()
     hitl_instruction = HITL_CONTINUATION_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
 
+    # Get MCP instruction - check if hitl_context suggests MCP tool usage
+    # We include MCP tools if any are available, so LLM can call them based on form data
+    import mcp_tool_executor
+    import mcp_manager
+
+    # Check running MCP services
+    pm = mcp_manager.get_process_manager()
+    running_services = pm.get_running_servers()
+    print(f"[HITL] Continuation: {len(running_services)} MCP services running")
+    for svc in running_services:
+        print(f"[HITL]   - {svc.name}: {svc.description or 'no description'}")
+
+    mcp_instruction = mcp_tool_executor.get_mcp_tools_prompt_snippet()
+    if mcp_instruction:
+        # Add the tool_call format instruction
+        mcp_instruction = f"""
+【可用的MCP工具】
+{mcp_instruction}
+
+如果用户提交的表单信息需要调用工具（如天气查询、搜索等），请在JSON响应中添加 tool_call 字段:
+{{"response":"你的回复","tool_call":{{"name":"服务名称","method":"方法名","arguments":{{"参数名":"参数值"}}}}}}
+"""
+        print(f"[HITL] Continuation prompt: mcp_instruction added, length={len(mcp_instruction)}")
+    else:
+        mcp_instruction = ""
+        print(f"[HITL] Continuation prompt: NO MCP services available, mcp_instruction is empty")
+
     # 打印 HITL 状态日志
     print(f"[HITL] Continuation prompt: hitl_enabled={hitl_enabled}, instruction_length={len(hitl_instruction)}")
 
@@ -1041,5 +1097,6 @@ def build_hitl_continuation_prompt(
         working_memory_summary=working_memory_summary,
         relevant_long_term_memory=relevant_memory_str,
         strategy_prompt=strategy_prompt,
+        mcp_instruction=mcp_instruction,
         hitl_instruction=hitl_instruction,
     )

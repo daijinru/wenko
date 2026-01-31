@@ -55,6 +55,8 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
     command: string;
     args: string[];
     env: Record<string, string>;
+    description?: string;
+    trigger_keywords?: string[];
   }) => {
     const server = await registerServer(data);
     if (server) {
@@ -70,6 +72,8 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
     command: string;
     args: string[];
     env: Record<string, string>;
+    description?: string;
+    trigger_keywords?: string[];
   }) => {
     const success = await updateServer(id, data);
     if (success) {
@@ -291,6 +295,8 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
             command: editingServer.command,
             args: editingServer.args,
             env: editingServer.env,
+            description: editingServer.description || '',
+            trigger_keywords: editingServer.trigger_keywords || [],
           }}
           isEditing
         />

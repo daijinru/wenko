@@ -30,6 +30,7 @@ import hitl_handler
 import image_analyzer
 import mcp_manager
 import mcp_tool_executor
+from emotion_detector import parse_llm_output
 from hitl_schema import (
     HITLAction,
     HITLDisplayRequest,
@@ -276,6 +277,89 @@ async def health_check():
     )
 
 
+# ============ MCP Tool Result Follow-up ============
+
+# Prompt template for generating a final response after tool execution
+MCP_FOLLOWUP_PROMPT = """你是一个友好的 AI 助手。你刚才调用了一个工具，以下是工具返回的结果。
+请根据工具结果为用户生成一个自然、有用的回复。
+
+工具名称: {tool_name}
+工具服务: {service_name}
+调用状态: {status}
+{result_section}
+
+用户原始请求上下文: {user_context}
+
+以纯 JSON 格式回复:
+{{"emotion":{{"primary":"neutral","category":"neutral","confidence":0.8}},"response":"你的回复","memory_update":{{"should_store":false,"entries":[]}}}}
+
+直接输出 JSON:"""
+
+
+async def call_llm_with_tool_result(
+    config: "ChatConfig",
+    tool_result: "mcp_tool_executor.ToolCallResult",
+    user_context: str,
+) -> Optional[str]:
+    """Call LLM again with tool result to generate a natural response.
+
+    Args:
+        config: Chat config with API credentials
+        tool_result: Result from MCP tool execution
+        user_context: Original user request context for reference
+
+    Returns:
+        LLM's response text, or None if failed
+    """
+    import time
+    start = time.time()
+
+    status = "成功" if tool_result.success else "失败"
+    if tool_result.success:
+        result_section = f"工具返回结果:\n{tool_result.result}"
+    else:
+        result_section = f"错误信息: {tool_result.error}"
+
+    system_prompt = MCP_FOLLOWUP_PROMPT.format(
+        tool_name=tool_result.tool_name,
+        service_name=tool_result.service_name,
+        status=status,
+        result_section=result_section,
+        user_context=user_context[:500],  # Truncate to avoid overly long prompts
+    )
+
+    if not is_deep_thinking_enabled():
+        system_prompt += DISABLE_THINKING_PROMPT_SUFFIX
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "请根据工具结果给出回复。"},
+    ]
+
+    api_url = f"{config.api_base.rstrip('/')}/chat/completions"
+    request_body = build_request_body_with_thinking(config, messages, stream=False)
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        print(f"[MCP Followup] Calling LLM with tool result...")
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(api_url, json=request_body, headers=headers)
+            if resp.status_code != 200:
+                print(f"[MCP Followup] API error: {resp.status_code}")
+                return None
+
+            data = resp.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            print(f"[MCP Followup] Got response in {time.time() - start:.2f}s, length={len(content)}")
+            return content
+    except Exception as e:
+        print(f"[MCP Followup] Failed: {e}")
+        return None
+
+
 async def stream_chat_response(request: ChatRequest):
     """流式调用 LLM API 并生成 SSE 事件
 
@@ -509,6 +593,27 @@ async def stream_chat_response(request: ChatRequest):
                     }
                     yield f'event: tool_result\ndata: {json.dumps({"type": "tool_result", "payload": tool_result_payload})}\n\n'
                     print(f"[MCP] Tool result sent: success={tool_result.success}")
+
+                    # 二次调用 LLM，将工具结果转化为自然语言回复
+                    followup_response = await call_llm_with_tool_result(
+                        config=config,
+                        tool_result=tool_result,
+                        user_context=request.message,
+                    )
+                    if followup_response:
+                        # 解析 followup 响应
+                        try:
+                            followup_parsed = parse_llm_output(followup_response)
+                            followup_text = followup_parsed.response
+                            print(f"[MCP Followup] Parsed response: {len(followup_text)} chars")
+                        except Exception:
+                            followup_text = chat_processor.extract_response_text(followup_response)
+                            print(f"[MCP Followup] Using raw response: {len(followup_text)} chars")
+
+                        # 发送 followup 响应
+                        yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": followup_text}})}\n\n'
+                        # 更新 final_response 用于保存到数据库
+                        final_response = followup_text
 
             except Exception as e:
                 print(f"解析 LLM 响应失败: {e}")
@@ -1652,6 +1757,28 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                         "error": tool_result.error,
                     }
                     yield f'event: tool_result\ndata: {json.dumps({"type": "tool_result", "payload": tool_result_payload})}\n\n'
+                    print(f"[MCP] Tool result sent: success={tool_result.success}")
+
+                    # 二次调用 LLM，将工具结果转化为自然语言回复
+                    followup_response = await call_llm_with_tool_result(
+                        config=config,
+                        tool_result=tool_result,
+                        user_context=hitl_context,
+                    )
+                    if followup_response:
+                        # 解析 followup 响应
+                        try:
+                            followup_parsed = parse_llm_output(followup_response)
+                            followup_text = followup_parsed.response
+                            print(f"[MCP Followup] Parsed response: {len(followup_text)} chars")
+                        except Exception:
+                            followup_text = chat_processor.extract_response_text(followup_response)
+                            print(f"[MCP Followup] Using raw response: {len(followup_text)} chars")
+
+                        # 发送 followup 响应
+                        yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": followup_text}})}\n\n'
+                        # 更新 final_response 用于保存到数据库
+                        final_response = followup_text
 
             except Exception as e:
                 print(f"解析 LLM continuation 响应失败: {e}")
@@ -2114,13 +2241,16 @@ def _mcp_server_to_response(info: mcp_manager.MCPServerInfo) -> MCPServerInfoRes
 async def list_mcp_servers():
     """获取所有 MCP 服务列表及状态"""
     try:
+        print("[MCP API] GET /api/mcp/servers - listing all servers")
         pm = mcp_manager.get_process_manager()
         servers = pm.list_servers_with_status()
+        print(f"[MCP API] Listed {len(servers)} servers")
         return MCPServerListResponse(
             servers=[_mcp_server_to_response(s) for s in servers],
             total=len(servers)
         )
     except Exception as e:
+        print(f"[MCP API] Error listing servers: {e}")
         raise HTTPException(status_code=500, detail=f"获取 MCP 服务列表失败: {str(e)}")
 
 
@@ -2128,6 +2258,7 @@ async def list_mcp_servers():
 async def create_mcp_server(request: MCPServerCreateRequest):
     """注册新的 MCP 服务"""
     try:
+        print(f"[MCP API] POST /api/mcp/servers - creating server: name={request.name}, command={request.command}")
         registry = mcp_manager.get_registry()
         config = mcp_manager.MCPServerConfig(
             name=request.name,
@@ -2139,6 +2270,7 @@ async def create_mcp_server(request: MCPServerCreateRequest):
             trigger_keywords=request.trigger_keywords,
         )
         created = registry.add_server(config)
+        print(f"[MCP API] Server created: id={created.id}, name={created.name}")
 
         # Get info with status
         pm = mcp_manager.get_process_manager()
@@ -2148,8 +2280,10 @@ async def create_mcp_server(request: MCPServerCreateRequest):
 
         raise HTTPException(status_code=500, detail="服务创建成功但无法获取状态")
     except ValueError as e:
+        print(f"[MCP API] Create server failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"[MCP API] Create server error: {e}")
         raise HTTPException(status_code=500, detail=f"创建 MCP 服务失败: {str(e)}")
 
 
@@ -2157,14 +2291,18 @@ async def create_mcp_server(request: MCPServerCreateRequest):
 async def get_mcp_server(server_id: str):
     """获取单个 MCP 服务详情"""
     try:
+        print(f"[MCP API] GET /api/mcp/servers/{server_id}")
         pm = mcp_manager.get_process_manager()
         info = pm.get_server_info(server_id)
         if not info:
+            print(f"[MCP API] Server not found: id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
+        print(f"[MCP API] Found server: name={info.name}, status={info.status}")
         return _mcp_server_to_response(info)
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[MCP API] Get server error: {e}")
         raise HTTPException(status_code=500, detail=f"获取 MCP 服务失败: {str(e)}")
 
 
@@ -2172,11 +2310,13 @@ async def get_mcp_server(server_id: str):
 async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
     """更新 MCP 服务配置"""
     try:
+        print(f"[MCP API] PUT /api/mcp/servers/{server_id} - updating")
         pm = mcp_manager.get_process_manager()
 
         # Check if running - warn user
         status = pm.get_status(server_id)
         if status == mcp_manager.MCPServerStatus.RUNNING:
+            print(f"[MCP API] Update blocked: server {server_id} is running")
             raise HTTPException(
                 status_code=400,
                 detail="服务正在运行，请先停止服务再更新配置"
@@ -2194,18 +2334,22 @@ async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
             trigger_keywords=request.trigger_keywords,
         )
         if not updated:
+            print(f"[MCP API] Update failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
         info = pm.get_server_info(server_id)
         if info:
+            print(f"[MCP API] Server updated: name={info.name}")
             return _mcp_server_to_response(info)
 
         raise HTTPException(status_code=500, detail="更新成功但无法获取状态")
     except HTTPException:
         raise
     except ValueError as e:
+        print(f"[MCP API] Update validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"[MCP API] Update error: {e}")
         raise HTTPException(status_code=500, detail=f"更新 MCP 服务失败: {str(e)}")
 
 
@@ -2213,21 +2357,26 @@ async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
 async def delete_mcp_server(server_id: str):
     """删除 MCP 服务"""
     try:
+        print(f"[MCP API] DELETE /api/mcp/servers/{server_id}")
         pm = mcp_manager.get_process_manager()
         registry = mcp_manager.get_registry()
 
         # Stop if running
+        print(f"[MCP API] Stopping server before delete: id={server_id}")
         pm.stop_server(server_id)
 
         # Delete config
         success = registry.delete_server(server_id)
         if not success:
+            print(f"[MCP API] Delete failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
+        print(f"[MCP API] Server deleted: id={server_id}")
         return None
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[MCP API] Delete error: {e}")
         raise HTTPException(status_code=500, detail=f"删除 MCP 服务失败: {str(e)}")
 
 
@@ -2235,18 +2384,22 @@ async def delete_mcp_server(server_id: str):
 async def start_mcp_server(server_id: str):
     """启动 MCP 服务"""
     try:
+        print(f"[MCP API] POST /api/mcp/servers/{server_id}/start")
         pm = mcp_manager.get_process_manager()
 
         # Check if server exists
         info = pm.get_server_info(server_id)
         if not info:
+            print(f"[MCP API] Start failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
+        print(f"[MCP API] Starting server: name={info.name}")
         success = pm.start_server(server_id)
 
         # Get updated info
         info = pm.get_server_info(server_id)
         if info:
+            print(f"[MCP API] Start result: success={success}, status={info.status}, pid={info.pid}")
             return MCPServerActionResponse(
                 success=success,
                 message="服务启动成功" if success else info.error_message,
@@ -2260,6 +2413,7 @@ async def start_mcp_server(server_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[MCP API] Start error: {e}")
         raise HTTPException(status_code=500, detail=f"启动 MCP 服务失败: {str(e)}")
 
 
@@ -2267,18 +2421,22 @@ async def start_mcp_server(server_id: str):
 async def stop_mcp_server(server_id: str):
     """停止 MCP 服务"""
     try:
+        print(f"[MCP API] POST /api/mcp/servers/{server_id}/stop")
         pm = mcp_manager.get_process_manager()
 
         # Check if server exists
         info = pm.get_server_info(server_id)
         if not info:
+            print(f"[MCP API] Stop failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
+        print(f"[MCP API] Stopping server: name={info.name}, pid={info.pid}")
         success = pm.stop_server(server_id)
 
         # Get updated info
         info = pm.get_server_info(server_id)
         if info:
+            print(f"[MCP API] Stop result: success={success}, status={info.status}")
             return MCPServerActionResponse(
                 success=success,
                 message="服务已停止" if success else info.error_message,
@@ -2292,6 +2450,7 @@ async def stop_mcp_server(server_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[MCP API] Stop error: {e}")
         raise HTTPException(status_code=500, detail=f"停止 MCP 服务失败: {str(e)}")
 
 
@@ -2299,18 +2458,22 @@ async def stop_mcp_server(server_id: str):
 async def restart_mcp_server(server_id: str):
     """重启 MCP 服务"""
     try:
+        print(f"[MCP API] POST /api/mcp/servers/{server_id}/restart")
         pm = mcp_manager.get_process_manager()
 
         # Check if server exists
         info = pm.get_server_info(server_id)
         if not info:
+            print(f"[MCP API] Restart failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
+        print(f"[MCP API] Restarting server: name={info.name}")
         success = pm.restart_server(server_id)
 
         # Get updated info
         info = pm.get_server_info(server_id)
         if info:
+            print(f"[MCP API] Restart result: success={success}, status={info.status}, pid={info.pid}")
             return MCPServerActionResponse(
                 success=success,
                 message="服务重启成功" if success else info.error_message,
@@ -2324,6 +2487,7 @@ async def restart_mcp_server(server_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[MCP API] Restart error: {e}")
         raise HTTPException(status_code=500, detail=f"重启 MCP 服务失败: {str(e)}")
 
 

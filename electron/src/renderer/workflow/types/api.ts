@@ -135,6 +135,8 @@ export interface MCPServer {
   status: MCPServerStatus;
   error_message: string | null;
   pid: number | null;
+  description: string | null;
+  trigger_keywords: string[];
 }
 
 export interface MCPServerListResponse {
@@ -148,6 +150,8 @@ export interface MCPServerCreateRequest {
   args?: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  description?: string;
+  trigger_keywords?: string[];
 }
 
 export interface MCPServerUpdateRequest {
@@ -156,6 +160,8 @@ export interface MCPServerUpdateRequest {
   args?: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  description?: string;
+  trigger_keywords?: string[];
 }
 
 export interface MCPServerActionResponse {

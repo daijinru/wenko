@@ -8,7 +8,7 @@ import type {
   MCPServerActionResponse,
 } from '@/types/api';
 
-const POLL_INTERVAL = 5000; // 5 seconds
+const POLL_INTERVAL = 25000; // 25 seconds
 
 export function useMcpServices() {
   const [servers, setServers] = useState<MCPServer[]>([]);
