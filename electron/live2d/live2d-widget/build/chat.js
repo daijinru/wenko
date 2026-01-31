@@ -83,13 +83,20 @@ class ChatHistoryManager {
 const sessionManager = new SessionManager();
 const historyManager = new ChatHistoryManager();
 let isLoading = false;
+let hitlListenerCleanup = null;
+let imagePreviewListenerCleanup = null;
 function setupHITLResultListener() {
     var _a;
     if (!((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.on)) {
         hitlLog('SETUP_LISTENER', 'electronAPI.on not available, skipping HITL listener setup');
         return;
     }
-    window.electronAPI.on('hitl:result', (result) => {
+    if (hitlListenerCleanup) {
+        hitlLog('SETUP_LISTENER', 'Removing existing HITL listener before re-registering');
+        hitlListenerCleanup();
+        hitlListenerCleanup = null;
+    }
+    hitlListenerCleanup = window.electronAPI.on('hitl:result', (result) => {
         hitlLog('HITL_RESULT_RECEIVED', result);
         if (result.action === 'approve' && result.message) {
             showSSEMessage(`<div class="wenko-chat-system">${result.message}</div>`, 'wenko-chat-system-msg');
@@ -116,7 +123,12 @@ function setupImagePreviewResultListener() {
         console.log('[ImagePreview] electronAPI.on not available, skipping listener setup');
         return;
     }
-    window.electronAPI.on('image-preview:result', (result) => {
+    if (imagePreviewListenerCleanup) {
+        console.log('[ImagePreview] Removing existing listener before re-registering');
+        imagePreviewListenerCleanup();
+        imagePreviewListenerCleanup = null;
+    }
+    imagePreviewListenerCleanup = window.electronAPI.on('image-preview:result', (result) => {
         var _a;
         console.log('[ImagePreview] Result received:', result);
         if (result.action === 'cancel') {
@@ -187,6 +199,7 @@ export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, on
             session_id: sessionId,
             history: historyManager.getHistory().slice(0, -1),
         }),
+        openWhenHidden: true,
         onopen: (res) => {
             hitlLog('SSE_OPEN', { status: res.status });
             if (res.ok)
@@ -281,6 +294,11 @@ export function clearChatHistory() {
     sessionManager.createNewSession();
 }
 export function createChatInput(shadowRoot) {
+    const existingContainer = shadowRoot.getElementById('wenko-chat-input');
+    if (existingContainer) {
+        console.log('[Chat] Chat input already exists, returning existing element');
+        return existingContainer;
+    }
     const container = document.createElement('div');
     container.id = 'wenko-chat-input';
     container.innerHTML = `
@@ -1158,6 +1176,7 @@ export function sendImageMessage(imageData, action = 'analyze_for_memory', onChu
             session_id: sessionId,
             action: action,
         }),
+        openWhenHidden: true,
         onopen: (res) => {
             console.log('[Image] SSE connection opened', { status: res.status });
             if (res.ok)

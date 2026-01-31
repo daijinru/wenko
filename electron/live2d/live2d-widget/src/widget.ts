@@ -257,6 +257,14 @@ async function loadWidget(config: Config) {
   // 挂载到 shadow dom 容器
   // const shadowRoot = document.getElementById(config.mounted)?.shadowRoot;
   const mounted = getShadowRootMounted();
+
+  // Check if widget already exists to prevent duplicate initialization
+  const shadowRoot = document.getElementById('WENKO__CONTAINER-ROOT')?.shadowRoot;
+  if (shadowRoot?.getElementById('waifu')) {
+    console.log('[Widget] Widget already initialized, skipping duplicate initialization');
+    return;
+  }
+
   mounted.insertAdjacentHTML(
     'beforeend',
     `<div id="waifu">
@@ -269,7 +277,6 @@ async function loadWidget(config: Config) {
   );
 
   // 添加 ChatInput 组件
-  const shadowRoot = document.getElementById('WENKO__CONTAINER-ROOT')?.shadowRoot;
   if (shadowRoot) {
     const waifu = shadowRoot.getElementById('waifu');
     if (waifu) {

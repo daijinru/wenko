@@ -103,6 +103,11 @@ async function loadWidget(config) {
     localStorage.removeItem('waifu-display');
     sessionStorage.removeItem('waifu-message-priority');
     const mounted = getShadowRootMounted();
+    const shadowRoot = (_a = document.getElementById('WENKO__CONTAINER-ROOT')) === null || _a === void 0 ? void 0 : _a.shadowRoot;
+    if (shadowRoot === null || shadowRoot === void 0 ? void 0 : shadowRoot.getElementById('waifu')) {
+        console.log('[Widget] Widget already initialized, skipping duplicate initialization');
+        return;
+    }
     mounted.insertAdjacentHTML('beforeend', `<div id="waifu">
       <div id="waifu-tips"></div>
       <div id="waifu-canvas">
@@ -110,7 +115,6 @@ async function loadWidget(config) {
       </div>
       <div id="waifu-tool"></div>
     </div>`);
-    const shadowRoot = (_a = document.getElementById('WENKO__CONTAINER-ROOT')) === null || _a === void 0 ? void 0 : _a.shadowRoot;
     if (shadowRoot) {
         const waifu = shadowRoot.getElementById('waifu');
         if (waifu) {

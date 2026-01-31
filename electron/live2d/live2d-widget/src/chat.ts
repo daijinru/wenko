@@ -193,6 +193,10 @@ let isLoading = false;
 
 // ============ HITL IPC Result Listener ============
 
+// Track whether listeners have been set up to prevent duplicate registration
+let hitlListenerCleanup: (() => void) | null = null;
+let imagePreviewListenerCleanup: (() => void) | null = null;
+
 /**
  * Setup listener for HITL results from main process
  */
@@ -202,7 +206,14 @@ function setupHITLResultListener(): void {
     return;
   }
 
-  window.electronAPI.on('hitl:result', (result: any) => {
+  // Remove existing listener before adding a new one to prevent duplicates
+  if (hitlListenerCleanup) {
+    hitlLog('SETUP_LISTENER', 'Removing existing HITL listener before re-registering');
+    hitlListenerCleanup();
+    hitlListenerCleanup = null;
+  }
+
+  hitlListenerCleanup = window.electronAPI.on('hitl:result', (result: any) => {
     hitlLog('HITL_RESULT_RECEIVED', result);
 
     if (result.action === 'approve' && result.message) {
@@ -234,7 +245,14 @@ function setupImagePreviewResultListener(): void {
     return;
   }
 
-  window.electronAPI.on('image-preview:result', (result: {
+  // Remove existing listener before adding a new one to prevent duplicates
+  if (imagePreviewListenerCleanup) {
+    console.log('[ImagePreview] Removing existing listener before re-registering');
+    imagePreviewListenerCleanup();
+    imagePreviewListenerCleanup = null;
+  }
+
+  imagePreviewListenerCleanup = window.electronAPI.on('image-preview:result', (result: {
     success: boolean;
     action: string;
     hitlRequest?: HITLRequest;
@@ -354,6 +372,7 @@ export function sendChatMessage(
       session_id: sessionId,
       history: historyManager.getHistory().slice(0, -1), // 不包含刚添加的用户消息
     }),
+    openWhenHidden: true, // Keep connection even when page/window is hidden to prevent duplicate requests
     onopen: (res: Response) => {
       hitlLog('SSE_OPEN', { status: res.status });
       if (res.ok) return Promise.resolve();
@@ -457,6 +476,13 @@ export function clearChatHistory(): void {
  * 创建 ChatInput UI 组件
  */
 export function createChatInput(shadowRoot: ShadowRoot): HTMLElement {
+  // Check if chat input already exists to prevent duplicate event listeners
+  const existingContainer = shadowRoot.getElementById('wenko-chat-input');
+  if (existingContainer) {
+    console.log('[Chat] Chat input already exists, returning existing element');
+    return existingContainer;
+  }
+
   const container = document.createElement('div');
   container.id = 'wenko-chat-input';
   container.innerHTML = `
@@ -1546,6 +1572,7 @@ export function sendImageMessage(
       session_id: sessionId,
       action: action,
     }),
+    openWhenHidden: true, // Keep connection even when page/window is hidden to prevent duplicate requests
     onopen: (res: Response) => {
       console.log('[Image] SSE connection opened', { status: res.status });
       if (res.ok) return Promise.resolve();
