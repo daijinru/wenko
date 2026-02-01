@@ -61,6 +61,14 @@ Unlike standard AI tools, Wenko:
   - Snooze, dismiss, or mark plans as complete directly from the reminder.
   - Recurring reminders for daily, weekly, or custom schedules.
 
+- **🔌 MCP (Model Context Protocol)**
+  - Extend Wenko's capabilities with external tools via MCP servers.
+  - Easy registration and management of MCP services.
+  - Auto-start support for configured MCP servers.
+  - Trigger keywords to invoke specific tools naturally in conversation.
+
+![MCP](./docs/Snipaste_2026-02-01_13-41-01.jpg)
+
 - **🔒 Privacy First**
   - All chat history and memory data are stored locally (`workflow/data/`).
   - You control your data.
