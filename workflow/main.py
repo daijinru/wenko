@@ -248,10 +248,26 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    import asyncio
     # 启动时初始化数据库
     chat_db.init_database()
-    # 初始化 MCP 管理器
+    # 初始化 MCP 管理器 (auto-starts servers with auto_start=True)
     mcp_manager.init_mcp_manager()
+
+    # Fetch tools list for all running MCP servers to populate cache
+    pm = mcp_manager.get_process_manager()
+    running_servers = pm.get_running_servers()
+    if running_servers:
+        print(f"[MCP] Fetching tools list for {len(running_servers)} running servers...")
+        # Give servers a moment to initialize
+        await asyncio.sleep(0.5)
+        for server in running_servers:
+            try:
+                tools = await mcp_tool_executor.list_service_tools(server.name)
+                print(f"[MCP] Cached {len(tools)} tools from server: {server.name}")
+            except Exception as e:
+                print(f"[MCP] Failed to fetch tools list from {server.name}: {e}")
+
     yield
     # 关闭时清理 MCP 服务进程
     stopped_count = mcp_manager.shutdown_mcp_manager()
@@ -2175,6 +2191,7 @@ class MCPServerCreateRequest(BaseModel):
     args: List[str] = []
     env: Dict[str, str] = {}
     enabled: bool = True
+    auto_start: bool = False
     description: Optional[str] = None
     trigger_keywords: List[str] = []
 
@@ -2186,6 +2203,7 @@ class MCPServerUpdateRequest(BaseModel):
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
     enabled: Optional[bool] = None
+    auto_start: Optional[bool] = None
     description: Optional[str] = None
     trigger_keywords: Optional[List[str]] = None
 
@@ -2198,6 +2216,7 @@ class MCPServerInfoResponse(BaseModel):
     args: List[str]
     env: Dict[str, str]
     enabled: bool
+    auto_start: bool = False
     created_at: str
     status: str
     error_message: Optional[str] = None
@@ -2228,6 +2247,7 @@ def _mcp_server_to_response(info: mcp_manager.MCPServerInfo) -> MCPServerInfoRes
         args=info.args,
         env=info.env,
         enabled=info.enabled,
+        auto_start=info.auto_start,
         created_at=info.created_at,
         status=info.status.value if hasattr(info.status, 'value') else str(info.status),
         error_message=info.error_message,
@@ -2266,6 +2286,7 @@ async def create_mcp_server(request: MCPServerCreateRequest):
             args=request.args,
             env=request.env,
             enabled=request.enabled,
+            auto_start=request.auto_start,
             description=request.description,
             trigger_keywords=request.trigger_keywords,
         )
@@ -2330,6 +2351,7 @@ async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
             args=request.args,
             env=request.env,
             enabled=request.enabled,
+            auto_start=request.auto_start,
             description=request.description,
             trigger_keywords=request.trigger_keywords,
         )

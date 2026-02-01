@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface McpRegisterDialogProps {
   open: boolean;
@@ -20,6 +21,7 @@ interface McpRegisterDialogProps {
     env: Record<string, string>;
     description?: string;
     trigger_keywords?: string[];
+    auto_start?: boolean;
   }) => void;
   operating: boolean;
   initialData?: {
@@ -29,6 +31,7 @@ interface McpRegisterDialogProps {
     env: Record<string, string>;
     description?: string;
     trigger_keywords?: string[];
+    auto_start?: boolean;
   };
   isEditing?: boolean;
 }
@@ -47,6 +50,7 @@ export function McpRegisterDialog({
   const [envText, setEnvText] = useState('');
   const [description, setDescription] = useState('');
   const [triggerKeywordsText, setTriggerKeywordsText] = useState('');
+  const [autoStart, setAutoStart] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Track if we've initialized the form for this dialog open
@@ -72,6 +76,7 @@ export function McpRegisterDialog({
         );
         setDescription(initialData.description || '');
         setTriggerKeywordsText((initialData.trigger_keywords || []).join(', '));
+        setAutoStart(initialData.auto_start || false);
       } else {
         setName('');
         setCommand('');
@@ -79,6 +84,7 @@ export function McpRegisterDialog({
         setEnvText('');
         setDescription('');
         setTriggerKeywordsText('');
+        setAutoStart(false);
       }
       setError(null);
     } else if (!open) {
@@ -137,17 +143,18 @@ export function McpRegisterDialog({
       env,
       description: description.trim() || undefined,
       trigger_keywords: trigger_keywords.length > 0 ? trigger_keywords : undefined,
+      auto_start: autoStart,
     });
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{isEditing ? '编辑 MCP 服务' : '注册 MCP 服务'}</DialogTitle>
         </DialogHeader>
 
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0">
           {error && (
             <div className="p-2 bg-red-100 text-red-800 rounded text-sm">
               {error}
@@ -213,6 +220,17 @@ export function McpRegisterDialog({
               placeholder="例如: 天气, weather, 气温"
             />
             <p className="text-xs text-muted-foreground">用逗号分隔，当用户消息包含这些词时自动触发此服务</p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <label className="text-sm font-medium">自动启动</label>
+              <p className="text-xs text-muted-foreground">应用启动时自动启动此服务</p>
+            </div>
+            <Checkbox
+              checked={autoStart}
+              onCheckedChange={(checked) => setAutoStart(checked === true)}
+            />
           </div>
         </div>
 

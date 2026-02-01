@@ -57,6 +57,7 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
     env: Record<string, string>;
     description?: string;
     trigger_keywords?: string[];
+    auto_start?: boolean;
   }) => {
     const server = await registerServer(data);
     if (server) {
@@ -74,6 +75,7 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
     env: Record<string, string>;
     description?: string;
     trigger_keywords?: string[];
+    auto_start?: boolean;
   }) => {
     const success = await updateServer(id, data);
     if (success) {
@@ -181,6 +183,7 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
                 <tr>
                   <th className="p-2 text-left border-b border-r border-border whitespace-nowrap w-32">名称</th>
                   <th className="p-2 text-left border-b border-r border-border whitespace-nowrap">命令</th>
+                  <th className="p-2 text-center border-b border-r border-border whitespace-nowrap w-16">自启</th>
                   <th className="p-2 text-center border-b border-r border-border whitespace-nowrap w-20">状态</th>
                   <th className="p-2 text-center border-b border-border whitespace-nowrap w-36">操作</th>
                 </tr>
@@ -208,6 +211,13 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
                         <div className="text-[10px] text-red-600 truncate max-w-[200px]">
                           {server.error_message}
                         </div>
+                      )}
+                    </td>
+                    <td className="p-2 border-b border-r border-border text-center">
+                      {server.auto_start ? (
+                        <Badge variant="secondary" className="text-[9px] px-1 h-4">自启</Badge>
+                      ) : (
+                        <span className="text-[9px] text-muted-foreground">-</span>
                       )}
                     </td>
                     <td className="p-2 border-b border-r border-border text-center">
@@ -297,6 +307,7 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
             env: editingServer.env,
             description: editingServer.description || '',
             trigger_keywords: editingServer.trigger_keywords || [],
+            auto_start: editingServer.auto_start || false,
           }}
           isEditing
         />

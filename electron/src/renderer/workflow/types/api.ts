@@ -131,6 +131,7 @@ export interface MCPServer {
   args: string[];
   env: Record<string, string>;
   enabled: boolean;
+  auto_start: boolean;
   created_at: string;
   status: MCPServerStatus;
   error_message: string | null;
@@ -150,6 +151,7 @@ export interface MCPServerCreateRequest {
   args?: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  auto_start?: boolean;
   description?: string;
   trigger_keywords?: string[];
 }
@@ -160,6 +162,7 @@ export interface MCPServerUpdateRequest {
   args?: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  auto_start?: boolean;
   description?: string;
   trigger_keywords?: string[];
 }

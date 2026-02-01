@@ -33,6 +33,7 @@ class MCPServerConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
+    auto_start: bool = False  # Whether to auto-start on application startup
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     # New fields for conversation integration
     description: Optional[str] = None  # Tool description for prompt injection
@@ -50,6 +51,7 @@ class MCPServerInfo(BaseModel):
     args: List[str]
     env: Dict[str, str]
     enabled: bool
+    auto_start: bool = False
     created_at: str
     status: MCPServerStatus = MCPServerStatus.STOPPED
     error_message: Optional[str] = None
@@ -364,6 +366,7 @@ class MCPProcessManager:
             args=config.args,
             env=config.env,
             enabled=config.enabled,
+            auto_start=config.auto_start,
             created_at=config.created_at,
             status=status,
             error_message=self.get_error_message(server_id),
@@ -432,11 +435,24 @@ def init_mcp_manager() -> None:
     """Initialize the MCP manager.
 
     Should be called during application startup.
+    Automatically starts all enabled MCP servers.
     """
     print("[MCP] Initializing MCP manager")
-    get_registry()
-    get_process_manager()
-    print("[MCP] MCP manager initialized")
+    registry = get_registry()
+    pm = get_process_manager()
+
+    # Auto-start servers with auto_start enabled
+    servers = registry.list_servers()
+    auto_start_servers = [s for s in servers if s.auto_start and s.enabled]
+    started_count = 0
+    for server in auto_start_servers:
+        print(f"[MCP] Auto-starting server: name={server.name}, id={server.id}")
+        if pm.start_server(server.id):
+            started_count += 1
+        else:
+            print(f"[MCP] Failed to auto-start server: name={server.name}")
+
+    print(f"[MCP] MCP manager initialized, auto-started {started_count}/{len(auto_start_servers)} servers")
 
 
 def shutdown_mcp_manager() -> int:
