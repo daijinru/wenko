@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useMcpServices } from '@/hooks/use-mcp-services';
 import { McpRegisterDialog } from './mcp-register-dialog';
+import { McpToolsDialog } from './mcp-tools-dialog';
 import { useToast } from '@/hooks/use-toast';
-import type { MCPServerStatus } from '@/types/api';
+import type { MCPServerStatus, MCPServer } from '@/types/api';
 import { cn } from '@/lib/utils';
 
 interface ConfirmDialogState {
@@ -49,6 +50,21 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
   const { toast } = useToast();
   const [showRegisterDialog, setShowRegisterDialog] = useState(false);
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const [toolsDialogServer, setToolsDialogServer] = useState<MCPServer | null>(null);
+
+  const handleRowClick = (server: MCPServer, e: React.MouseEvent) => {
+    // Don't open tools dialog if clicking on operation buttons
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('[role="button"]')) {
+      return;
+    }
+    // Only show tools dialog for running servers
+    if (server.status === 'running') {
+      setToolsDialogServer(server);
+    } else {
+      toast.info('请先启动服务后查看工具列表');
+    }
+  };
 
   const handleRegister = async (data: {
     name: string;
@@ -194,8 +210,11 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
                     key={server.id}
                     className={cn(
                       "hover:bg-primary hover:text-primary-foreground group transition-colors",
-                      "even:bg-muted/30"
+                      "even:bg-muted/30",
+                      server.status === 'running' && "cursor-pointer"
                     )}
+                    onClick={(e) => handleRowClick(server, e)}
+                    title={server.status === 'running' ? '点击查看工具列表' : undefined}
                   >
                     <td className="p-2 border-b border-r border-border">
                       <div className="font-bold">{server.name}</div>
@@ -310,6 +329,16 @@ export function McpTab({ onConfirmDialog }: McpTabProps) {
             auto_start: editingServer.auto_start || false,
           }}
           isEditing
+        />
+      )}
+
+      {/* Tools dialog */}
+      {toolsDialogServer && (
+        <McpToolsDialog
+          open={!!toolsDialogServer}
+          onOpenChange={(open) => !open && setToolsDialogServer(null)}
+          serverId={toolsDialogServer.id}
+          serverName={toolsDialogServer.name}
         />
       )}
     </div>

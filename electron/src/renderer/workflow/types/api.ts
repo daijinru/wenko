@@ -172,3 +172,16 @@ export interface MCPServerActionResponse {
   message: string | null;
   server: MCPServer | null;
 }
+
+// MCP Tool types
+export interface MCPToolInfo {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown> | null;
+}
+
+export interface MCPToolListResponse {
+  service_name: string;
+  tools: MCPToolInfo[];
+  total: number;
+}

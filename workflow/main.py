@@ -2541,6 +2541,62 @@ async def restart_mcp_server(server_id: str):
         raise HTTPException(status_code=500, detail=f"重启 MCP 服务失败: {str(e)}")
 
 
+class MCPToolInfoResponse(BaseModel):
+    """MCP 工具信息响应"""
+    name: str
+    description: str
+    input_schema: Optional[Dict[str, Any]] = None
+
+
+class MCPToolListResponse(BaseModel):
+    """MCP 工具列表响应"""
+    service_name: str
+    tools: List[MCPToolInfoResponse]
+    total: int
+
+
+@app.get("/api/mcp/servers/{server_id}/tools", response_model=MCPToolListResponse)
+async def get_mcp_server_tools(server_id: str):
+    """获取 MCP 服务的工具列表"""
+    try:
+        print(f"[MCP API] GET /api/mcp/servers/{server_id}/tools")
+        pm = mcp_manager.get_process_manager()
+
+        # Check if server exists
+        info = pm.get_server_info(server_id)
+        if not info:
+            print(f"[MCP API] Get tools failed: server not found id={server_id}")
+            raise HTTPException(status_code=404, detail="MCP 服务不存在")
+
+        # Check if server is running
+        if info.status != mcp_manager.MCPServerStatus.RUNNING:
+            print(f"[MCP API] Get tools failed: server not running id={server_id}")
+            raise HTTPException(status_code=400, detail="服务未运行，请先启动服务")
+
+        # Get tools list
+        print(f"[MCP API] Fetching tools for server: name={info.name}")
+        tools = await mcp_tool_executor.list_service_tools(info.name)
+        print(f"[MCP API] Found {len(tools)} tools from server: {info.name}")
+
+        return MCPToolListResponse(
+            service_name=info.name,
+            tools=[
+                MCPToolInfoResponse(
+                    name=tool.name,
+                    description=tool.description,
+                    input_schema=tool.input_schema,
+                )
+                for tool in tools
+            ],
+            total=len(tools),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[MCP API] Get tools error: {e}")
+        raise HTTPException(status_code=500, detail=f"获取工具列表失败: {str(e)}")
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",

@@ -154,7 +154,7 @@ export function McpRegisterDialog({
           <DialogTitle>{isEditing ? '编辑 MCP 服务' : '注册 MCP 服务'}</DialogTitle>
         </DialogHeader>
 
-        <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0">
+        <div className="!px-1 !pt-1 !pb-3 space-y-4 overflow-y-auto flex-1 min-h-0">
           {error && (
             <div className="p-2 bg-red-100 text-red-800 rounded text-sm">
               {error}
