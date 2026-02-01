@@ -632,36 +632,63 @@ class MCPToolExecutor:
 
             print(f"[MCP Executor] Request sent, waiting for response (timeout={self.timeout}s)")
 
-            # Read response with proper non-blocking timeout
-            response_line = await self._read_line_with_timeout(proc.stdout, self.timeout)
+            # Read responses until we find the one matching our request ID
+            # MCP servers may send notifications or responses from previous requests
+            import time
+            start_time = time.time()
+            response = None
 
-            if response_line is None:
-                print(f"[MCP Executor] Timeout after {self.timeout}s waiting for response")
-                return ToolCallResult(
-                    success=False,
-                    tool_name=method,
-                    service_name=service_name,
-                    error=f"Tool call timed out after {self.timeout}s",
-                )
+            while True:
+                elapsed = time.time() - start_time
+                remaining_timeout = self.timeout - elapsed
 
-            if not response_line.strip():
-                print(f"[MCP Executor] Empty response from service")
-                return ToolCallResult(
-                    success=False,
-                    tool_name=method,
-                    service_name=service_name,
-                    error="No response from MCP service",
-                )
+                if remaining_timeout <= 0:
+                    print(f"[MCP Executor] Timeout after {self.timeout}s waiting for matching response")
+                    return ToolCallResult(
+                        success=False,
+                        tool_name=method,
+                        service_name=service_name,
+                        error=f"Tool call timed out after {self.timeout}s",
+                    )
 
-            # Parse JSON-RPC response
-            print(f"[MCP Executor] Received response: {len(response_line)} bytes")
-            response = json.loads(response_line.decode())
+                # Read next line with remaining timeout
+                response_line = await self._read_line_with_timeout(proc.stdout, remaining_timeout)
 
-            # Verify response ID matches request
-            resp_id = response.get("id")
-            if resp_id != request_id:
-                print(f"[MCP Executor] Response ID mismatch: expected={request_id}, got={resp_id}")
-                # Continue anyway but log warning
+                if response_line is None:
+                    print(f"[MCP Executor] Timeout after {elapsed:.1f}s waiting for response")
+                    return ToolCallResult(
+                        success=False,
+                        tool_name=method,
+                        service_name=service_name,
+                        error=f"Tool call timed out after {self.timeout}s",
+                    )
+
+                if not response_line.strip():
+                    print(f"[MCP Executor] Empty response line, continuing to read...")
+                    continue
+
+                # Parse JSON-RPC response
+                print(f"[MCP Executor] Received response: {len(response_line)} bytes")
+                try:
+                    response = json.loads(response_line.decode())
+                except json.JSONDecodeError as e:
+                    print(f"[MCP Executor] Non-JSON response, skipping: {response_line[:100]}")
+                    continue
+
+                # Check if this is a notification (no id field) - skip it
+                if "id" not in response:
+                    print(f"[MCP Executor] Received notification (no id), skipping: method={response.get('method', 'unknown')}")
+                    continue
+
+                # Verify response ID matches request
+                resp_id = response.get("id")
+                if resp_id != request_id:
+                    print(f"[MCP Executor] Response ID mismatch: expected={request_id}, got={resp_id}, reading next response...")
+                    continue
+
+                # Found matching response
+                print(f"[MCP Executor] Found matching response for request {request_id}")
+                break
 
             if "error" in response:
                 error_msg = response["error"].get("message", "Unknown error")
