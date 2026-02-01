@@ -34,13 +34,13 @@ export function MemoryDrilldown({
             <div
               key={msg.id || index}
               className={cn(
-                "mb-1.5 p-2 border-l-[3px] cursor-pointer transition-colors hover:opacity-80",
+                "mb-1.5 p-2 border-l-[3px] transition-colors hover:opacity-80",
                 msg.role === "user"
                   ? "bg-blue-50 border-l-blue-500"
                   : "bg-green-50 border-l-green-500"
               )}
-              onClick={() => onSaveMessage(msg)}
-              title="点击保存到长期记忆"
+              // onClick={() => onSaveMessage(msg)}
+              // title="点击保存到长期记忆"
             >
               <div className="flex justify-between items-center mb-1">
                 <Badge
