@@ -6,12 +6,23 @@ Handles communication via stdio using JSON-RPC protocol.
 
 import asyncio
 import json
+import os
+import select
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import mcp_manager
 from mcp_manager import MCPServerInfo, MCPServerStatus
+
+
+@dataclass
+class MCPToolInfo:
+    """Information about a specific tool from an MCP service."""
+    name: str  # Tool name (method name to call)
+    service_name: str  # Service that provides this tool
+    description: str  # Tool description
+    input_schema: Optional[Dict[str, Any]] = None  # JSON schema for input
 
 
 @dataclass
@@ -50,6 +61,227 @@ class MCPToolExecutor:
             timeout: Timeout for tool calls in seconds
         """
         self.timeout = timeout
+        # Cache for service tools: {service_name: [MCPToolInfo, ...]}
+        self._tools_cache: Dict[str, List[MCPToolInfo]] = {}
+
+    async def list_service_tools(self, service_name: str, force_refresh: bool = False) -> List[MCPToolInfo]:
+        """Get list of tools from a specific MCP service using tools/list.
+
+        Args:
+            service_name: Name of the MCP service
+            force_refresh: If True, refresh cache even if already populated
+
+        Returns:
+            List of MCPToolInfo for tools provided by this service
+        """
+        # Check cache first
+        if not force_refresh and service_name in self._tools_cache:
+            cached = self._tools_cache[service_name]
+            print(f"[MCP Executor] Returning cached tools for {service_name}: {len(cached)} tools")
+            return cached
+
+        print(f"[MCP Executor] Fetching tools list for service: {service_name}")
+
+        # Find the service
+        service = self._find_service_by_name(service_name)
+        if service is None:
+            print(f"[MCP Executor] Service not found: {service_name}")
+            return []
+
+        # Get the process
+        pm = mcp_manager.get_process_manager()
+        proc = pm.get_process(service.id)
+        if proc is None:
+            print(f"[MCP Executor] Cannot get process for service: {service_name}")
+            return []
+
+        # Check if process is still alive
+        if proc.poll() is not None:
+            print(f"[MCP Executor] Service process has terminated: {service_name}")
+            return []
+
+        # Build JSON-RPC request for tools/list
+        request_id = str(uuid.uuid4())
+        request = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "tools/list",
+            "params": {},
+        }
+        print(f"[MCP Executor] JSON-RPC request: id={request_id}, method=tools/list")
+
+        try:
+            # Send request via stdin
+            request_json = json.dumps(request) + "\n"
+            print(f"[MCP Executor] Sending tools/list request: {len(request_json)} bytes")
+
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: (proc.stdin.write(request_json.encode()), proc.stdin.flush())
+                ),
+                timeout=5.0
+            )
+
+            # Read response
+            response_line = await self._read_line_with_timeout(proc.stdout, self.timeout)
+
+            if response_line is None:
+                print(f"[MCP Executor] Timeout waiting for tools/list response")
+                return []
+
+            if not response_line.strip():
+                print(f"[MCP Executor] Empty response from tools/list")
+                return []
+
+            # Parse JSON-RPC response
+            response = json.loads(response_line.decode())
+            print(f"[MCP Executor] tools/list response received: {len(response_line)} bytes")
+
+            if "error" in response:
+                error_msg = response["error"].get("message", "Unknown error")
+                print(f"[MCP Executor] tools/list error: {error_msg}")
+                return []
+
+            # Parse tools from result
+            result = response.get("result", {})
+            tools_data = result.get("tools", [])
+            print(f"[MCP Executor] Found {len(tools_data)} tools in service {service_name}")
+
+            tools = []
+            for tool_data in tools_data:
+                tool_name = tool_data.get("name", "")
+                if not tool_name:
+                    continue
+                tool = MCPToolInfo(
+                    name=tool_name,
+                    service_name=service_name,
+                    description=tool_data.get("description", f"Tool: {tool_name}"),
+                    input_schema=tool_data.get("inputSchema"),
+                )
+                tools.append(tool)
+                print(f"[MCP Executor]   - Tool: {tool_name}: {tool.description[:50]}...")
+
+            # Cache the result
+            self._tools_cache[service_name] = tools
+            return tools
+
+        except asyncio.TimeoutError:
+            print(f"[MCP Executor] Timeout calling tools/list on {service_name}")
+            return []
+        except json.JSONDecodeError as e:
+            print(f"[MCP Executor] Invalid JSON from tools/list: {e}")
+            return []
+        except Exception as e:
+            print(f"[MCP Executor] Error listing tools: {e}")
+            return []
+
+    def clear_tools_cache(self, service_name: Optional[str] = None) -> None:
+        """Clear the tools cache.
+
+        Args:
+            service_name: If provided, only clear cache for this service
+        """
+        if service_name:
+            self._tools_cache.pop(service_name, None)
+            print(f"[MCP Executor] Cleared tools cache for: {service_name}")
+        else:
+            self._tools_cache.clear()
+            print("[MCP Executor] Cleared all tools cache")
+
+    def get_cached_tools(self, service_name: str) -> List[MCPToolInfo]:
+        """Get cached tools for a service (synchronous).
+
+        Args:
+            service_name: Name of the MCP service
+
+        Returns:
+            List of cached MCPToolInfo, empty if not cached
+        """
+        return self._tools_cache.get(service_name, [])
+
+    def get_cached_tools_description(self, service_name: str) -> str:
+        """Get description of cached tools for a service (synchronous).
+
+        This method uses cached tool information. Call list_service_tools()
+        first to populate the cache.
+
+        Args:
+            service_name: Name of the MCP service
+
+        Returns:
+            Description string with tool methods, or empty if no cache
+        """
+        tools = self.get_cached_tools(service_name)
+        if not tools:
+            print(f"[MCP Executor] No cached tools for service: {service_name}")
+            return ""
+
+        lines = [f"服务 [{service_name}] 提供以下工具:"]
+        for tool in tools:
+            lines.append(f"  - 方法名: {tool.name}")
+            lines.append(f"    描述: {tool.description}")
+            if tool.input_schema:
+                required = tool.input_schema.get("required", [])
+                properties = tool.input_schema.get("properties", {})
+                if required:
+                    params = []
+                    for param_name in required:
+                        param_info = properties.get(param_name, {})
+                        param_type = param_info.get("type", "any")
+                        params.append(f"{param_name}({param_type})")
+                    lines.append(f"    必需参数: {', '.join(params)}")
+
+        result = "\n".join(lines)
+        print(f"[MCP Executor] Cached tools description for {service_name}: {len(tools)} tools")
+        return result
+
+    def get_all_cached_tools_description(self) -> str:
+        """Get description of all cached tools across all services.
+
+        Returns:
+            Combined description string
+        """
+        pm = mcp_manager.get_process_manager()
+        running_servers = pm.get_running_servers()
+
+        if not running_servers:
+            return ""
+
+        lines = ["【可用 MCP 工具】"]
+        has_cached_tools = False
+
+        for server in running_servers:
+            tools = self.get_cached_tools(server.name)
+            if tools:
+                has_cached_tools = True
+                lines.append(f"\n服务 [{server.name}]:")
+                for tool in tools:
+                    lines.append(f"  - 方法名: {tool.name}")
+                    lines.append(f"    描述: {tool.description}")
+                    if tool.input_schema:
+                        required = tool.input_schema.get("required", [])
+                        properties = tool.input_schema.get("properties", {})
+                        if required:
+                            params = []
+                            for param_name in required:
+                                param_info = properties.get(param_name, {})
+                                param_type = param_info.get("type", "any")
+                                params.append(f"{param_name}({param_type})")
+                            lines.append(f"    必需参数: {', '.join(params)}")
+            else:
+                # Fallback to service-level description
+                desc = server.description or f"MCP 服务"
+                lines.append(f"\n服务 [{server.name}]: {desc}")
+                lines.append(f"  - 方法名: (需要先获取工具列表)")
+
+        if not has_cached_tools:
+            return ""
+
+        result = "\n".join(lines)
+        print(f"[MCP Executor] All cached tools description: {len(result)} chars")
+        return result
 
     def get_available_tools(self) -> List[ToolDescription]:
         """Get list of tools from all running MCP servers.
@@ -97,7 +329,7 @@ class MCPToolExecutor:
         return result
 
     def get_all_tools_description_level1(self) -> str:
-        """Get Level 1 descriptions for all available tools.
+        """Get Level 1 descriptions for all available tools (from cache).
 
         Returns:
             Combined description string for all tools
@@ -112,6 +344,58 @@ class MCPToolExecutor:
             lines.append(f"- {tool.name}: {tool.description}")
         result = "\n".join(lines)
         print(f"[MCP Executor] All tools description: {len(tools)} tools, {len(result)} chars")
+        return result
+
+    async def get_all_tools_with_methods(self) -> str:
+        """Get detailed description of all tools including method names.
+
+        This async method fetches actual tool lists from each service
+        using tools/list, providing correct method names for LLM.
+
+        Returns:
+            Detailed description string for prompt injection
+        """
+        pm = mcp_manager.get_process_manager()
+        running_servers = pm.get_running_servers()
+
+        if not running_servers:
+            print("[MCP Executor] No running servers for tools description")
+            return ""
+
+        print(f"[MCP Executor] Fetching tools from {len(running_servers)} running servers")
+
+        lines = ["【可用 MCP 工具】"]
+
+        for server in running_servers:
+            # Get tools from this service
+            tools = await self.list_service_tools(server.name)
+
+            if tools:
+                lines.append(f"\n服务 [{server.name}]:")
+                for tool in tools:
+                    # Include tool name (method) and description
+                    lines.append(f"  - 方法: {tool.name}")
+                    lines.append(f"    描述: {tool.description}")
+                    # If input_schema has required params, show them
+                    if tool.input_schema:
+                        required = tool.input_schema.get("required", [])
+                        properties = tool.input_schema.get("properties", {})
+                        if required:
+                            params = []
+                            for param_name in required:
+                                param_info = properties.get(param_name, {})
+                                param_type = param_info.get("type", "any")
+                                param_desc = param_info.get("description", "")
+                                params.append(f"{param_name}({param_type})")
+                            lines.append(f"    参数: {', '.join(params)}")
+            else:
+                # Fallback to service description if tools/list failed
+                desc = server.description or f"MCP 服务"
+                lines.append(f"\n服务 [{server.name}]: {desc}")
+                lines.append(f"  - 方法: {server.name} (使用服务名作为默认方法)")
+
+        result = "\n".join(lines)
+        print(f"[MCP Executor] Detailed tools description: {len(result)} chars")
         return result
 
     def _find_service_by_name(self, name: str) -> Optional[MCPServerInfo]:
@@ -143,6 +427,123 @@ class MCPToolExecutor:
         available = self._find_service_by_name(service_name) is not None
         print(f"[MCP Executor] Service availability check: name={service_name}, available={available}")
         return available
+
+    async def _read_line_with_timeout(
+        self,
+        stdout,
+        timeout: float,
+    ) -> Optional[bytes]:
+        """Read a line from stdout with proper timeout support.
+
+        Uses select() for non-blocking I/O to allow true timeout interruption.
+        Falls back to polling-based approach on Windows.
+
+        Args:
+            stdout: The stdout pipe to read from
+            timeout: Timeout in seconds
+
+        Returns:
+            The line read, or None if timeout/error
+        """
+        if os.name == 'nt':
+            # Windows: use polling-based approach
+            return await self._read_line_polling(stdout, timeout)
+        else:
+            # Unix: use select for efficient non-blocking I/O
+            return await self._read_line_select(stdout, timeout)
+
+    async def _read_line_select(
+        self,
+        stdout,
+        timeout: float,
+    ) -> Optional[bytes]:
+        """Read line using select() for Unix systems."""
+        loop = asyncio.get_event_loop()
+        fd = stdout.fileno()
+        buffer = b""
+        deadline = loop.time() + timeout
+
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                print(f"[MCP Executor] Select timeout, no complete line received")
+                return None
+
+            # Use select with a small timeout to check for data
+            try:
+                readable = await loop.run_in_executor(
+                    None,
+                    lambda: select.select([fd], [], [], min(remaining, 0.5))[0]
+                )
+            except Exception as e:
+                print(f"[MCP Executor] Select error: {e}")
+                return None
+
+            if readable:
+                try:
+                    chunk = os.read(fd, 4096)
+                    if not chunk:
+                        # EOF
+                        print(f"[MCP Executor] EOF received from stdout")
+                        return buffer if buffer else None
+                    buffer += chunk
+                    if b"\n" in buffer:
+                        line, _ = buffer.split(b"\n", 1)
+                        return line + b"\n"
+                except BlockingIOError:
+                    continue
+                except Exception as e:
+                    print(f"[MCP Executor] Read error: {e}")
+                    return None
+
+            # Allow cancellation
+            await asyncio.sleep(0)
+
+    async def _read_line_polling(
+        self,
+        stdout,
+        timeout: float,
+    ) -> Optional[bytes]:
+        """Read line using polling for Windows systems."""
+        loop = asyncio.get_event_loop()
+        buffer = b""
+        deadline = loop.time() + timeout
+        poll_interval = 0.1
+
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                print(f"[MCP Executor] Polling timeout, no complete line received")
+                return None
+
+            # Check if process has data available (non-blocking check)
+            try:
+                # Try to read available data
+                chunk = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: stdout.read(1) if stdout.peek(1) else b""
+                    ),
+                    timeout=min(poll_interval, remaining)
+                )
+                if chunk:
+                    buffer += chunk
+                    # Continue reading until newline
+                    while True:
+                        more = stdout.read(1)
+                        if not more:
+                            break
+                        buffer += more
+                        if more == b"\n":
+                            return buffer
+            except asyncio.TimeoutError:
+                pass
+            except Exception as e:
+                print(f"[MCP Executor] Polling read error: {e}")
+                return None
+
+            # Allow cancellation
+            await asyncio.sleep(0.01)
 
     async def execute_tool(
         self,
@@ -183,6 +584,15 @@ class MCPToolExecutor:
                 error=f"Cannot communicate with MCP service '{service_name}'",
             )
 
+        # Check if process is still alive
+        if proc.poll() is not None:
+            return ToolCallResult(
+                success=False,
+                tool_name=method,
+                service_name=service_name,
+                error=f"MCP service '{service_name}' process has terminated",
+            )
+
         # Build JSON-RPC request using MCP protocol tools/call method
         request_id = str(uuid.uuid4())
         request = {
@@ -197,22 +607,35 @@ class MCPToolExecutor:
         print(f"[MCP Executor] JSON-RPC request: id={request_id}, method=tools/call, tool={method}, args={arguments}")
 
         try:
-            # Send request via stdin
+            # Send request via stdin with timeout protection
             request_json = json.dumps(request) + "\n"
             print(f"[MCP Executor] Sending request to stdin: {len(request_json)} bytes")
-            proc.stdin.write(request_json.encode())
-            proc.stdin.flush()
-            print(f"[MCP Executor] Request sent, waiting for response (timeout={self.timeout}s)")
 
-            # Read response with timeout
             try:
-                response_line = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
-                        None, proc.stdout.readline
+                # Use executor to allow timeout on write
+                loop = asyncio.get_event_loop()
+                await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: (proc.stdin.write(request_json.encode()), proc.stdin.flush())
                     ),
-                    timeout=self.timeout,
+                    timeout=5.0  # 5 second timeout for write
                 )
             except asyncio.TimeoutError:
+                print(f"[MCP Executor] Timeout writing to stdin")
+                return ToolCallResult(
+                    success=False,
+                    tool_name=method,
+                    service_name=service_name,
+                    error="Timeout writing to MCP service stdin",
+                )
+
+            print(f"[MCP Executor] Request sent, waiting for response (timeout={self.timeout}s)")
+
+            # Read response with proper non-blocking timeout
+            response_line = await self._read_line_with_timeout(proc.stdout, self.timeout)
+
+            if response_line is None:
                 print(f"[MCP Executor] Timeout after {self.timeout}s waiting for response")
                 return ToolCallResult(
                     success=False,
@@ -221,7 +644,7 @@ class MCPToolExecutor:
                     error=f"Tool call timed out after {self.timeout}s",
                 )
 
-            if not response_line:
+            if not response_line.strip():
                 print(f"[MCP Executor] Empty response from service")
                 return ToolCallResult(
                     success=False,
@@ -233,6 +656,12 @@ class MCPToolExecutor:
             # Parse JSON-RPC response
             print(f"[MCP Executor] Received response: {len(response_line)} bytes")
             response = json.loads(response_line.decode())
+
+            # Verify response ID matches request
+            resp_id = response.get("id")
+            if resp_id != request_id:
+                print(f"[MCP Executor] Response ID mismatch: expected={request_id}, got={resp_id}")
+                # Continue anyway but log warning
 
             if "error" in response:
                 error_msg = response["error"].get("message", "Unknown error")
@@ -265,6 +694,14 @@ class MCPToolExecutor:
                 tool_name=method,
                 service_name=service_name,
                 error=f"Invalid JSON response: {e}",
+            )
+        except BrokenPipeError:
+            print(f"[MCP Executor] Broken pipe - MCP service may have crashed")
+            return ToolCallResult(
+                success=False,
+                tool_name=method,
+                service_name=service_name,
+                error="MCP service connection lost (broken pipe)",
             )
         except Exception as e:
             print(f"[MCP Executor] Execution exception: {e}")
@@ -336,3 +773,29 @@ async def execute_mcp_tool(
     print(f"[MCP] execute_mcp_tool() called: service={service_name}, method={method}, args={arguments}")
     executor = get_executor(timeout)
     return await executor.execute_tool(service_name, method, arguments)
+
+
+async def get_mcp_tools_prompt_snippet_async() -> str:
+    """Async convenience function to get detailed MCP tools prompt snippet.
+
+    This version fetches actual tool lists from services using tools/list,
+    providing correct method names for LLM to use.
+
+    Returns:
+        Detailed prompt snippet string with method names
+    """
+    print("[MCP] get_mcp_tools_prompt_snippet_async() called")
+    return await get_executor().get_all_tools_with_methods()
+
+
+async def list_service_tools(service_name: str) -> List[MCPToolInfo]:
+    """Async convenience function to list tools from a specific service.
+
+    Args:
+        service_name: Name of the MCP service
+
+    Returns:
+        List of MCPToolInfo for tools in this service
+    """
+    print(f"[MCP] list_service_tools() called: service={service_name}")
+    return await get_executor().list_service_tools(service_name)

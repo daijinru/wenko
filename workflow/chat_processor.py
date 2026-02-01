@@ -342,16 +342,19 @@ MCP_INTENT_SNIPPET_TEMPLATE = """
 {{"response":"你的回复","tool_call":{{"name":"服务名称","method":"方法名","arguments":{{"参数名":"参数值"}}}}}}
 
 tool_call 字段说明:
-- name: MCP服务名称
-- method: 要调用的方法（如果不确定，使用服务名作为方法名）
-- arguments: 传递给工具的参数对象
+- name: MCP服务名称（如上述服务列表中的服务名）
+- method: 要调用的方法名（必须使用上述工具列表中的"方法名"，而不是服务名）
+- arguments: 传递给工具的参数对象（根据上述"必需参数"填写）
 
-注意：只有在确实需要调用工具时才添加 tool_call 字段。
+重要：method 必须使用工具列表中给出的实际方法名，而不是服务名称。
 """
 
 
 def get_mcp_intent_snippet(service_name: Optional[str] = None) -> str:
     """Get MCP intent snippet with tool descriptions.
+
+    Uses cached tool information if available (populated when service starts).
+    Falls back to service-level description if cache is empty.
 
     Args:
         service_name: Specific service name if known
@@ -364,22 +367,34 @@ def get_mcp_intent_snippet(service_name: Optional[str] = None) -> str:
     print(f"[MCP Intent] Getting intent snippet: service_name={service_name}")
 
     if service_name:
-        # Get description for specific service
-        desc = mcp_tool_executor.get_executor().get_tool_description_level1(service_name)
-        if desc:
-            tools_desc = desc
-            print(f"[MCP Intent] Found specific service description: {service_name}")
+        # Try to get cached tools for specific service
+        cached_desc = mcp_tool_executor.get_executor().get_cached_tools_description(service_name)
+        if cached_desc:
+            tools_desc = cached_desc
+            print(f"[MCP Intent] Using cached tools for service: {service_name}")
         else:
-            tools_desc = f"[工具] {service_name}: MCP服务"
-            print(f"[MCP Intent] Using default description for: {service_name}")
+            # Fallback to service-level description
+            desc = mcp_tool_executor.get_executor().get_tool_description_level1(service_name)
+            if desc:
+                tools_desc = desc
+                print(f"[MCP Intent] Found specific service description: {service_name}")
+            else:
+                tools_desc = f"[工具] {service_name}: MCP服务"
+                print(f"[MCP Intent] Using default description for: {service_name}")
     else:
-        # Get all available tools
-        tools_desc = mcp_tool_executor.get_mcp_tools_prompt_snippet()
-        if not tools_desc:
-            tools_desc = "（当前没有可用的MCP工具）"
-            print("[MCP Intent] No available MCP tools")
+        # Try to get cached tools for all services
+        cached_desc = mcp_tool_executor.get_executor().get_all_cached_tools_description()
+        if cached_desc:
+            tools_desc = cached_desc
+            print(f"[MCP Intent] Using all cached tools description: {len(cached_desc)} chars")
         else:
-            print(f"[MCP Intent] Got all tools description: {len(tools_desc)} chars")
+            # Fallback to service-level descriptions
+            tools_desc = mcp_tool_executor.get_mcp_tools_prompt_snippet()
+            if not tools_desc:
+                tools_desc = "（当前没有可用的MCP工具）"
+                print("[MCP Intent] No available MCP tools")
+            else:
+                print(f"[MCP Intent] Got all tools description: {len(tools_desc)} chars")
 
     snippet = MCP_INTENT_SNIPPET_TEMPLATE.format(mcp_tools_description=tools_desc)
     print(f"[MCP Intent] Generated snippet: {len(snippet)} chars")

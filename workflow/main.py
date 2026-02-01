@@ -2400,6 +2400,19 @@ async def start_mcp_server(server_id: str):
         info = pm.get_server_info(server_id)
         if info:
             print(f"[MCP API] Start result: success={success}, status={info.status}, pid={info.pid}")
+
+            # If server started successfully, fetch its tools list for caching
+            if success and info.status == mcp_manager.MCPServerStatus.RUNNING:
+                try:
+                    print(f"[MCP API] Fetching tools list for newly started server: {info.name}")
+                    import asyncio
+                    # Give the server a moment to initialize
+                    await asyncio.sleep(0.5)
+                    tools = await mcp_tool_executor.list_service_tools(info.name)
+                    print(f"[MCP API] Cached {len(tools)} tools from server: {info.name}")
+                except Exception as e:
+                    print(f"[MCP API] Failed to fetch tools list: {e}")
+
             return MCPServerActionResponse(
                 success=success,
                 message="服务启动成功" if success else info.error_message,
@@ -2474,6 +2487,21 @@ async def restart_mcp_server(server_id: str):
         info = pm.get_server_info(server_id)
         if info:
             print(f"[MCP API] Restart result: success={success}, status={info.status}, pid={info.pid}")
+
+            # If server restarted successfully, fetch its tools list for caching
+            if success and info.status == mcp_manager.MCPServerStatus.RUNNING:
+                try:
+                    print(f"[MCP API] Fetching tools list for restarted server: {info.name}")
+                    import asyncio
+                    # Give the server a moment to initialize
+                    await asyncio.sleep(0.5)
+                    # Clear old cache and fetch new tools
+                    mcp_tool_executor.get_executor().clear_tools_cache(info.name)
+                    tools = await mcp_tool_executor.list_service_tools(info.name)
+                    print(f"[MCP API] Cached {len(tools)} tools from server: {info.name}")
+                except Exception as e:
+                    print(f"[MCP API] Failed to fetch tools list: {e}")
+
             return MCPServerActionResponse(
                 success=success,
                 message="服务重启成功" if success else info.error_message,
