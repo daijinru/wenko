@@ -185,3 +185,24 @@ export interface MCPToolListResponse {
   tools: MCPToolInfo[];
   total: number;
 }
+
+// Log Viewer types
+export interface LogFileInfo {
+  date: string;
+  size: number;
+  filename: string;
+}
+
+export interface LogFilesListResponse {
+  files: LogFileInfo[];
+  total: number;
+}
+
+export interface LogContentResponse {
+  date: string;
+  lines: string[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+}

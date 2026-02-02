@@ -2597,6 +2597,128 @@ async def get_mcp_server_tools(server_id: str):
         raise HTTPException(status_code=500, detail=f"获取工具列表失败: {str(e)}")
 
 
+# ==================== Log Viewer API ====================
+
+
+class LogFileInfo(BaseModel):
+    """日志文件信息"""
+    date: str
+    size: int
+    filename: str
+
+
+class LogFilesListResponse(BaseModel):
+    """日志文件列表响应"""
+    files: List[LogFileInfo]
+    total: int
+
+
+class LogContentResponse(BaseModel):
+    """日志内容响应"""
+    date: str
+    lines: List[str]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
+@app.get("/api/logs", response_model=LogFilesListResponse)
+async def list_log_files():
+    """获取可用的日志文件列表（按日期降序）"""
+    import glob
+    from pathlib import Path
+
+    log_dir = Path(__file__).parent / "logs"
+
+    if not log_dir.exists():
+        return LogFilesListResponse(files=[], total=0)
+
+    pattern = str(log_dir / "workflow.*.log")
+    log_files = []
+
+    for log_file in glob.glob(pattern):
+        try:
+            path = Path(log_file)
+            filename = path.name
+            # workflow.2026-02-01.log -> 2026-02-01
+            date_str = filename.replace("workflow.", "").replace(".log", "")
+            # Validate date format
+            datetime.strptime(date_str, "%Y-%m-%d")
+            size = path.stat().st_size
+            log_files.append(LogFileInfo(
+                date=date_str,
+                size=size,
+                filename=filename,
+            ))
+        except (ValueError, OSError):
+            # Skip invalid files
+            continue
+
+    # Sort by date descending
+    log_files.sort(key=lambda x: x.date, reverse=True)
+
+    return LogFilesListResponse(files=log_files, total=len(log_files))
+
+
+@app.get("/api/logs/{date}", response_model=LogContentResponse)
+async def get_log_content(
+    date: str,
+    offset: int = 0,
+    limit: int = 500,
+    order: str = "desc",
+):
+    """获取指定日期的日志内容
+
+    Args:
+        date: 日期 (YYYY-MM-DD)
+        offset: 起始行号 (0-based)
+        limit: 返回行数 (默认 500)
+        order: 排序方式 (asc: 正序, desc: 倒序)
+    """
+    from pathlib import Path
+
+    # Validate date format
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式无效，请使用 YYYY-MM-DD 格式")
+
+    log_dir = Path(__file__).parent / "logs"
+    log_file = log_dir / f"workflow.{date}.log"
+
+    if not log_file.exists():
+        raise HTTPException(status_code=404, detail=f"日志文件不存在: {date}")
+
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+
+        total = len(all_lines)
+
+        # Apply order
+        if order == "desc":
+            all_lines = all_lines[::-1]
+
+        # Apply pagination
+        start = offset
+        end = offset + limit
+        lines = [line.rstrip("\n\r") for line in all_lines[start:end]]
+        has_more = end < total
+
+        return LogContentResponse(
+            date=date,
+            lines=lines,
+            total=total,
+            offset=offset,
+            limit=limit,
+            has_more=has_more,
+        )
+    except Exception as e:
+        logger.error(f"读取日志文件失败: {e}")
+        raise HTTPException(status_code=500, detail=f"读取日志文件失败: {str(e)}")
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
