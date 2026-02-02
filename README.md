@@ -69,6 +69,16 @@ Unlike standard AI tools, Wenko:
 
 ![MCP](./docs/Snipaste_2026-02-01_13-41-01.jpg)
 
+- **📋 Log Viewer**
+  - View backend logs directly in the Electron panel.
+  - Filter logs by date with a dropdown selector.
+  - Toggle between ascending and descending order.
+  - Keyword highlighting for quick search.
+  - Color-coded log levels (INFO, WARN, ERROR, DEBUG).
+  - Click to highlight specific log lines for comparison.
+
+![Log Viewer](./docs/Snipaste_2026-02-02_18-13-28.jpg)
+
 - **🔒 Privacy First**
   - All chat history and memory data are stored locally (`workflow/data/`).
   - You control your data.
