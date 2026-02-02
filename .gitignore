@@ -1,4 +1,3 @@
-config.json
 node_modules
 # 日志
 electron/logs
@@ -10,8 +9,6 @@ electron/logs
 .langgraph_api/
 __pycache__/
 
-# Chat config (contains API keys)
-workflow/chat_config.json
 # Chat databases
 chat_history.db
 
