@@ -4,9 +4,12 @@ Defines regex and keyword rules for Layer 1 rule-based intent matching.
 Rules are organized by intent type for easy maintenance and extension.
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Pattern
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -351,7 +354,7 @@ def create_mcp_keyword_rule(service_name: str, keywords: List[str]) -> Optional[
         IntentRule if keywords provided, None otherwise
     """
     if not keywords:
-        print(f"[Intent Rules] No keywords for service '{service_name}', skipping rule creation")
+        logger.info(f"[Intent Rules] No keywords for service '{service_name}', skipping rule creation")
         return None
 
     # Escape special regex characters in keywords
@@ -364,7 +367,7 @@ def create_mcp_keyword_rule(service_name: str, keywords: List[str]) -> Optional[
         priority=20,  # Medium-high priority for keyword matches
         mcp_service_name=service_name,
     )
-    print(f"[Intent Rules] Created MCP rule: name={rule.name}, keywords={keywords}, priority={rule.priority}")
+    logger.info(f"[Intent Rules] Created MCP rule: name={rule.name}, keywords={keywords}, priority={rule.priority}")
     return rule
 
 
@@ -411,5 +414,5 @@ def get_all_rules_with_dynamic_mcp(mcp_keyword_rules: List[IntentRule]) -> List[
     """
     all_rules = MEMORY_RULES + HITL_RULES + MCP_RULES + mcp_keyword_rules
     sorted_rules = sorted(all_rules, key=lambda r: r.priority, reverse=True)
-    print(f"[Intent Rules] Combined rules: memory={len(MEMORY_RULES)}, hitl={len(HITL_RULES)}, mcp_static={len(MCP_RULES)}, mcp_dynamic={len(mcp_keyword_rules)}, total={len(sorted_rules)}")
+    logger.info(f"[Intent Rules] Combined rules: memory={len(MEMORY_RULES)}, hitl={len(HITL_RULES)}, mcp_static={len(MCP_RULES)}, mcp_dynamic={len(mcp_keyword_rules)}, total={len(sorted_rules)}")
     return sorted_rules

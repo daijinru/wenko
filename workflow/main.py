@@ -12,11 +12,9 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Initialize logging before other imports
+import logger as app_logger
+app_logger.setup_logging()
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import httpx
@@ -38,6 +36,8 @@ from hitl_schema import (
     HITLResponseData,
     HITLResponseResult,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # Chat 相关配置和模型
@@ -184,7 +184,7 @@ def build_request_body_with_thinking(
     # 打印请求参数日志（不包含 messages 内容，避免日志过大）
     log_params = {k: v for k, v in request_body.items() if k != "messages"}
     log_params["messages_count"] = len(messages)
-    print(f"[DeepThinking] enabled={deep_thinking_enabled}, request_params={log_params}")
+    logger.info(f"[DeepThinking] enabled={deep_thinking_enabled}, request_params={log_params}")
 
     return request_body
 
@@ -258,21 +258,21 @@ async def lifespan(app: FastAPI):
     pm = mcp_manager.get_process_manager()
     running_servers = pm.get_running_servers()
     if running_servers:
-        print(f"[MCP] Fetching tools list for {len(running_servers)} running servers...")
+        logger.info(f"[MCP] Fetching tools list for {len(running_servers)} running servers...")
         # Give servers a moment to initialize
         await asyncio.sleep(0.5)
         for server in running_servers:
             try:
                 tools = await mcp_tool_executor.list_service_tools(server.name)
-                print(f"[MCP] Cached {len(tools)} tools from server: {server.name}")
+                logger.info(f"[MCP] Cached {len(tools)} tools from server: {server.name}")
             except Exception as e:
-                print(f"[MCP] Failed to fetch tools list from {server.name}: {e}")
+                logger.info(f"[MCP] Failed to fetch tools list from {server.name}: {e}")
 
     yield
     # 关闭时清理 MCP 服务进程
     stopped_count = mcp_manager.shutdown_mcp_manager()
     if stopped_count > 0:
-        print(f"[MCP] Stopped {stopped_count} running MCP servers on shutdown")
+        logger.info(f"[MCP] Stopped {stopped_count} running MCP servers on shutdown")
 
 
 # 创建 FastAPI 应用
@@ -360,19 +360,19 @@ async def call_llm_with_tool_result(
     }
 
     try:
-        print(f"[MCP Followup] Calling LLM with tool result...")
+        logger.info(f"[MCP Followup] Calling LLM with tool result...")
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(api_url, json=request_body, headers=headers)
             if resp.status_code != 200:
-                print(f"[MCP Followup] API error: {resp.status_code}")
+                logger.info(f"[MCP Followup] API error: {resp.status_code}")
                 return None
 
             data = resp.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            print(f"[MCP Followup] Got response in {time.time() - start:.2f}s, length={len(content)}")
+            logger.info(f"[MCP Followup] Got response in {time.time() - start:.2f}s, length={len(content)}")
             return content
     except Exception as e:
-        print(f"[MCP Followup] Failed: {e}")
+        logger.info(f"[MCP Followup] Failed: {e}")
         return None
 
 
@@ -399,7 +399,7 @@ async def stream_chat_response(request: ChatRequest):
         try:
             chat_db.add_message(request.session_id, "user", request.message)
         except Exception as e:
-            print(f"保存用户消息失败: {e}")
+            logger.error(f"保存用户消息失败: {e}")
 
     # 检查是否启用记忆/情绪系统
     use_memory_system = chat_processor.is_memory_emotion_enabled()
@@ -427,7 +427,7 @@ async def stream_chat_response(request: ChatRequest):
             chat_context.intent_result = intent_result
             messages = chat_processor.build_memory_aware_messages(chat_context)
         except Exception as e:
-            print(f"构建记忆上下文失败，回退到简单模式: {e}")
+            logger.warning(f"构建记忆上下文失败，回退到简单模式: {e}")
             use_memory_system = False
 
     if not use_memory_system:
@@ -491,14 +491,14 @@ async def stream_chat_response(request: ChatRequest):
         # 打印响应状态日志
         has_thinking_tags = "<thinking>" in assistant_response.lower() if assistant_response else False
         deep_thinking_mode = is_deep_thinking_enabled()
-        print(f"[DeepThinking] Response received: length={len(assistant_response)}, has_thinking_tags={has_thinking_tags}, deep_thinking_enabled={deep_thinking_mode}")
+        logger.info(f"[DeepThinking] Response received: length={len(assistant_response)}, has_thinking_tags={has_thinking_tags}, deep_thinking_enabled={deep_thinking_mode}")
 
         # 应用 thinking 标签过滤（深度思考关闭时）
         final_response = chat_processor.filter_thinking_tags(assistant_response)
 
         # 如果进行了过滤，打印过滤结果
         if len(final_response) != len(assistant_response):
-            print(f"[DeepThinking] Thinking tags filtered: original_length={len(assistant_response)}, filtered_length={len(final_response)}")
+            logger.info(f"[DeepThinking] Thinking tags filtered: original_length={len(assistant_response)}, filtered_length={len(final_response)}")
 
         hitl_request = None
 
@@ -511,17 +511,17 @@ async def stream_chat_response(request: ChatRequest):
 
                 # 检查是否有 HITL 请求
                 if chat_processor.is_hitl_enabled():
-                    print(f"[HITL] Checking for HITL in response (length={len(assistant_response)})")
+                    logger.info(f"[HITL] Checking for HITL in response (length={len(assistant_response)})")
                     hitl_request = hitl_handler.extract_hitl_from_llm_response(assistant_response)
                     if hitl_request:
                         if isinstance(hitl_request, HITLDisplayRequest):
-                            print(f"[HITL] Found visual_display request: id={hitl_request.id}, title={hitl_request.title}, displays={len(hitl_request.displays)}")
+                            logger.info(f"[HITL] Found visual_display request: id={hitl_request.id}, title={hitl_request.title}, displays={len(hitl_request.displays)}")
                             hitl_handler.store_display_request(hitl_request, session_id)
                         else:
-                            print(f"[HITL] Found form request: id={hitl_request.id}, title={hitl_request.title}, fields={len(hitl_request.fields)}")
+                            logger.info(f"[HITL] Found form request: id={hitl_request.id}, title={hitl_request.title}, fields={len(hitl_request.fields)}")
                             hitl_handler.store_hitl_request(hitl_request, session_id)
                     else:
-                        print("[HITL] No HITL request found in response")
+                        logger.info("[HITL] No HITL request found in response")
 
                 # 发送解析后的响应文本
                 yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
@@ -540,7 +540,7 @@ async def stream_chat_response(request: ChatRequest):
 
                 # 发送 HITL 请求事件
                 if hitl_request:
-                    print(f"[HITL] Sending HITL SSE event for request {hitl_request.id}, type={hitl_request.type}")
+                    logger.info(f"[HITL] Sending HITL SSE event for request {hitl_request.id}, type={hitl_request.type}")
                     if isinstance(hitl_request, HITLDisplayRequest):
                         # visual_display 类型
                         hitl_payload = {
@@ -592,7 +592,7 @@ async def stream_chat_response(request: ChatRequest):
                 # 检查是否有 MCP 工具调用请求
                 tool_call_request = chat_processor.extract_tool_call(assistant_response)
                 if tool_call_request:
-                    print(f"[MCP] Found tool_call: name={tool_call_request.name}, method={tool_call_request.method}")
+                    logger.info(f"[MCP] Found tool_call: name={tool_call_request.name}, method={tool_call_request.method}")
                     # 执行工具调用
                     tool_result = await mcp_tool_executor.execute_mcp_tool(
                         service_name=tool_call_request.name,
@@ -608,7 +608,7 @@ async def stream_chat_response(request: ChatRequest):
                         "error": tool_result.error,
                     }
                     yield f'event: tool_result\ndata: {json.dumps({"type": "tool_result", "payload": tool_result_payload})}\n\n'
-                    print(f"[MCP] Tool result sent: success={tool_result.success}")
+                    logger.info(f"[MCP] Tool result sent: success={tool_result.success}")
 
                     # 二次调用 LLM，将工具结果转化为自然语言回复
                     followup_response = await call_llm_with_tool_result(
@@ -621,10 +621,10 @@ async def stream_chat_response(request: ChatRequest):
                         try:
                             followup_parsed = parse_llm_output(followup_response)
                             followup_text = followup_parsed.response
-                            print(f"[MCP Followup] Parsed response: {len(followup_text)} chars")
+                            logger.info(f"[MCP Followup] Parsed response: {len(followup_text)} chars")
                         except Exception:
                             followup_text = chat_processor.extract_response_text(followup_response)
-                            print(f"[MCP Followup] Using raw response: {len(followup_text)} chars")
+                            logger.info(f"[MCP Followup] Using raw response: {len(followup_text)} chars")
 
                         # 发送 followup 响应
                         yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": followup_text}})}\n\n'
@@ -632,7 +632,7 @@ async def stream_chat_response(request: ChatRequest):
                         final_response = followup_text
 
             except Exception as e:
-                print(f"解析 LLM 响应失败: {e}")
+                logger.error(f"解析 LLM 响应失败: {e}")
                 # 回退：直接使用原始响应
                 final_response = chat_processor.extract_response_text(assistant_response)
                 yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
@@ -642,7 +642,7 @@ async def stream_chat_response(request: ChatRequest):
             try:
                 chat_db.add_message(request.session_id, "assistant", final_response)
             except Exception as e:
-                print(f"保存助手消息失败: {e}")
+                logger.error(f"保存助手消息失败: {e}")
 
         yield f'event: done\ndata: {json.dumps({"type": "done"})}\n\n'
 
@@ -706,9 +706,9 @@ async def stream_image_analysis(request: ImageChatRequest):
 
                 # 调试日志
                 if memory_result:
-                    print(f"[ImageAnalysis] memory_result: key={memory_result.key}, category={memory_result.category}, confidence={memory_result.confidence}")
+                    logger.info(f"[ImageAnalysis] memory_result: key={memory_result.key}, category={memory_result.category}, confidence={memory_result.confidence}")
                 else:
-                    print("[ImageAnalysis] memory_result is None")
+                    logger.info("[ImageAnalysis] memory_result is None")
 
                 if memory_result and memory_result.confidence >= 0.3:
                     # 生成 HITL 请求让用户确认
@@ -848,7 +848,7 @@ async def stream_image_analysis(request: ImageChatRequest):
                     yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": no_memory_msg}})}\n\n'
 
             except Exception as e:
-                print(f"Memory extraction failed: {e}")
+                logger.error(f"Memory extraction failed: {e}")
                 error_msg = f"\n\n记忆提取失败: {str(e)}"
                 yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": error_msg}})}\n\n'
 
@@ -1560,7 +1560,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
     """
     import time
     start_time = time.time()
-    print(f"[HITL-Continue] Starting continuation for session {request.session_id[:8]}...")
+    logger.info(f"[HITL-Continue] Starting continuation for session {request.session_id[:8]}...")
 
     try:
         config = load_chat_config()
@@ -1584,12 +1584,12 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
 
     context_start = time.time()
     hitl_context = hitl_handler.build_continuation_context(continuation_data)
-    print(f"[HITL-Continue] Context built in {time.time() - context_start:.2f}s, length={len(hitl_context)}")
+    logger.info(f"[HITL-Continue] Context built in {time.time() - context_start:.2f}s, length={len(hitl_context)}")
 
     # Build the continuation prompt
     prompt_start = time.time()
     system_prompt = chat_processor.build_hitl_continuation_prompt(session_id, hitl_context)
-    print(f"[HITL-Continue] Prompt built in {time.time() - prompt_start:.2f}s, length={len(system_prompt)}")
+    logger.info(f"[HITL-Continue] Prompt built in {time.time() - prompt_start:.2f}s, length={len(system_prompt)}")
 
     # 深度思考关闭时追加提示词
     if not is_deep_thinking_enabled():
@@ -1601,7 +1601,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": "请根据我刚才提交的表单信息给出回复。"},
     ]
-    print(f"[HITL-Continue] Total prompt length: {len(system_prompt)} chars, messages: {len(messages)}")
+    logger.info(f"[HITL-Continue] Total prompt length: {len(system_prompt)} chars, messages: {len(messages)}")
 
     # Call LLM API
     api_url = f"{config.api_base.rstrip('/')}/chat/completions"
@@ -1618,7 +1618,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
     detected_emotion = None
 
     try:
-        print(f"[HITL-Continue] Sending request to {api_url}...")
+        logger.info(f"[HITL-Continue] Sending request to {api_url}...")
         api_start = time.time()
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
@@ -1627,10 +1627,10 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                 json=request_body,
                 headers=headers
             ) as response:
-                print(f"[HITL-Continue] Got response status {response.status_code} in {time.time() - api_start:.2f}s")
+                logger.info(f"[HITL-Continue] Got response status {response.status_code} in {time.time() - api_start:.2f}s")
                 if response.status_code != 200:
                     error_text = await response.aread()
-                    print(f"[HITL-Continue] API error: {error_text.decode()}")
+                    logger.info(f"[HITL-Continue] API error: {error_text.decode()}")
                     yield f'event: error\ndata: {json.dumps({"type": "error", "payload": {"message": f"API 请求失败: {response.status_code} - {error_text.decode()}"}})}\n\n'
                     return
 
@@ -1640,12 +1640,12 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                     line_count += 1
                     # Debug: print first few lines
                     if line_count <= 3:
-                        print(f"[HITL-Continue] Line {line_count}: {line[:100] if len(line) > 100 else line}")
+                        logger.info(f"[HITL-Continue] Line {line_count}: {line[:100] if len(line) > 100 else line}")
 
                     if line.startswith("data: "):
                         if first_chunk_time is None:
                             first_chunk_time = time.time()
-                            print(f"[HITL-Continue] First chunk received in {first_chunk_time - api_start:.2f}s")
+                            logger.info(f"[HITL-Continue] First chunk received in {first_chunk_time - api_start:.2f}s")
                         data = line[6:]
                         if data.strip() == "[DONE]":
                             break
@@ -1656,51 +1656,51 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                             if content:
                                 assistant_response += content
                         except json.JSONDecodeError as e:
-                            print(f"[HITL-Continue] JSON decode error: {e}, data: {data[:100] if len(data) > 100 else data}")
+                            logger.info(f"[HITL-Continue] JSON decode error: {e}, data: {data[:100] if len(data) > 100 else data}")
                             continue
 
-                print(f"[HITL-Continue] Total lines received: {line_count}")
+                logger.info(f"[HITL-Continue] Total lines received: {line_count}")
 
-        print(f"[HITL-Continue] Response complete: length={len(assistant_response)}, total_time={time.time() - start_time:.2f}s")
+        logger.info(f"[HITL-Continue] Response complete: length={len(assistant_response)}, total_time={time.time() - start_time:.2f}s")
 
         # Process the complete response
         # 打印响应状态日志
         has_thinking_tags = "<thinking>" in assistant_response.lower() if assistant_response else False
         deep_thinking_mode = is_deep_thinking_enabled()
-        print(f"[DeepThinking] HITL continuation response: length={len(assistant_response)}, has_thinking_tags={has_thinking_tags}, deep_thinking_enabled={deep_thinking_mode}")
+        logger.info(f"[DeepThinking] HITL continuation response: length={len(assistant_response)}, has_thinking_tags={has_thinking_tags}, deep_thinking_enabled={deep_thinking_mode}")
 
         # 应用 thinking 标签过滤（深度思考关闭时）
         final_response = chat_processor.filter_thinking_tags(assistant_response)
 
         # 如果进行了过滤，打印过滤结果
         if len(final_response) != len(assistant_response):
-            print(f"[DeepThinking] Thinking tags filtered: original_length={len(assistant_response)}, filtered_length={len(final_response)}")
+            logger.info(f"[DeepThinking] Thinking tags filtered: original_length={len(assistant_response)}, filtered_length={len(final_response)}")
 
         hitl_request = None
 
         if assistant_response:
             try:
                 # Parse LLM's JSON output
-                print(f"[HITL-Continue] Processing LLM response: {assistant_response[:200]}...")
+                logger.info(f"[HITL-Continue] Processing LLM response: {assistant_response[:200]}...")
                 chat_context = chat_processor.build_chat_context(session_id, hitl_context)
                 chat_result = chat_processor.process_llm_response(assistant_response, chat_context)
                 final_response = chat_result.response
                 detected_emotion = chat_result.emotion
-                print(f"[HITL-Continue] Parsed response: length={len(final_response)}, emotion={detected_emotion}")
+                logger.info(f"[HITL-Continue] Parsed response: length={len(final_response)}, emotion={detected_emotion}")
 
                 # Check for HITL request (chained HITL support)
                 if chat_processor.is_hitl_enabled():
                     hitl_request = hitl_handler.extract_hitl_from_llm_response(assistant_response)
                     if hitl_request:
                         if isinstance(hitl_request, HITLDisplayRequest):
-                            print(f"[HITL-Continue] Found visual_display request: id={hitl_request.id}")
+                            logger.info(f"[HITL-Continue] Found visual_display request: id={hitl_request.id}")
                             hitl_handler.store_display_request(hitl_request, session_id)
                         else:
-                            print(f"[HITL-Continue] Found form request: id={hitl_request.id}")
+                            logger.info(f"[HITL-Continue] Found form request: id={hitl_request.id}")
                             hitl_handler.store_hitl_request(hitl_request, session_id)
 
                 # Send parsed response text
-                print(f"[HITL-Continue] Sending text event: {final_response[:100] if len(final_response) > 100 else final_response}")
+                logger.info(f"[HITL-Continue] Sending text event: {final_response[:100] if len(final_response) > 100 else final_response}")
                 yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
 
                 # Send emotion info
@@ -1709,7 +1709,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
 
                 # Send HITL request event (for chained HITL)
                 if hitl_request:
-                    print(f"[HITL-Continue] Sending HITL SSE event for request {hitl_request.id}, type={hitl_request.type}")
+                    logger.info(f"[HITL-Continue] Sending HITL SSE event for request {hitl_request.id}, type={hitl_request.type}")
                     if isinstance(hitl_request, HITLDisplayRequest):
                         hitl_payload = {
                             "id": hitl_request.id,
@@ -1759,7 +1759,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                 # 检查是否有 MCP 工具调用请求 (HITL continuation)
                 tool_call_request = chat_processor.extract_tool_call(assistant_response)
                 if tool_call_request:
-                    print(f"[MCP] Found tool_call in continuation: name={tool_call_request.name}, method={tool_call_request.method}")
+                    logger.info(f"[MCP] Found tool_call in continuation: name={tool_call_request.name}, method={tool_call_request.method}")
                     tool_result = await mcp_tool_executor.execute_mcp_tool(
                         service_name=tool_call_request.name,
                         method=tool_call_request.method,
@@ -1773,7 +1773,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                         "error": tool_result.error,
                     }
                     yield f'event: tool_result\ndata: {json.dumps({"type": "tool_result", "payload": tool_result_payload})}\n\n'
-                    print(f"[MCP] Tool result sent: success={tool_result.success}")
+                    logger.info(f"[MCP] Tool result sent: success={tool_result.success}")
 
                     # 二次调用 LLM，将工具结果转化为自然语言回复
                     followup_response = await call_llm_with_tool_result(
@@ -1786,10 +1786,10 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                         try:
                             followup_parsed = parse_llm_output(followup_response)
                             followup_text = followup_parsed.response
-                            print(f"[MCP Followup] Parsed response: {len(followup_text)} chars")
+                            logger.info(f"[MCP Followup] Parsed response: {len(followup_text)} chars")
                         except Exception:
                             followup_text = chat_processor.extract_response_text(followup_response)
-                            print(f"[MCP Followup] Using raw response: {len(followup_text)} chars")
+                            logger.info(f"[MCP Followup] Using raw response: {len(followup_text)} chars")
 
                         # 发送 followup 响应
                         yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": followup_text}})}\n\n'
@@ -1797,7 +1797,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
                         final_response = followup_text
 
             except Exception as e:
-                print(f"解析 LLM continuation 响应失败: {e}")
+                logger.error(f"解析 LLM continuation 响应失败: {e}")
                 final_response = chat_processor.extract_response_text(assistant_response)
                 yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": final_response}})}\n\n'
 
@@ -1806,7 +1806,7 @@ async def stream_hitl_continuation(request: HITLContinueRequest):
             try:
                 chat_db.add_message(session_id, "assistant", final_response)
             except Exception as e:
-                print(f"保存助手消息失败: {e}")
+                logger.error(f"保存助手消息失败: {e}")
 
         yield f'event: done\ndata: {json.dumps({"type": "done"})}\n\n'
 
@@ -2261,16 +2261,16 @@ def _mcp_server_to_response(info: mcp_manager.MCPServerInfo) -> MCPServerInfoRes
 async def list_mcp_servers():
     """获取所有 MCP 服务列表及状态"""
     try:
-        print("[MCP API] GET /api/mcp/servers - listing all servers")
+        logger.info("[MCP API] GET /api/mcp/servers - listing all servers")
         pm = mcp_manager.get_process_manager()
         servers = pm.list_servers_with_status()
-        print(f"[MCP API] Listed {len(servers)} servers")
+        logger.info(f"[MCP API] Listed {len(servers)} servers")
         return MCPServerListResponse(
             servers=[_mcp_server_to_response(s) for s in servers],
             total=len(servers)
         )
     except Exception as e:
-        print(f"[MCP API] Error listing servers: {e}")
+        logger.info(f"[MCP API] Error listing servers: {e}")
         raise HTTPException(status_code=500, detail=f"获取 MCP 服务列表失败: {str(e)}")
 
 
@@ -2278,7 +2278,7 @@ async def list_mcp_servers():
 async def create_mcp_server(request: MCPServerCreateRequest):
     """注册新的 MCP 服务"""
     try:
-        print(f"[MCP API] POST /api/mcp/servers - creating server: name={request.name}, command={request.command}")
+        logger.info(f"[MCP API] POST /api/mcp/servers - creating server: name={request.name}, command={request.command}")
         registry = mcp_manager.get_registry()
         config = mcp_manager.MCPServerConfig(
             name=request.name,
@@ -2291,7 +2291,7 @@ async def create_mcp_server(request: MCPServerCreateRequest):
             trigger_keywords=request.trigger_keywords,
         )
         created = registry.add_server(config)
-        print(f"[MCP API] Server created: id={created.id}, name={created.name}")
+        logger.info(f"[MCP API] Server created: id={created.id}, name={created.name}")
 
         # Get info with status
         pm = mcp_manager.get_process_manager()
@@ -2301,10 +2301,10 @@ async def create_mcp_server(request: MCPServerCreateRequest):
 
         raise HTTPException(status_code=500, detail="服务创建成功但无法获取状态")
     except ValueError as e:
-        print(f"[MCP API] Create server failed: {e}")
+        logger.info(f"[MCP API] Create server failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        print(f"[MCP API] Create server error: {e}")
+        logger.info(f"[MCP API] Create server error: {e}")
         raise HTTPException(status_code=500, detail=f"创建 MCP 服务失败: {str(e)}")
 
 
@@ -2312,18 +2312,18 @@ async def create_mcp_server(request: MCPServerCreateRequest):
 async def get_mcp_server(server_id: str):
     """获取单个 MCP 服务详情"""
     try:
-        print(f"[MCP API] GET /api/mcp/servers/{server_id}")
+        logger.info(f"[MCP API] GET /api/mcp/servers/{server_id}")
         pm = mcp_manager.get_process_manager()
         info = pm.get_server_info(server_id)
         if not info:
-            print(f"[MCP API] Server not found: id={server_id}")
+            logger.info(f"[MCP API] Server not found: id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
-        print(f"[MCP API] Found server: name={info.name}, status={info.status}")
+        logger.info(f"[MCP API] Found server: name={info.name}, status={info.status}")
         return _mcp_server_to_response(info)
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[MCP API] Get server error: {e}")
+        logger.info(f"[MCP API] Get server error: {e}")
         raise HTTPException(status_code=500, detail=f"获取 MCP 服务失败: {str(e)}")
 
 
@@ -2331,13 +2331,13 @@ async def get_mcp_server(server_id: str):
 async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
     """更新 MCP 服务配置"""
     try:
-        print(f"[MCP API] PUT /api/mcp/servers/{server_id} - updating")
+        logger.info(f"[MCP API] PUT /api/mcp/servers/{server_id} - updating")
         pm = mcp_manager.get_process_manager()
 
         # Check if running - warn user
         status = pm.get_status(server_id)
         if status == mcp_manager.MCPServerStatus.RUNNING:
-            print(f"[MCP API] Update blocked: server {server_id} is running")
+            logger.info(f"[MCP API] Update blocked: server {server_id} is running")
             raise HTTPException(
                 status_code=400,
                 detail="服务正在运行，请先停止服务再更新配置"
@@ -2356,22 +2356,22 @@ async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
             trigger_keywords=request.trigger_keywords,
         )
         if not updated:
-            print(f"[MCP API] Update failed: server not found id={server_id}")
+            logger.info(f"[MCP API] Update failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
         info = pm.get_server_info(server_id)
         if info:
-            print(f"[MCP API] Server updated: name={info.name}")
+            logger.info(f"[MCP API] Server updated: name={info.name}")
             return _mcp_server_to_response(info)
 
         raise HTTPException(status_code=500, detail="更新成功但无法获取状态")
     except HTTPException:
         raise
     except ValueError as e:
-        print(f"[MCP API] Update validation error: {e}")
+        logger.info(f"[MCP API] Update validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        print(f"[MCP API] Update error: {e}")
+        logger.info(f"[MCP API] Update error: {e}")
         raise HTTPException(status_code=500, detail=f"更新 MCP 服务失败: {str(e)}")
 
 
@@ -2379,26 +2379,26 @@ async def update_mcp_server(server_id: str, request: MCPServerUpdateRequest):
 async def delete_mcp_server(server_id: str):
     """删除 MCP 服务"""
     try:
-        print(f"[MCP API] DELETE /api/mcp/servers/{server_id}")
+        logger.info(f"[MCP API] DELETE /api/mcp/servers/{server_id}")
         pm = mcp_manager.get_process_manager()
         registry = mcp_manager.get_registry()
 
         # Stop if running
-        print(f"[MCP API] Stopping server before delete: id={server_id}")
+        logger.info(f"[MCP API] Stopping server before delete: id={server_id}")
         pm.stop_server(server_id)
 
         # Delete config
         success = registry.delete_server(server_id)
         if not success:
-            print(f"[MCP API] Delete failed: server not found id={server_id}")
+            logger.info(f"[MCP API] Delete failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
-        print(f"[MCP API] Server deleted: id={server_id}")
+        logger.info(f"[MCP API] Server deleted: id={server_id}")
         return None
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[MCP API] Delete error: {e}")
+        logger.info(f"[MCP API] Delete error: {e}")
         raise HTTPException(status_code=500, detail=f"删除 MCP 服务失败: {str(e)}")
 
 
@@ -2406,34 +2406,34 @@ async def delete_mcp_server(server_id: str):
 async def start_mcp_server(server_id: str):
     """启动 MCP 服务"""
     try:
-        print(f"[MCP API] POST /api/mcp/servers/{server_id}/start")
+        logger.info(f"[MCP API] POST /api/mcp/servers/{server_id}/start")
         pm = mcp_manager.get_process_manager()
 
         # Check if server exists
         info = pm.get_server_info(server_id)
         if not info:
-            print(f"[MCP API] Start failed: server not found id={server_id}")
+            logger.info(f"[MCP API] Start failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
-        print(f"[MCP API] Starting server: name={info.name}")
+        logger.info(f"[MCP API] Starting server: name={info.name}")
         success = pm.start_server(server_id)
 
         # Get updated info
         info = pm.get_server_info(server_id)
         if info:
-            print(f"[MCP API] Start result: success={success}, status={info.status}, pid={info.pid}")
+            logger.info(f"[MCP API] Start result: success={success}, status={info.status}, pid={info.pid}")
 
             # If server started successfully, fetch its tools list for caching
             if success and info.status == mcp_manager.MCPServerStatus.RUNNING:
                 try:
-                    print(f"[MCP API] Fetching tools list for newly started server: {info.name}")
+                    logger.info(f"[MCP API] Fetching tools list for newly started server: {info.name}")
                     import asyncio
                     # Give the server a moment to initialize
                     await asyncio.sleep(0.5)
                     tools = await mcp_tool_executor.list_service_tools(info.name)
-                    print(f"[MCP API] Cached {len(tools)} tools from server: {info.name}")
+                    logger.info(f"[MCP API] Cached {len(tools)} tools from server: {info.name}")
                 except Exception as e:
-                    print(f"[MCP API] Failed to fetch tools list: {e}")
+                    logger.info(f"[MCP API] Failed to fetch tools list: {e}")
 
             return MCPServerActionResponse(
                 success=success,
@@ -2448,7 +2448,7 @@ async def start_mcp_server(server_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[MCP API] Start error: {e}")
+        logger.info(f"[MCP API] Start error: {e}")
         raise HTTPException(status_code=500, detail=f"启动 MCP 服务失败: {str(e)}")
 
 
@@ -2456,22 +2456,22 @@ async def start_mcp_server(server_id: str):
 async def stop_mcp_server(server_id: str):
     """停止 MCP 服务"""
     try:
-        print(f"[MCP API] POST /api/mcp/servers/{server_id}/stop")
+        logger.info(f"[MCP API] POST /api/mcp/servers/{server_id}/stop")
         pm = mcp_manager.get_process_manager()
 
         # Check if server exists
         info = pm.get_server_info(server_id)
         if not info:
-            print(f"[MCP API] Stop failed: server not found id={server_id}")
+            logger.info(f"[MCP API] Stop failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
-        print(f"[MCP API] Stopping server: name={info.name}, pid={info.pid}")
+        logger.info(f"[MCP API] Stopping server: name={info.name}, pid={info.pid}")
         success = pm.stop_server(server_id)
 
         # Get updated info
         info = pm.get_server_info(server_id)
         if info:
-            print(f"[MCP API] Stop result: success={success}, status={info.status}")
+            logger.info(f"[MCP API] Stop result: success={success}, status={info.status}")
             return MCPServerActionResponse(
                 success=success,
                 message="服务已停止" if success else info.error_message,
@@ -2485,7 +2485,7 @@ async def stop_mcp_server(server_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[MCP API] Stop error: {e}")
+        logger.info(f"[MCP API] Stop error: {e}")
         raise HTTPException(status_code=500, detail=f"停止 MCP 服务失败: {str(e)}")
 
 
@@ -2493,36 +2493,36 @@ async def stop_mcp_server(server_id: str):
 async def restart_mcp_server(server_id: str):
     """重启 MCP 服务"""
     try:
-        print(f"[MCP API] POST /api/mcp/servers/{server_id}/restart")
+        logger.info(f"[MCP API] POST /api/mcp/servers/{server_id}/restart")
         pm = mcp_manager.get_process_manager()
 
         # Check if server exists
         info = pm.get_server_info(server_id)
         if not info:
-            print(f"[MCP API] Restart failed: server not found id={server_id}")
+            logger.info(f"[MCP API] Restart failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
-        print(f"[MCP API] Restarting server: name={info.name}")
+        logger.info(f"[MCP API] Restarting server: name={info.name}")
         success = pm.restart_server(server_id)
 
         # Get updated info
         info = pm.get_server_info(server_id)
         if info:
-            print(f"[MCP API] Restart result: success={success}, status={info.status}, pid={info.pid}")
+            logger.info(f"[MCP API] Restart result: success={success}, status={info.status}, pid={info.pid}")
 
             # If server restarted successfully, fetch its tools list for caching
             if success and info.status == mcp_manager.MCPServerStatus.RUNNING:
                 try:
-                    print(f"[MCP API] Fetching tools list for restarted server: {info.name}")
+                    logger.info(f"[MCP API] Fetching tools list for restarted server: {info.name}")
                     import asyncio
                     # Give the server a moment to initialize
                     await asyncio.sleep(0.5)
                     # Clear old cache and fetch new tools
                     mcp_tool_executor.get_executor().clear_tools_cache(info.name)
                     tools = await mcp_tool_executor.list_service_tools(info.name)
-                    print(f"[MCP API] Cached {len(tools)} tools from server: {info.name}")
+                    logger.info(f"[MCP API] Cached {len(tools)} tools from server: {info.name}")
                 except Exception as e:
-                    print(f"[MCP API] Failed to fetch tools list: {e}")
+                    logger.info(f"[MCP API] Failed to fetch tools list: {e}")
 
             return MCPServerActionResponse(
                 success=success,
@@ -2537,7 +2537,7 @@ async def restart_mcp_server(server_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[MCP API] Restart error: {e}")
+        logger.info(f"[MCP API] Restart error: {e}")
         raise HTTPException(status_code=500, detail=f"重启 MCP 服务失败: {str(e)}")
 
 
@@ -2559,24 +2559,24 @@ class MCPToolListResponse(BaseModel):
 async def get_mcp_server_tools(server_id: str):
     """获取 MCP 服务的工具列表"""
     try:
-        print(f"[MCP API] GET /api/mcp/servers/{server_id}/tools")
+        logger.info(f"[MCP API] GET /api/mcp/servers/{server_id}/tools")
         pm = mcp_manager.get_process_manager()
 
         # Check if server exists
         info = pm.get_server_info(server_id)
         if not info:
-            print(f"[MCP API] Get tools failed: server not found id={server_id}")
+            logger.info(f"[MCP API] Get tools failed: server not found id={server_id}")
             raise HTTPException(status_code=404, detail="MCP 服务不存在")
 
         # Check if server is running
         if info.status != mcp_manager.MCPServerStatus.RUNNING:
-            print(f"[MCP API] Get tools failed: server not running id={server_id}")
+            logger.info(f"[MCP API] Get tools failed: server not running id={server_id}")
             raise HTTPException(status_code=400, detail="服务未运行，请先启动服务")
 
         # Get tools list
-        print(f"[MCP API] Fetching tools for server: name={info.name}")
+        logger.info(f"[MCP API] Fetching tools for server: name={info.name}")
         tools = await mcp_tool_executor.list_service_tools(info.name)
-        print(f"[MCP API] Found {len(tools)} tools from server: {info.name}")
+        logger.info(f"[MCP API] Found {len(tools)} tools from server: {info.name}")
 
         return MCPToolListResponse(
             service_name=info.name,
@@ -2593,7 +2593,7 @@ async def get_mcp_server_tools(server_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[MCP API] Get tools error: {e}")
+        logger.info(f"[MCP API] Get tools error: {e}")
         raise HTTPException(status_code=500, detail=f"获取工具列表失败: {str(e)}")
 
 

@@ -364,40 +364,40 @@ def get_mcp_intent_snippet(service_name: Optional[str] = None) -> str:
     """
     import mcp_tool_executor
 
-    print(f"[MCP Intent] Getting intent snippet: service_name={service_name}")
+    logger.info(f"[MCP Intent] Getting intent snippet: service_name={service_name}")
 
     if service_name:
         # Try to get cached tools for specific service
         cached_desc = mcp_tool_executor.get_executor().get_cached_tools_description(service_name)
         if cached_desc:
             tools_desc = cached_desc
-            print(f"[MCP Intent] Using cached tools for service: {service_name}")
+            logger.info(f"[MCP Intent] Using cached tools for service: {service_name}")
         else:
             # Fallback to service-level description
             desc = mcp_tool_executor.get_executor().get_tool_description_level1(service_name)
             if desc:
                 tools_desc = desc
-                print(f"[MCP Intent] Found specific service description: {service_name}")
+                logger.info(f"[MCP Intent] Found specific service description: {service_name}")
             else:
                 tools_desc = f"[工具] {service_name}: MCP服务"
-                print(f"[MCP Intent] Using default description for: {service_name}")
+                logger.info(f"[MCP Intent] Using default description for: {service_name}")
     else:
         # Try to get cached tools for all services
         cached_desc = mcp_tool_executor.get_executor().get_all_cached_tools_description()
         if cached_desc:
             tools_desc = cached_desc
-            print(f"[MCP Intent] Using all cached tools description: {len(cached_desc)} chars")
+            logger.info(f"[MCP Intent] Using all cached tools description: {len(cached_desc)} chars")
         else:
             # Fallback to service-level descriptions
             tools_desc = mcp_tool_executor.get_mcp_tools_prompt_snippet()
             if not tools_desc:
                 tools_desc = "（当前没有可用的MCP工具）"
-                print("[MCP Intent] No available MCP tools")
+                logger.info("[MCP Intent] No available MCP tools")
             else:
-                print(f"[MCP Intent] Got all tools description: {len(tools_desc)} chars")
+                logger.info(f"[MCP Intent] Got all tools description: {len(tools_desc)} chars")
 
     snippet = MCP_INTENT_SNIPPET_TEMPLATE.format(mcp_tools_description=tools_desc)
-    print(f"[MCP Intent] Generated snippet: {len(snippet)} chars")
+    logger.info(f"[MCP Intent] Generated snippet: {len(snippet)} chars")
     return snippet
 
 
@@ -411,25 +411,25 @@ def get_intent_snippet(intent_result: Optional[IntentResult]) -> str:
         Intent-specific prompt snippet, or empty string if no match
     """
     if not intent_result or intent_result.is_normal():
-        print("[Intent Snippet] No intent or normal intent, returning empty")
+        logger.info("[Intent Snippet] No intent or normal intent, returning empty")
         return ""
 
     intent_type = intent_result.intent_type
-    print(f"[Intent Snippet] Getting snippet for: category={intent_result.category}, type={intent_type}")
+    logger.info(f"[Intent Snippet] Getting snippet for: category={intent_result.category}, type={intent_type}")
 
     if intent_result.is_memory():
         snippet = MEMORY_INTENT_SNIPPETS.get(intent_type, "")
-        print(f"[Intent Snippet] Memory intent snippet: {len(snippet)} chars")
+        logger.info(f"[Intent Snippet] Memory intent snippet: {len(snippet)} chars")
         return snippet
     elif intent_result.is_hitl():
         snippet = HITL_INTENT_SNIPPETS.get(intent_type, "")
-        print(f"[Intent Snippet] HITL intent snippet: {len(snippet)} chars")
+        logger.info(f"[Intent Snippet] HITL intent snippet: {len(snippet)} chars")
         return snippet
     elif intent_result.is_mcp():
-        print(f"[Intent Snippet] MCP intent, service_name={intent_result.mcp_service_name}")
+        logger.info(f"[Intent Snippet] MCP intent, service_name={intent_result.mcp_service_name}")
         return get_mcp_intent_snippet(intent_result.mcp_service_name)
 
-    print("[Intent Snippet] Unknown intent category, returning empty")
+    logger.info("[Intent Snippet] Unknown intent category, returning empty")
     return ""
 
 
@@ -613,17 +613,17 @@ def build_system_prompt(context: ChatContext) -> str:
             mcp_instruction = intent_snippet
             hitl_instruction = ""
             hitl_instruction_type = "none (mcp)"
-            print(f"[Intent] Using MCP prompt snippet for: {context.intent_result.mcp_service_name or 'general'}")
+            logger.info(f"[Intent] Using MCP prompt snippet for: {context.intent_result.mcp_service_name or 'general'}")
         elif intent_snippet:
             # Use intent-specific snippet (much smaller)
             hitl_instruction = intent_snippet
             hitl_instruction_type = f"intent_snippet({context.intent_result.intent_type})"
-            print(f"[Intent] Using optimized prompt snippet for: {context.intent_result.intent_type}")
+            logger.info(f"[Intent] Using optimized prompt snippet for: {context.intent_result.intent_type}")
         elif context.intent_result.is_normal():
             # Normal conversation: minimal instructions
             hitl_instruction = ""
             hitl_instruction_type = "minimal"
-            print("[Intent] Using minimal prompt (normal conversation)")
+            logger.info("[Intent] Using minimal prompt (normal conversation)")
         else:
             # Fallback to full instruction
             hitl_instruction = HITL_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
@@ -636,9 +636,9 @@ def build_system_prompt(context: ChatContext) -> str:
     # 打印 HITL 状态日志
     hitl_instruction_len = len(hitl_instruction)
     mcp_instruction_len = len(mcp_instruction)
-    print(f"[HITL] Prompt contains HITL: enabled={hitl_enabled}, instruction_type={hitl_instruction_type}, instruction_length={hitl_instruction_len}")
+    logger.info(f"[HITL] Prompt contains HITL: enabled={hitl_enabled}, instruction_type={hitl_instruction_type}, instruction_length={hitl_instruction_len}")
     if mcp_instruction_len > 0:
-        print(f"[MCP] Prompt contains MCP instruction: length={mcp_instruction_len}")
+        logger.info(f"[MCP] Prompt contains MCP instruction: length={mcp_instruction_len}")
 
     prompt = CHAT_PROMPT_TEMPLATE.format(
         user_message=context.user_message,
@@ -863,7 +863,7 @@ def run_intent_recognition(message: str) -> Optional[IntentResult]:
         IntentResult if matched, None otherwise (will be normal conversation)
     """
     if not is_intent_recognition_enabled():
-        print("[Intent] Intent recognition disabled")
+        logger.info("[Intent] Intent recognition disabled")
         return None
 
     from intent_recognizer import RuleBasedMatcher
@@ -876,7 +876,7 @@ def run_intent_recognition(message: str) -> Optional[IntentResult]:
 
     # Layer 1 didn't match, return normal intent
     # Layer 2 would require async, handled separately if needed
-    print("[Intent] Layer1: no match, returning normal intent")
+    logger.info("[Intent] Layer1: no match, returning normal intent")
     return IntentResult.normal()
 
 
@@ -903,10 +903,10 @@ async def recognize_intent_async(
     Returns:
         IntentResult with matched intent
     """
-    print(f"[Intent Async] Starting intent recognition: message_len={len(message)}")
+    logger.info(f"[Intent Async] Starting intent recognition: message_len={len(message)}")
 
     if not is_intent_recognition_enabled():
-        print("[Intent Async] Intent recognition disabled")
+        logger.info("[Intent Async] Intent recognition disabled")
         return IntentResult.normal()
 
     from intent_recognizer import recognize_intent, build_mcp_keyword_rules_from_services
@@ -915,9 +915,9 @@ async def recognize_intent_async(
     # Build dynamic MCP rules from running services
     pm = mcp_manager.get_process_manager()
     running_services = pm.get_running_servers()
-    print(f"[Intent Async] Building MCP rules from {len(running_services)} running services")
+    logger.info(f"[Intent Async] Building MCP rules from {len(running_services)} running services")
     mcp_keyword_rules = build_mcp_keyword_rules_from_services(running_services)
-    print(f"[Intent Async] Created {len(mcp_keyword_rules)} MCP keyword rules")
+    logger.info(f"[Intent Async] Created {len(mcp_keyword_rules)} MCP keyword rules")
 
     result = await recognize_intent(
         message=message,
@@ -930,9 +930,9 @@ async def recognize_intent_async(
         mcp_keyword_rules=mcp_keyword_rules,
     )
 
-    print(f"[Intent Async] Recognition result: category={result.category}, type={result.intent_type}, source={result.source}")
+    logger.info(f"[Intent Async] Recognition result: category={result.category}, type={result.intent_type}, source={result.source}")
     if result.is_mcp():
-        print(f"[Intent Async] MCP service matched: {result.mcp_service_name}")
+        logger.info(f"[Intent Async] MCP service matched: {result.mcp_service_name}")
 
     return result
 
@@ -994,10 +994,10 @@ def extract_tool_call(llm_output: str) -> Optional[ToolCallRequest]:
         arguments = tool_call.get("arguments", {})
 
         if not name:
-            print("[MCP] tool_call found but missing name")
+            logger.info("[MCP] tool_call found but missing name")
             return None
 
-        print(f"[MCP] Extracted tool_call: name={name}, method={method}")
+        logger.info(f"[MCP] Extracted tool_call: name={name}, method={method}")
         return ToolCallRequest(
             name=name,
             method=method,
@@ -1007,7 +1007,7 @@ def extract_tool_call(llm_output: str) -> Optional[ToolCallRequest]:
     except json.JSONDecodeError:
         return None
     except Exception as e:
-        print(f"[MCP] Failed to extract tool_call: {e}")
+        logger.info(f"[MCP] Failed to extract tool_call: {e}")
         return None
 
 
@@ -1085,9 +1085,9 @@ def build_hitl_continuation_prompt(
     # Check running MCP services
     pm = mcp_manager.get_process_manager()
     running_services = pm.get_running_servers()
-    print(f"[HITL] Continuation: {len(running_services)} MCP services running")
+    logger.info(f"[HITL] Continuation: {len(running_services)} MCP services running")
     for svc in running_services:
-        print(f"[HITL]   - {svc.name}: {svc.description or 'no description'}")
+        logger.info(f"[HITL]   - {svc.name}: {svc.description or 'no description'}")
 
     mcp_instruction = mcp_tool_executor.get_mcp_tools_prompt_snippet()
     if mcp_instruction:
@@ -1099,13 +1099,13 @@ def build_hitl_continuation_prompt(
 如果用户提交的表单信息需要调用工具（如天气查询、搜索等），请在JSON响应中添加 tool_call 字段:
 {{"response":"你的回复","tool_call":{{"name":"服务名称","method":"方法名","arguments":{{"参数名":"参数值"}}}}}}
 """
-        print(f"[HITL] Continuation prompt: mcp_instruction added, length={len(mcp_instruction)}")
+        logger.info(f"[HITL] Continuation prompt: mcp_instruction added, length={len(mcp_instruction)}")
     else:
         mcp_instruction = ""
-        print(f"[HITL] Continuation prompt: NO MCP services available, mcp_instruction is empty")
+        logger.info(f"[HITL] Continuation prompt: NO MCP services available, mcp_instruction is empty")
 
     # 打印 HITL 状态日志
-    print(f"[HITL] Continuation prompt: hitl_enabled={hitl_enabled}, instruction_length={len(hitl_instruction)}")
+    logger.info(f"[HITL] Continuation prompt: hitl_enabled={hitl_enabled}, instruction_length={len(hitl_instruction)}")
 
     return HITL_CONTINUATION_PROMPT_TEMPLATE.format(
         hitl_context=hitl_context,

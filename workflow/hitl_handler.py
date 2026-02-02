@@ -134,17 +134,17 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
     Returns:
         HITLResponseResult indicating success/failure and next action
     """
-    print(f"[HITL] ========== process_hitl_response START ==========")
-    print(f"[HITL] request_id: {response.request_id}")
-    print(f"[HITL] session_id: {response.session_id[:8]}...")
-    print(f"[HITL] action: {response.action}")
-    print(f"[HITL] data: {response.data}")
+    logger.info(f"[HITL] ========== process_hitl_response START ==========")
+    logger.info(f"[HITL] request_id: {response.request_id}")
+    logger.info(f"[HITL] session_id: {response.session_id[:8]}...")
+    logger.info(f"[HITL] action: {response.action}")
+    logger.info(f"[HITL] data: {response.data}")
 
     # Get the original request
     request_data = get_hitl_request(response.request_id)
 
     if request_data is None:
-        print(f"[HITL] ERROR: request not found or expired")
+        logger.info(f"[HITL] ERROR: request not found or expired")
         return HITLResponseResult(
             success=False,
             next_action="complete",
@@ -152,12 +152,12 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
         )
 
     request, session_id, _ = request_data
-    print(f"[HITL] original request.type: {request.type}")
-    print(f"[HITL] original request.context: intent={request.context.intent if request.context else None}, memory_category={request.context.memory_category if request.context else None}")
+    logger.info(f"[HITL] original request.type: {request.type}")
+    logger.info(f"[HITL] original request.context: intent={request.context.intent if request.context else None}, memory_category={request.context.memory_category if request.context else None}")
 
     # Verify session ID matches
     if session_id != response.session_id:
-        print(f"[HITL] ERROR: session mismatch")
+        logger.info(f"[HITL] ERROR: session mismatch")
         return HITLResponseResult(
             success=False,
             next_action="complete",
@@ -166,7 +166,7 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
 
     # Handle visual_display type (dismiss only)
     if isinstance(request, HITLDisplayRequest):
-        print(f"[HITL] -> handling visual_display type")
+        logger.info(f"[HITL] -> handling visual_display type")
         return _process_display_dismiss(request, session_id, response.request_id)
 
     # Build field labels mapping for continuation context
@@ -174,7 +174,7 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
 
     # Handle based on action
     if response.action == HITLAction.REJECT:
-        print(f"[HITL] -> user REJECTED")
+        logger.info(f"[HITL] -> user REJECTED")
         # User rejected, build continuation data
         remove_hitl_request(response.request_id)
         logger.info(f"[HITL] User rejected request {response.request_id}")
@@ -257,10 +257,10 @@ def _process_form_data(
     Returns:
         HITLResponseResult
     """
-    print(f"[HITL] ---- _process_form_data START ----")
-    print(f"[HITL] request.type: {request.type}")
-    print(f"[HITL] request.context: {request.context}")
-    print(f"[HITL] form data: {data}")
+    logger.info(f"[HITL] ---- _process_form_data START ----")
+    logger.info(f"[HITL] request.type: {request.type}")
+    logger.info(f"[HITL] request.context: {request.context}")
+    logger.info(f"[HITL] form data: {data}")
 
     if data is None:
         data = {}
@@ -268,7 +268,7 @@ def _process_form_data(
     # Validate required fields
     for field in request.fields:
         if field.required and field.name not in data:
-            print(f"[HITL] ERROR: required field missing: {field.name}")
+            logger.info(f"[HITL] ERROR: required field missing: {field.name}")
             return HITLResponseResult(
                 success=False,
                 next_action="continue",
@@ -279,22 +279,22 @@ def _process_form_data(
     # Image types must be checked first - they have their own save logic
     # that respects user's category selection from the form
     if request.type in ("image_memory_confirm", "image_plan_confirm"):
-        print(f"[HITL] -> matched image type, calling _save_image_memory")
-        print(f"[HITL]    user selected category: {data.get('category', 'NOT SET')}")
+        logger.info(f"[HITL] -> matched image type, calling _save_image_memory")
+        logger.info(f"[HITL]    user selected category: {data.get('category', 'NOT SET')}")
         _save_image_memory(request, data, session_id)
     elif request.context and request.context.intent == "collect_preference":
-        print(f"[HITL] -> matched collect_preference, calling _save_to_memory")
+        logger.info(f"[HITL] -> matched collect_preference, calling _save_to_memory")
         _save_to_memory(request, data, session_id)
     elif request.context and request.context.intent == "collect_plan":
-        print(f"[HITL] -> matched collect_plan, calling _save_plan")
+        logger.info(f"[HITL] -> matched collect_plan, calling _save_plan")
         _save_plan(request, data, session_id)
     else:
-        print(f"[HITL] -> no matching handler, data not saved to memory")
+        logger.info(f"[HITL] -> no matching handler, data not saved to memory")
 
     # Persist form data to working memory for session context continuity
     _persist_to_working_memory(request, data, session_id)
 
-    print(f"[HITL] ---- _process_form_data END ----")
+    logger.info(f"[HITL] ---- _process_form_data END ----")
     logger.info(f"[HITL] Processed form data for request {request.id}")
 
     return HITLResponseResult(
@@ -497,29 +497,29 @@ def _save_image_memory(
         data: Form data containing key, value, category
         session_id: Session ID
     """
-    print(f"[HITL] ---- _save_image_memory START ----")
+    logger.info(f"[HITL] ---- _save_image_memory START ----")
     try:
         key = data.get("key", "")
         value = data.get("value", "")
         category = data.get("category", "fact")
 
-        print(f"[HITL] key: {key[:50] if key else 'EMPTY'}...")
-        print(f"[HITL] value length: {len(value) if value else 0}")
-        print(f"[HITL] category: {category}")
+        logger.info(f"[HITL] key: {key[:50] if key else 'EMPTY'}...")
+        logger.info(f"[HITL] value length: {len(value) if value else 0}")
+        logger.info(f"[HITL] category: {category}")
 
         if not key or not value:
-            print(f"[HITL] ERROR: missing required fields (key={bool(key)}, value={bool(value)})")
+            logger.info(f"[HITL] ERROR: missing required fields (key={bool(key)}, value={bool(value)})")
             logger.warning("[HITL] Image memory form missing required fields")
             return
 
         # If user changed category to 'plan', delegate to plan handler
         if category == "plan":
-            print(f"[HITL] -> category is 'plan', delegating to _save_image_plan")
+            logger.info(f"[HITL] -> category is 'plan', delegating to _save_image_plan")
             logger.info(f"[HITL] User changed category to 'plan', delegating to plan handler")
             _save_image_plan(request, data, session_id)
             return
 
-        print(f"[HITL] -> saving as memory entry with category: {category}")
+        logger.info(f"[HITL] -> saving as memory entry with category: {category}")
         memory_manager.create_memory_entry(
             category=category,
             key=key,
@@ -528,14 +528,14 @@ def _save_image_memory(
             confidence=0.9,
             source="image_extraction",
         )
-        print(f"[HITL] -> SUCCESS: saved memory entry [{category}] {key[:30]}...")
+        logger.info(f"[HITL] -> SUCCESS: saved memory entry [{category}] {key[:30]}...")
         logger.info(f"[HITL] Saved image memory: [{category}] {key}")
 
     except Exception as e:
-        print(f"[HITL] ERROR: exception in _save_image_memory: {e}")
+        logger.info(f"[HITL] ERROR: exception in _save_image_memory: {e}")
         logger.warning(f"[HITL] Failed to save image memory: {e}")
     finally:
-        print(f"[HITL] ---- _save_image_memory END ----")
+        logger.info(f"[HITL] ---- _save_image_memory END ----")
 
 
 def _save_image_plan(
@@ -554,7 +554,7 @@ def _save_image_plan(
         data: Form data containing plan fields
         session_id: Session ID
     """
-    print(f"[HITL] ---- _save_image_plan START ----")
+    logger.info(f"[HITL] ---- _save_image_plan START ----")
     try:
         category = data.get("category", "plan")
         title = data.get("key", "")
@@ -563,21 +563,21 @@ def _save_image_plan(
         location = data.get("location", "")
         participants = data.get("participants", "")
 
-        print(f"[HITL] category: {category}")
-        print(f"[HITL] title: {title[:50] if title else 'EMPTY'}...")
-        print(f"[HITL] target_time_str: {target_time_str or 'EMPTY'}")
-        print(f"[HITL] location: {location or 'EMPTY'}")
-        print(f"[HITL] participants: {participants or 'EMPTY'}")
+        logger.info(f"[HITL] category: {category}")
+        logger.info(f"[HITL] title: {title[:50] if title else 'EMPTY'}...")
+        logger.info(f"[HITL] target_time_str: {target_time_str or 'EMPTY'}")
+        logger.info(f"[HITL] location: {location or 'EMPTY'}")
+        logger.info(f"[HITL] participants: {participants or 'EMPTY'}")
 
         # If user changed category to non-plan type, delegate to memory handler
         if category != "plan":
-            print(f"[HITL] -> category is NOT 'plan', delegating to _save_image_memory")
+            logger.info(f"[HITL] -> category is NOT 'plan', delegating to _save_image_memory")
             logger.info(f"[HITL] User changed category to '{category}', delegating to memory handler")
             _save_image_memory(request, data, session_id)
             return
 
         if not title:
-            print(f"[HITL] ERROR: title is required but empty")
+            logger.info(f"[HITL] ERROR: title is required but empty")
             logger.warning("[HITL] Image plan form missing required title field")
             return
 
@@ -592,17 +592,17 @@ def _save_image_plan(
         # Parse target datetime, use default if not provided
         # (e.g., when user changed category from non-plan to plan)
         if target_time_str:
-            print(f"[HITL] -> parsing target_time from string: {target_time_str}")
+            logger.info(f"[HITL] -> parsing target_time from string: {target_time_str}")
             target_time = datetime.fromisoformat(target_time_str.replace("Z", "+00:00"))
         else:
             # Default to tomorrow 9:00 AM if target_time not provided
             tomorrow = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
             tomorrow = tomorrow + timedelta(days=1)
             target_time = tomorrow
-            print(f"[HITL] -> no target_time provided, using default: {target_time}")
+            logger.info(f"[HITL] -> no target_time provided, using default: {target_time}")
             logger.info(f"[HITL] No target_time provided, using default: {target_time}")
 
-        print(f"[HITL] -> creating plan: title={title[:30]}..., target_time={target_time}")
+        logger.info(f"[HITL] -> creating plan: title={title[:30]}..., target_time={target_time}")
         # Create the plan
         plan = memory_manager.create_plan(
             title=title,
@@ -613,16 +613,16 @@ def _save_image_plan(
             repeat_type="none",
         )
 
-        print(f"[HITL] -> SUCCESS: created plan id={plan.id}")
+        logger.info(f"[HITL] -> SUCCESS: created plan id={plan.id}")
         logger.info(f"[HITL] Created image plan: {plan.id} - {title} at {target_time}")
 
     except Exception as e:
-        print(f"[HITL] ERROR: exception in _save_image_plan: {e}")
+        logger.info(f"[HITL] ERROR: exception in _save_image_plan: {e}")
         import traceback
         traceback.print_exc()
         logger.warning(f"[HITL] Failed to create image plan: {e}")
     finally:
-        print(f"[HITL] ---- _save_image_plan END ----")
+        logger.info(f"[HITL] ---- _save_image_plan END ----")
 
 
 def _save_plan(
@@ -739,32 +739,32 @@ def extract_hitl_from_llm_response(response_text: str) -> Optional[Union[HITLReq
         data = json.loads(json_text.strip())
 
         # Debug: print all top-level keys in the response
-        print(f"[HITL] LLM response keys: {list(data.keys())}")
+        logger.info(f"[HITL] LLM response keys: {list(data.keys())}")
 
         if "hitl_request" not in data:
-            print(f"[HITL] No hitl_request found. Response preview: {response_text[:300]}...")
+            logger.info(f"[HITL] No hitl_request found. Response preview: {response_text[:300]}...")
             return None
 
         hitl_data = data["hitl_request"]
         hitl_type = hitl_data.get("type", "form")
-        print(f"[HITL] Found hitl_request, type={hitl_type}")
-        print(f"[HITL] Raw hitl_request: {json.dumps(hitl_data, ensure_ascii=False)[:500]}")
+        logger.info(f"[HITL] Found hitl_request, type={hitl_type}")
+        logger.info(f"[HITL] Raw hitl_request: {json.dumps(hitl_data, ensure_ascii=False)[:500]}")
 
         result = parse_hitl_request_from_dict(data["hitl_request"])
 
         if result:
-            print(f"[HITL] Successfully parsed: id={result.id}, type={result.type}, title={result.title}")
+            logger.info(f"[HITL] Successfully parsed: id={result.id}, type={result.type}, title={result.title}")
         else:
-            print(f"[HITL] Failed to parse hitl_request: {json.dumps(hitl_data, ensure_ascii=False)[:200]}")
+            logger.info(f"[HITL] Failed to parse hitl_request: {json.dumps(hitl_data, ensure_ascii=False)[:200]}")
 
         return result
 
     except json.JSONDecodeError as e:
-        print(f"[HITL] Response is not valid JSON: {e}")
-        print(f"[HITL] Raw response: {response_text[:300]}...")
+        logger.info(f"[HITL] Response is not valid JSON: {e}")
+        logger.info(f"[HITL] Raw response: {response_text[:300]}...")
         return None
     except Exception as e:
-        print(f"[HITL] Failed to parse HITL request: {e}")
+        logger.info(f"[HITL] Failed to parse HITL request: {e}")
         return None
 
 

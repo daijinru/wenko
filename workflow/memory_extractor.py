@@ -5,6 +5,7 @@ Extracts key, value, category, and confidence from message content.
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -12,6 +13,8 @@ from typing import Optional
 import httpx
 
 import chat_db
+
+logger = logging.getLogger(__name__)
 from chat_processor import DISABLE_THINKING_PROMPT_SUFFIX
 
 
@@ -143,7 +146,7 @@ async def extract_memory_from_message(
     else:
         request_body["reasoning_effort"] = "low"
 
-    print(f"[MemoryExtractor] deep_thinking_enabled={deep_thinking_enabled}, temperature={temperature}")
+    logger.info(f"[MemoryExtractor] deep_thinking_enabled={deep_thinking_enabled}, temperature={temperature}")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -159,12 +162,12 @@ async def extract_memory_from_message(
             )
 
             if response.status_code != 200:
-                print(f"[MemoryExtractor] API error: status={response.status_code}")
+                logger.info(f"[MemoryExtractor] API error: status={response.status_code}")
                 return None
 
             result = response.json()
             response_text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            print(f"[MemoryExtractor] LLM response: {response_text[:500]}")
+            logger.info(f"[MemoryExtractor] LLM response: {response_text[:500]}")
 
             # Parse JSON response - strip markdown code block if present
             json_text = response_text.strip()
@@ -178,7 +181,7 @@ async def extract_memory_from_message(
                 json_text = "\n".join(lines[start_idx:end_idx])
 
             extracted = json.loads(json_text.strip())
-            print(f"[MemoryExtractor] Extracted: key={extracted.get('key')}, category={extracted.get('category')}, confidence={extracted.get('confidence')}")
+            logger.info(f"[MemoryExtractor] Extracted: key={extracted.get('key')}, category={extracted.get('category')}, confidence={extracted.get('confidence')}")
 
             return ExtractedMemory(
                 key=extracted.get("key", ""),
@@ -191,10 +194,10 @@ async def extract_memory_from_message(
             )
 
     except (json.JSONDecodeError, KeyError, ValueError, httpx.TimeoutException) as e:
-        print(f"[MemoryExtractor] Parse error: {type(e).__name__}: {e}")
+        logger.info(f"[MemoryExtractor] Parse error: {type(e).__name__}: {e}")
         return None
     except Exception as e:
-        print(f"[MemoryExtractor] Unexpected error: {type(e).__name__}: {e}")
+        logger.info(f"[MemoryExtractor] Unexpected error: {type(e).__name__}: {e}")
         return None
 
 

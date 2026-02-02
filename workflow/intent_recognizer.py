@@ -12,7 +12,10 @@ Logging format:
 """
 
 import json
+import logging
 from typing import Any, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from intent_rules import (
     IntentRule,
@@ -50,9 +53,9 @@ class RuleBasedMatcher:
         Args:
             mcp_keyword_rules: Additional rules from MCP service configurations
         """
-        print(f"[Intent] Updating rules with {len(mcp_keyword_rules)} MCP keyword rules")
+        logger.info(f"[Intent] Updating rules with {len(mcp_keyword_rules)} MCP keyword rules")
         self.rules = get_all_rules_with_dynamic_mcp(mcp_keyword_rules)
-        print(f"[Intent] Total rules after update: {len(self.rules)}")
+        logger.info(f"[Intent] Total rules after update: {len(self.rules)}")
 
     def match(self, message: str) -> Optional[IntentResult]:
         """Match a message against all rules.
@@ -63,7 +66,7 @@ class RuleBasedMatcher:
         Returns:
             IntentResult if matched, None otherwise
         """
-        print("[Intent] Layer1: checking user message...")
+        logger.info("[Intent] Layer1: checking user message...")
 
         for rule in self.rules:
             if rule.pattern.search(message):
@@ -81,13 +84,13 @@ class RuleBasedMatcher:
                     mcp_service_name=rule.mcp_service_name,  # Pass through MCP service name
                 )
 
-                print(
+                logger.info(
                     f"[Intent] Layer1: MATCHED {rule.intent_type} "
                     f"(confidence=1.0, rule={rule.name})"
                 )
                 return result
 
-        print("[Intent] Layer1: no match")
+        logger.info("[Intent] Layer1: no match")
         return None
 
 
@@ -165,11 +168,11 @@ class LLMIntentClassifier:
         Returns:
             IntentResult if classified, None otherwise
         """
-        print("[Intent] Layer2: calling LLM classifier...")
+        logger.info("[Intent] Layer2: calling LLM classifier...")
 
         use_model = model or self.model
         if not use_model:
-            print("[Intent] Layer2: no model configured, skipping")
+            logger.info("[Intent] Layer2: no model configured, skipping")
             return None
 
         prompt = INTENT_CLASSIFICATION_PROMPT.format(message=message)
@@ -188,7 +191,7 @@ class LLMIntentClassifier:
             )
 
             if response.status_code != 200:
-                print(f"[Intent] Layer2: API error {response.status_code}")
+                logger.info(f"[Intent] Layer2: API error {response.status_code}")
                 return None
 
             data = response.json()
@@ -197,7 +200,7 @@ class LLMIntentClassifier:
             return self._parse_response(content)
 
         except Exception as e:
-            print(f"[Intent] Layer2: classification failed: {e}")
+            logger.info(f"[Intent] Layer2: classification failed: {e}")
             return None
 
     def _parse_response(self, content: str) -> Optional[IntentResult]:
@@ -222,11 +225,11 @@ class LLMIntentClassifier:
             confidence = float(data.get("confidence", 0.0))
 
             if not intent_type or intent_type == "null":
-                print(f"[Intent] Layer2: no match (confidence={confidence:.2f})")
+                logger.info(f"[Intent] Layer2: no match (confidence={confidence:.2f})")
                 return None
 
             if confidence < self.confidence_threshold:
-                print(
+                logger.info(
                     f"[Intent] Layer2: no match "
                     f"(confidence={confidence:.2f} < threshold={self.confidence_threshold})"
                 )
@@ -235,7 +238,7 @@ class LLMIntentClassifier:
             # Parse intent type to category
             category, _ = parse_intent_type(intent_type)
             if category is None:
-                print(f"[Intent] Layer2: unknown intent type '{intent_type}'")
+                logger.info(f"[Intent] Layer2: unknown intent type '{intent_type}'")
                 return None
 
             result = IntentResult(
@@ -246,14 +249,14 @@ class LLMIntentClassifier:
                 source="layer2",
             )
 
-            print(
+            logger.info(
                 f"[Intent] Layer2: MATCHED {intent_type} "
                 f"(confidence={confidence:.2f})"
             )
             return result
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            print(f"[Intent] Layer2: parse error: {e}")
+            logger.info(f"[Intent] Layer2: parse error: {e}")
             return None
 
 
@@ -316,7 +319,7 @@ class IntentRecognizer:
         # Layer 1: Rule-based matching
         result = self.layer1.match(message)
         if result:
-            print(f"[Intent] Using prompt snippet: {result.intent_type}")
+            logger.info(f"[Intent] Using prompt snippet: {result.intent_type}")
             return result
 
         # Layer 2: LLM-based classification
@@ -328,11 +331,11 @@ class IntentRecognizer:
                 model=model,
             )
             if result:
-                print(f"[Intent] Using prompt snippet: {result.intent_type}")
+                logger.info(f"[Intent] Using prompt snippet: {result.intent_type}")
                 return result
 
         # Fallback: Normal conversation
-        print("[Intent] Fallback: using normal conversation")
+        logger.info("[Intent] Fallback: using normal conversation")
         return IntentResult.normal()
 
 
@@ -387,15 +390,15 @@ def build_mcp_keyword_rules_from_services(running_services: List[Any]) -> List[I
     Returns:
         List of IntentRule for MCP keyword matching
     """
-    print(f"[Intent] Building MCP keyword rules from {len(running_services)} services")
+    logger.info(f"[Intent] Building MCP keyword rules from {len(running_services)} services")
     rules = []
     for service in running_services:
         if hasattr(service, 'trigger_keywords') and service.trigger_keywords:
             rule = create_mcp_keyword_rule(service.name, service.trigger_keywords)
             if rule:
                 rules.append(rule)
-                print(f"[Intent] Created MCP rule: service='{service.name}', keywords={service.trigger_keywords}")
+                logger.info(f"[Intent] Created MCP rule: service='{service.name}', keywords={service.trigger_keywords}")
         else:
-            print(f"[Intent] Service '{service.name}' has no trigger_keywords")
-    print(f"[Intent] Built {len(rules)} MCP keyword rules total")
+            logger.info(f"[Intent] Service '{service.name}' has no trigger_keywords")
+    logger.info(f"[Intent] Built {len(rules)} MCP keyword rules total")
     return rules
