@@ -14,6 +14,9 @@ from core.state import GraphState, HITLRequest
 
 logger = logging.getLogger(__name__)
 
+# Maximum consecutive identical tool calls before forcing termination
+MAX_IDENTICAL_TOOL_CALLS = 3
+
 
 class ReasoningNode:
     """
@@ -108,6 +111,11 @@ class ReasoningNode:
         # Add current user message
         messages.append({"role": "user", "content": state.semantic_input.text})
 
+        # Add tool execution result if available (critical for multi-step tool workflows)
+        if state.observation:
+            tool_result_msg = f"【工具执行结果】\n{state.observation}\n\n请根据以上工具返回的结果继续处理用户的请求。如果需要调用其他工具（如使用返回的ID查询文档），请继续调用。如果结果已经足够回答用户问题，请直接给出回复。"
+            messages.append({"role": "user", "content": tool_result_msg})
+
         # 3. Call LLM with streaming
         full_response = ""
         try:
@@ -126,11 +134,38 @@ class ReasoningNode:
         tool_call = extract_tool_call(full_response)
         if tool_call:
             logger.info(f"[ReasoningNode] Tool call detected: {tool_call.name}.{tool_call.method}")
-            updates["pending_tool_calls"] = [{
+
+            # Check for tool call loop
+            current_call = {
                 "service": tool_call.name,
                 "method": tool_call.method,
                 "args": tool_call.arguments,
-            }]
+            }
+
+            # Count consecutive identical calls
+            tool_history = list(state.tool_call_history)
+            consecutive_count = 0
+            for prev_call in reversed(tool_history):
+                if (prev_call.get("service") == current_call["service"] and
+                    prev_call.get("method") == current_call["method"]):
+                    consecutive_count += 1
+                else:
+                    break
+
+            if consecutive_count >= MAX_IDENTICAL_TOOL_CALLS:
+                logger.warning(f"[ReasoningNode] Tool call loop detected: {tool_call.name}.{tool_call.method} called {consecutive_count + 1} times consecutively. Forcing termination.")
+                # Force termination with error message
+                error_msg = f"工具调用循环检测：{tool_call.name}.{tool_call.method} 已连续调用 {consecutive_count + 1} 次。请检查查询参数或换用其他方法。"
+                updates["response"] = error_msg
+                updates["pending_tool_calls"] = []
+                updates["observation"] = None
+                return updates
+
+            # Record this tool call in history
+            tool_history.append(current_call)
+            updates["tool_call_history"] = tool_history
+
+            updates["pending_tool_calls"] = [current_call]
             updates["observation"] = None
             # Also store the response text for display
             try:

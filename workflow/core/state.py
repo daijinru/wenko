@@ -81,6 +81,9 @@ class GraphState(BaseModel):
     detected_emotion: Optional[Dict[str, Any]] = Field(default=None, description="Emotion detected from response")
     memories_to_store: List[Dict[str, Any]] = Field(default_factory=list, description="Memories to be saved")
 
+    # Tool call tracking for loop detection
+    tool_call_history: List[Dict[str, Any]] = Field(default_factory=list, description="History of tool calls for loop detection")
+
     # Intent recognition result from IntentNode
     intent_result: Optional[Dict[str, Any]] = Field(
         default=None,

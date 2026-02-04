@@ -92,12 +92,12 @@ class GraphRunner:
         workflow = orchestrator.build()
         app = workflow.compile()
 
-        # 3. Stream Execution
+        # 3. Stream Execution with increased recursion limit
         yield self._format_sse("status", {"status": "starting", "session_id": session_id})
 
         final_response = ""
         try:
-            async for output in app.astream(initial_state):
+            async for output in app.astream(initial_state, config={"recursion_limit": 50}):
                 # output is a dict of {node_name: state_update}
                 for node_name, update in output.items():
                     logger.info(f"[GraphRunner] Node {node_name} update keys: {list(update.keys()) if isinstance(update, dict) else type(update)}")
@@ -211,11 +211,11 @@ class GraphRunner:
         workflow = orchestrator.build()
         app = workflow.compile()
 
-        # 3. Stream Execution
+        # 3. Stream Execution with increased recursion limit
         yield self._format_sse("status", {"status": "starting", "session_id": session_id})
 
         try:
-            async for output in app.astream(initial_state):
+            async for output in app.astream(initial_state, config={"recursion_limit": 50}):
                 for node_name, update in output.items():
                     logger.info(f"[GraphRunner Image] Node {node_name} update keys: {list(update.keys()) if isinstance(update, dict) else type(update)}")
 
@@ -246,35 +246,50 @@ class GraphRunner:
             logger.error(f"Image graph execution failed: {e}", exc_info=True)
             yield self._format_sse("error", {"type": "error", "payload": {"message": f"图片分析失败: {str(e)}"}})
 
-    async def resume(self, session_id: str, hitl_response: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def resume(self, request) -> AsyncGenerator[str, None]:
         """
-        Resume graph execution after HITL response.
+        Resume graph execution after HITL form submission.
 
         Args:
-            session_id: Session ID to resume
-            hitl_response: User's response to HITL form
+            request: HITLContinueRequest with session_id and continuation_data
 
         Yields:
             SSE formatted event strings
         """
-        # Load checkpoint
-        checkpoint = self._load_checkpoint(session_id)
-        if not checkpoint:
-            yield self._format_sse("error", {
-                "type": "error",
-                "payload": {"message": "Checkpoint not found for session"}
-            })
-            return
+        from chat_db import add_message
+        from hitl_handler import store_hitl_request, build_continuation_context
+        from hitl_schema import HITLContinuationData, HITLDisplayRequest
 
-        # Inject HITL response into state
-        checkpoint["last_human_input"] = hitl_response
-        checkpoint["status"] = "processing"
-        checkpoint["hitl_request"] = None
+        session_id = request.session_id
 
-        # Rebuild state
-        state = GraphState(**checkpoint)
+        # Build continuation context from the HITL response data
+        continuation_data = HITLContinuationData(
+            request_title=request.continuation_data.request_title,
+            action=request.continuation_data.action,
+            form_data=request.continuation_data.form_data,
+            field_labels=request.continuation_data.field_labels,
+        )
 
-        # Build graph and continue from reasoning
+        hitl_context = build_continuation_context(continuation_data)
+        logger.info(f"[GraphRunner Resume] HITL context built: length={len(hitl_context)}")
+
+        # 1. Initialize State with HITL continuation as input
+        initial_state = GraphState(
+            conversation_id=session_id,
+            semantic_input=SemanticInput(
+                text=f"请根据我刚才提交的表单信息给出回复。\n\n{hitl_context}",
+                raw_event=request.model_dump() if hasattr(request, 'model_dump') else {},
+            ),
+            working_memory=WorkingMemory(),
+            emotional_context=EmotionalContext(),
+            last_human_input={
+                "action": continuation_data.action,
+                "form_data": continuation_data.form_data,
+                "field_labels": continuation_data.field_labels,
+            },
+        )
+
+        # 2. Build and compile graph (skip intent node for continuation)
         orchestrator = GraphOrchestrator(
             api_base=self.config.api_base,
             api_key=self.config.api_key,
@@ -283,25 +298,69 @@ class GraphRunner:
             temperature=self.config.temperature,
             entry_point="text",
         )
-
-        # For resume, we re-run from reasoning with the new context
-        # This is a simplified approach - full implementation would use LangGraph checkpoints
         workflow = orchestrator.build()
         app = workflow.compile()
 
+        # 3. Stream Execution with increased recursion limit
         yield self._format_sse("status", {"status": "resuming", "session_id": session_id})
 
+        final_response = ""
         try:
-            async for output in app.astream(state):
+            async for output in app.astream(initial_state, config={"recursion_limit": 50}):
                 for node_name, update in output.items():
+                    logger.info(f"[GraphRunner Resume] Node {node_name} update keys: {list(update.keys()) if isinstance(update, dict) else type(update)}")
+
                     if not isinstance(update, dict):
                         continue
 
+                    # Emit response text
                     if "response" in update and update["response"]:
+                        final_response = update["response"]
                         yield self._format_sse("text", {"type": "text", "payload": {"content": update["response"]}})
 
-            # Delete checkpoint after successful resume
-            self._delete_checkpoint(session_id)
+                    # Emit emotion
+                    if "detected_emotion" in update:
+                        em = update["detected_emotion"]
+                        yield self._format_sse("emotion", {
+                            "type": "emotion",
+                            "payload": em,
+                        })
+
+                    # Emit chained HITL request
+                    if "hitl_request" in update and update["hitl_request"]:
+                        hitl_req = update.get("hitl_full_request")
+                        if hitl_req:
+                            # Store HITL request
+                            try:
+                                store_hitl_request(hitl_req, session_id)
+                            except Exception as e:
+                                logger.error(f"Failed to store HITL request: {e}")
+
+                            # Format HITL payload for frontend
+                            hitl_payload = self._format_hitl_payload(hitl_req, session_id)
+                            yield self._format_sse("hitl", {"type": "hitl", "payload": hitl_payload})
+
+                    # Emit tool result
+                    if "observation" in update and update["observation"] and node_name == "tools":
+                        yield self._format_sse("tool_result", {
+                            "type": "tool_result",
+                            "payload": {"result": update["observation"]},
+                        })
+
+                    # Emit memory saved event
+                    if "memories_to_store" in update and update["memories_to_store"]:
+                        memory_payload = {
+                            "count": len(update["memories_to_store"]),
+                            "entries": update["memories_to_store"],
+                        }
+                        yield self._format_sse("memory_saved", {"type": "memory_saved", "payload": memory_payload})
+
+            # Save assistant response to database
+            if final_response:
+                try:
+                    add_message(session_id, "assistant", final_response)
+                except Exception as e:
+                    logger.error(f"Failed to save assistant message: {e}")
 
             yield self._format_sse("done", {"type": "done"})
 
