@@ -181,9 +181,9 @@ def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[Union[HITLReq
         # Parse fields
         fields = []
         for field_data in hitl_data.get("fields", []):
-            # Parse options if present
+            # Parse options if present and not None
             options = None
-            if "options" in field_data:
+            if field_data.get("options"):
                 options = [HITLOption(**opt) for opt in field_data["options"]]
 
             field = HITLField(
@@ -211,9 +211,9 @@ def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[Union[HITLReq
             if "reject" in actions_data:
                 actions.reject = HITLActionButton(**actions_data["reject"])
 
-        # Parse context if present
+        # Parse context if present and not None
         context = None
-        if "context" in hitl_data:
+        if hitl_data.get("context"):
             context = HITLContext(**hitl_data["context"])
 
         return HITLRequest(

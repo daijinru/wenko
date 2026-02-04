@@ -1,6 +1,6 @@
 from typing import Dict, Any
-from workflow.core.state import GraphState, EmotionalContext
-from workflow.emotion_detector import extract_emotion_from_text, EmotionResult
+from core.state import GraphState, EmotionalContext
+from emotion_detector import extract_emotion_from_text, EmotionResult
 
 class EmotionNode:
     """

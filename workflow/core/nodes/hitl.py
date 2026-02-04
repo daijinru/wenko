@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from workflow.core.state import GraphState
+from core.state import GraphState
 
 class HITLNode:
     """

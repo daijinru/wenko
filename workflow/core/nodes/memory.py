@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, List
-from workflow.core.state import GraphState, MemoryRef
-import workflow.memory_manager as mm
+from core.state import GraphState, MemoryRef
+import memory_manager as mm
 
 logger = logging.getLogger(__name__)
 

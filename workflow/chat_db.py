@@ -23,7 +23,7 @@ _DB_DIR = os.path.join(os.path.dirname(__file__), "data")
 _DB_PATH = os.path.join(_DB_DIR, "chat_history.db")
 
 # Database schema version for migrations
-_DB_VERSION = 5
+_DB_VERSION = 6
 
 # Default settings configuration
 _DEFAULT_SETTINGS = {
@@ -270,6 +270,18 @@ def init_database() -> None:
 
             # Initialize default settings
             _initialize_default_settings(conn)
+
+        # ============ V6: Graph Checkpoints ============
+        if current_version < 6:
+            # Create graph_checkpoints table for HITL state persistence
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS graph_checkpoints (
+                    session_id TEXT PRIMARY KEY,
+                    state_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
         # Update schema version
         if current_version < _DB_VERSION:

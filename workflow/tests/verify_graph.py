@@ -1,7 +1,13 @@
 import asyncio
 import logging
-from workflow.core.graph import GraphOrchestrator
-from workflow.core.state import GraphState, SemanticInput, WorkingMemory, EmotionalContext
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.graph import GraphOrchestrator
+from core.state import GraphState, SemanticInput, WorkingMemory, EmotionalContext
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

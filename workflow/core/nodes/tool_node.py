@@ -1,8 +1,8 @@
 import logging
 import json
 from typing import Dict, Any, List
-from workflow.core.state import GraphState
-from workflow.mcp_tool_executor import execute_mcp_tool, ToolCallResult
+from core.state import GraphState
+from mcp_tool_executor import execute_mcp_tool, ToolCallResult
 
 logger = logging.getLogger(__name__)
 

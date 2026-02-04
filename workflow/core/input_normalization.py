@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional
 import logging
-from workflow.core.state import SemanticInput
-from workflow.intent_recognizer import IntentRecognizer, IntentResult
+from core.state import SemanticInput
+from intent_recognizer import IntentRecognizer, IntentResult
 
 logger = logging.getLogger(__name__)
 

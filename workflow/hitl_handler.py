@@ -36,13 +36,21 @@ _pending_requests: Dict[str, tuple] = {}
 _lock = Lock()
 
 
-def store_hitl_request(request: HITLRequest, session_id: str) -> None:
+def store_hitl_request(request: Union[HITLRequest, Dict[str, Any]], session_id: str) -> None:
     """Store a pending HITL request.
 
     Args:
-        request: The HITL request to store
+        request: The HITL request to store (HITLRequest object or dict)
         session_id: Associated session ID
     """
+    # Convert dict to HITLRequest if needed
+    if isinstance(request, dict):
+        parsed = parse_hitl_request_from_dict(request)
+        if parsed is None:
+            logger.error(f"[HITL] Failed to parse dict as HITLRequest: {list(request.keys())}")
+            return
+        request = parsed
+
     expires_at = datetime.now() + timedelta(seconds=request.ttl_seconds)
     with _lock:
         _pending_requests[request.id] = (request, session_id, expires_at)

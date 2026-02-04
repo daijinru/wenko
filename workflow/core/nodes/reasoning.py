@@ -1,118 +1,272 @@
-import logging
+"""ReasoningNode - The Brain of the Cognitive Graph
+
+Generates responses using LLM with full context from emotion detection and memory retrieval.
+Supports streaming token output, tool calls, HITL requests, and memory updates.
+"""
+
 import json
-from typing import Dict, Any, Optional
-from workflow.core.state import GraphState, HITLRequest
-from workflow.core.prompts import CHAT_PROMPT_TEMPLATE
-from workflow.mcp_tool_executor import get_mcp_tools_prompt_snippet_async
+import logging
+from typing import Dict, Any, Optional, AsyncGenerator, Callable
+
+import httpx
+
+from core.state import GraphState, HITLRequest
 
 logger = logging.getLogger(__name__)
+
 
 class ReasoningNode:
     """
     The Brain. Decides next action based on state.
+    Uses real LLM API via httpx for streaming responses.
     """
-    def __init__(self, llm_client: Any, model: str):
-        self.llm_client = llm_client
-        self.model = model
 
-    async def compute(self, state: GraphState) -> Dict[str, Any]:
+    def __init__(
+        self,
+        api_base: str,
+        api_key: str,
+        model: str,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ):
+        self.api_base = api_base
+        self.api_key = api_key
+        self.model = model
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+
+    async def compute(
+        self,
+        state: GraphState,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
         """
         Generate plan/response using LLM.
+
+        Args:
+            state: Current graph state with all context
+            stream_callback: Optional callback for streaming tokens
+
+        Returns:
+            State updates including response, tool_calls, or hitl_request
         """
-        # 1. Prepare Prompt Context
-        working_mem_summary = self._format_working_memory(state.working_memory)
-        long_term_mem_summary = self._format_long_term_memory(state.working_memory.retrieved_memories)
-        emotion_modulation = f"Modulation Instruction: {state.emotional_context.modulation_instruction}"
+        # 1. Build prompt using chat_processor
+        from chat_processor import (
+            build_chat_context,
+            build_system_prompt,
+            process_llm_response,
+            extract_tool_call,
+            is_hitl_enabled,
+        )
+        from hitl_handler import extract_hitl_from_llm_response
 
-        # Tools
-        mcp_instruction = await self._get_mcp_instruction()
-
-        # HITL (Simplified for now, assume always enabled or check config)
-        hitl_instruction = "..." # We need to inject HITL instructions if we want the LLM to generate HITL requests.
-        # For this refactor, let's assume standard HITL prompt injection similar to chat_processor.
-
-        prompt = CHAT_PROMPT_TEMPLATE.format(
+        # Build context from state
+        chat_context = build_chat_context(
+            session_id=state.conversation_id,
             user_message=state.semantic_input.text,
-            working_memory_summary=working_mem_summary,
-            relevant_long_term_memory=long_term_mem_summary,
-            strategy_prompt="", # Can be added if we have StrategyNode
-            emotion_modulation=emotion_modulation,
-            mcp_instruction=mcp_instruction,
-            hitl_instruction="" # Add HITL template if needed
         )
 
-        # 2. Call LLM
-        response_text = await self._call_llm(prompt)
+        # Inject intent if available
+        if state.semantic_input.intent:
+            from intent_types import IntentResult
+            # Create a simple intent result for the context
+            chat_context.intent_result = IntentResult(
+                category="normal",
+                intent_type=state.semantic_input.intent,
+                confidence=1.0,
+                source="graph",
+            )
 
-        # 3. Parse Output
-        parsed = self._parse_output(response_text)
+        # Build the full system prompt
+        system_prompt = build_system_prompt(chat_context)
 
+        # 2. Prepare messages
+        messages = [{"role": "system", "content": system_prompt}]
+
+        # Add dialogue history if available
+        for msg in state.dialogue_history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+        # Add current user message
+        messages.append({"role": "user", "content": state.semantic_input.text})
+
+        # 3. Call LLM with streaming
+        full_response = ""
+        try:
+            async for token in self._stream_llm(messages):
+                full_response += token
+                if stream_callback:
+                    stream_callback(token)
+        except Exception as e:
+            logger.error(f"LLM call failed: {e}")
+            return {"observation": f"LLM error: {str(e)}"}
+
+        # 4. Parse the response
         updates = {}
 
-        # 4. Determine Action
-        if parsed.get("tool_call"):
-            # Tool Call
-            updates["pending_tool_calls"] = [parsed["tool_call"]]
-            # We don't return response to user yet if tool is called, or maybe we do?
-            # Usually we wait for tool result.
-            updates["observation"] = None # Clear previous observation
-        elif parsed.get("hitl_request"):
-            # HITL Request
-            updates["hitl_request"] = HITLRequest(**parsed["hitl_request"])
-            updates["status"] = "suspended"
-        else:
-            # Direct Response
-            # If parsed has 'response' field, use it. Otherwise use the raw text if it's not JSON.
-            response_content = parsed.get("response")
+        # Try to extract tool call
+        tool_call = extract_tool_call(full_response)
+        if tool_call:
+            logger.info(f"[ReasoningNode] Tool call detected: {tool_call.name}.{tool_call.method}")
+            updates["pending_tool_calls"] = [{
+                "service": tool_call.name,
+                "method": tool_call.method,
+                "args": tool_call.arguments,
+            }]
+            updates["observation"] = None
+            # Also store the response text for display
+            try:
+                parsed = json.loads(full_response)
+                if "response" in parsed:
+                    updates["response"] = parsed["response"]
+            except json.JSONDecodeError:
+                pass
+            return updates
 
-            # If we failed to parse as JSON, but got some text, maybe treat as response?
-            # But _parse_output returns {} on error.
-            # Let's rely on parsed keys.
+        # Try to extract HITL request
+        if is_hitl_enabled():
+            hitl_request = extract_hitl_from_llm_response(full_response)
+            if hitl_request:
+                logger.info(f"[ReasoningNode] HITL request detected: {hitl_request.type}")
+                # Convert to state HITLRequest format
+                updates["hitl_request"] = HITLRequest(
+                    type=hitl_request.type,
+                    message=hitl_request.title,
+                    options=[],
+                    context_data={"hitl_id": hitl_request.id},
+                )
+                updates["status"] = "suspended"
+                # Store full HITL data for frontend (as dict for LangGraph serialization)
+                updates["hitl_full_request"] = hitl_request.model_dump(mode='json') if hasattr(hitl_request, 'model_dump') else dict(hitl_request)
+                # Also extract response text
+                try:
+                    parsed = json.loads(full_response)
+                    if "response" in parsed:
+                        updates["response"] = parsed["response"]
+                except json.JSONDecodeError:
+                    pass
+                return updates
 
-            if response_content:
-                # Update dialogue history
-                current_history = list(state.dialogue_history)
-                current_history.append({"role": "assistant", "content": response_content})
-                updates["dialogue_history"] = current_history
+        # 5. Process normal response
+        try:
+            chat_result = process_llm_response(full_response, chat_context)
+            response_text = chat_result.response
 
-                # Also expose it for runners that might look for a 'response' key in the update
-                # even if it's not in GraphState (LangGraph allows extra keys in update dict usually,
-                # but Pydantic validation might strip it if strict).
-                updates["response"] = response_content
+            # Update dialogue history
+            current_history = list(state.dialogue_history)
+            current_history.append({"role": "assistant", "content": response_text})
+            updates["dialogue_history"] = current_history
 
-        # Always return the raw response for debugging or if it contains the user response
-        # But GraphState doesn't have a 'response' field for the final output yet,
-        # usually it flows to an OutputNode or is part of the state.
-        # Let's assume we update dialogue_history here or return it.
+            # Store response for SSE emission
+            updates["response"] = response_text
 
-        # For now, let's return the parsed response structure as part of the state update
-        # (maybe we need a field for 'current_response' in State)
+            # Store emotion if detected
+            if chat_result.emotion:
+                updates["detected_emotion"] = {
+                    "primary": chat_result.emotion.primary,
+                    "category": chat_result.emotion.category,
+                    "confidence": chat_result.emotion.confidence,
+                }
+
+            # Store memories to save
+            if chat_result.memories_to_store:
+                updates["memories_to_store"] = chat_result.memories_to_store
+
+        except Exception as e:
+            logger.warning(f"Failed to parse LLM response as JSON: {e}")
+            # Fallback: treat raw response as text
+            try:
+                parsed = json.loads(full_response)
+                response_text = parsed.get("response", full_response)
+            except json.JSONDecodeError:
+                response_text = full_response
+
+            current_history = list(state.dialogue_history)
+            current_history.append({"role": "assistant", "content": response_text})
+            updates["dialogue_history"] = current_history
+            updates["response"] = response_text
 
         return updates
 
-    def _format_working_memory(self, wm):
-        return f"Topic: {wm.current_goals}"
+    async def _stream_llm(self, messages: list) -> AsyncGenerator[str, None]:
+        """
+        Stream tokens from the LLM API.
 
-    def _format_long_term_memory(self, memories):
-        return "\n".join([f"- {m.content}" for m in memories])
+        Args:
+            messages: List of messages in OpenAI format
 
-    async def _get_mcp_instruction(self):
-         snippet = await get_mcp_tools_prompt_snippet_async()
-         if snippet:
-             return f"Available Tools:\n{snippet}\nTo call a tool, include 'tool_call' in JSON."
-         return ""
+        Yields:
+            Individual tokens as they arrive
+        """
+        api_url = f"{self.api_base.rstrip('/')}/chat/completions"
 
-    async def _call_llm(self, prompt: str) -> str:
-        if hasattr(self.llm_client, "chat"):
-            response = await self.llm_client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.choices[0].message.content
-        return "{}"
+        request_body = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "stream": True,
+        }
 
-    def _parse_output(self, text: str) -> Dict[str, Any]:
-        try:
-            return json.loads(text)
-        except:
-            return {}
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                api_url,
+                json=request_body,
+                headers=headers,
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    raise Exception(f"API error {response.status_code}: {error_text.decode()}")
+
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                        except json.JSONDecodeError:
+                            continue
+
+    async def call_llm_non_streaming(self, messages: list) -> str:
+        """
+        Call LLM without streaming (for testing or simple cases).
+
+        Args:
+            messages: List of messages in OpenAI format
+
+        Returns:
+            Complete response text
+        """
+        api_url = f"{self.api_base.rstrip('/')}/chat/completions"
+
+        request_body = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "stream": False,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(api_url, json=request_body, headers=headers)
+            if response.status_code != 200:
+                raise Exception(f"API error {response.status_code}: {response.text}")
+
+            data = response.json()
+            return data.get("choices", [{}])[0].get("message", {}).get("content", "")

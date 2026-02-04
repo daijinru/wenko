@@ -7,10 +7,11 @@ class SemanticInput(BaseModel):
     Normalized input representation from any source (Text, Image, Drag&Drop, etc.)
     """
     text: str = Field(default="", description="Primary text content")
-    images: List[str] = Field(default_factory=list, description="List of image references/paths")
+    images: List[str] = Field(default_factory=list, description="List of image references/paths or base64 data")
     intent: Optional[str] = Field(default=None, description="Detected intent if any")
     files: List[str] = Field(default_factory=list, description="List of file paths")
     raw_event: Optional[Dict[str, Any]] = Field(default=None, description="Original event data for debugging")
+    image_action: Optional[str] = Field(default=None, description="Image action: 'analyze_only' or 'analyze_for_memory'")
 
 class EmotionalContext(BaseModel):
     """
@@ -46,7 +47,7 @@ class ExecutionStep(BaseModel):
 
 class HITLRequest(BaseModel):
     """Data contract for Human-in-the-loop requests"""
-    type: Literal["confirmation", "selection", "clarification", "permission"]
+    type: str  # e.g., 'form', 'confirmation', 'visual_display', etc.
     message: str
     options: List[Dict[str, Any]] = Field(default_factory=list)
     context_data: Dict[str, Any] = Field(default_factory=dict)
@@ -70,9 +71,15 @@ class GraphState(BaseModel):
 
     # Interaction State
     hitl_request: Optional[HITLRequest] = None
+    hitl_full_request: Optional[Dict[str, Any]] = Field(default=None, description="Full HITL request data for frontend")
     last_human_input: Optional[Dict[str, Any]] = None
     observation: Optional[str] = Field(default=None, description="Result from tool execution or error message")
     pending_tool_calls: List[Dict[str, Any]] = Field(default_factory=list, description="List of tool calls to be executed")
+
+    # Output fields for streaming
+    response: Optional[str] = Field(default=None, description="Generated response text")
+    detected_emotion: Optional[Dict[str, Any]] = Field(default=None, description="Emotion detected from response")
+    memories_to_store: List[Dict[str, Any]] = Field(default_factory=list, description="Memories to be saved")
 
     model_config = {
         "arbitrary_types_allowed": True

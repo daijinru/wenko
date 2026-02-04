@@ -656,9 +656,16 @@ async def stream_chat_response(request: ChatRequest):
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    """对话接口 - 返回 SSE 流式响应"""
+    """对话接口 - 返回 SSE 流式响应
+
+    使用 GraphRunner 驱动的认知图谱执行对话流程。
+    节点流程: EmotionNode → MemoryNode → ReasoningNode → (Tools/HITL/END)
+    """
+    from graph_runner import GraphRunner
+
+    runner = GraphRunner()
     return StreamingResponse(
-        stream_chat_response(request),
+        runner.run(request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -864,10 +871,14 @@ async def stream_image_analysis(request: ImageChatRequest):
 async def chat_image(request: ImageChatRequest):
     """图片分析接口 - 返回 SSE 流式响应
 
-    使用 Vision LLM 分析图片中的文本内容，可选保存到长期记忆。
+    使用 GraphRunner 驱动的认知图谱处理图片分析。
+    节点流程: ImageNode → MemoryExtractionNode → (HITL/END)
     """
+    from graph_runner import GraphRunner
+
+    runner = GraphRunner()
     return StreamingResponse(
-        stream_image_analysis(request),
+        runner.run_image(request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
