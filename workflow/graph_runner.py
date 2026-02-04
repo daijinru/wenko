@@ -317,58 +317,95 @@ class GraphRunner:
         """Format HITL request for frontend SSE payload."""
         # Handle both dict and object formats
         if isinstance(hitl_req, dict):
-            payload = {
-                "id": hitl_req.get("id"),
-                "type": hitl_req.get("type"),
-                "title": hitl_req.get("title"),
-                "description": hitl_req.get("description"),
-                "fields": hitl_req.get("fields", []),
-                "actions": hitl_req.get("actions", {}),
-                "session_id": session_id,
-            }
+            hitl_type = hitl_req.get("type", "form")
+            if hitl_type == "visual_display":
+                # Visual display type
+                payload = {
+                    "id": hitl_req.get("id"),
+                    "type": "visual_display",
+                    "title": hitl_req.get("title"),
+                    "description": hitl_req.get("description"),
+                    "displays": hitl_req.get("displays", []),
+                    "dismiss_label": hitl_req.get("dismiss_label", "关闭"),
+                    "session_id": session_id,
+                }
+            else:
+                # Form type
+                payload = {
+                    "id": hitl_req.get("id"),
+                    "type": hitl_req.get("type"),
+                    "title": hitl_req.get("title"),
+                    "description": hitl_req.get("description"),
+                    "fields": hitl_req.get("fields", []),
+                    "actions": hitl_req.get("actions", {}),
+                    "session_id": session_id,
+                }
         else:
             # Object with attributes
-            fields = []
-            if hasattr(hitl_req, 'fields'):
-                for f in hitl_req.fields:
-                    field_dict = {
-                        "name": f.name,
-                        "type": f.type.value if hasattr(f.type, 'value') else str(f.type),
-                        "label": f.label,
-                        "required": f.required,
-                        "placeholder": getattr(f, 'placeholder', None),
-                        "default": getattr(f, 'default', None),
-                    }
-                    if hasattr(f, 'options') and f.options:
-                        field_dict["options"] = [{"value": o.value, "label": o.label} for o in f.options]
-                    fields.append(field_dict)
+            hitl_type = getattr(hitl_req, 'type', 'form')
 
-            actions = {}
-            if hasattr(hitl_req, 'actions'):
-                actions = {
-                    "approve": {
-                        "label": hitl_req.actions.approve.label,
-                        "style": hitl_req.actions.approve.style.value if hasattr(hitl_req.actions.approve.style, 'value') else str(hitl_req.actions.approve.style),
-                    },
-                    "edit": {
-                        "label": hitl_req.actions.edit.label,
-                        "style": hitl_req.actions.edit.style.value if hasattr(hitl_req.actions.edit.style, 'value') else str(hitl_req.actions.edit.style),
-                    },
-                    "reject": {
-                        "label": hitl_req.actions.reject.label,
-                        "style": hitl_req.actions.reject.style.value if hasattr(hitl_req.actions.reject.style, 'value') else str(hitl_req.actions.reject.style),
-                    },
+            if hitl_type == "visual_display":
+                # Visual display type - format displays
+                displays = []
+                if hasattr(hitl_req, 'displays'):
+                    for d in hitl_req.displays:
+                        displays.append({
+                            "type": d.type.value if hasattr(d.type, 'value') else str(d.type),
+                            "data": d.data,
+                        })
+
+                payload = {
+                    "id": hitl_req.id,
+                    "type": "visual_display",
+                    "title": hitl_req.title,
+                    "description": getattr(hitl_req, 'description', ''),
+                    "displays": displays,
+                    "dismiss_label": getattr(hitl_req, 'dismiss_label', '关闭'),
+                    "session_id": session_id,
                 }
+            else:
+                # Form type - format fields and actions
+                fields = []
+                if hasattr(hitl_req, 'fields'):
+                    for f in hitl_req.fields:
+                        field_dict = {
+                            "name": f.name,
+                            "type": f.type.value if hasattr(f.type, 'value') else str(f.type),
+                            "label": f.label,
+                            "required": f.required,
+                            "placeholder": getattr(f, 'placeholder', None),
+                            "default": getattr(f, 'default', None),
+                        }
+                        if hasattr(f, 'options') and f.options:
+                            field_dict["options"] = [{"value": o.value, "label": o.label} for o in f.options]
+                        fields.append(field_dict)
 
-            payload = {
-                "id": hitl_req.id,
-                "type": hitl_req.type,
-                "title": hitl_req.title,
-                "description": getattr(hitl_req, 'description', ''),
-                "fields": fields,
-                "actions": actions,
-                "session_id": session_id,
-            }
+                actions = {}
+                if hasattr(hitl_req, 'actions'):
+                    actions = {
+                        "approve": {
+                            "label": hitl_req.actions.approve.label,
+                            "style": hitl_req.actions.approve.style.value if hasattr(hitl_req.actions.approve.style, 'value') else str(hitl_req.actions.approve.style),
+                        },
+                        "edit": {
+                            "label": hitl_req.actions.edit.label,
+                            "style": hitl_req.actions.edit.style.value if hasattr(hitl_req.actions.edit.style, 'value') else str(hitl_req.actions.edit.style),
+                        },
+                        "reject": {
+                            "label": hitl_req.actions.reject.label,
+                            "style": hitl_req.actions.reject.style.value if hasattr(hitl_req.actions.reject.style, 'value') else str(hitl_req.actions.reject.style),
+                        },
+                    }
+
+                payload = {
+                    "id": hitl_req.id,
+                    "type": hitl_req.type,
+                    "title": hitl_req.title,
+                    "description": getattr(hitl_req, 'description', ''),
+                    "fields": fields,
+                    "actions": actions,
+                    "session_id": session_id,
+                }
 
         return payload
 

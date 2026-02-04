@@ -81,6 +81,12 @@ class GraphState(BaseModel):
     detected_emotion: Optional[Dict[str, Any]] = Field(default=None, description="Emotion detected from response")
     memories_to_store: List[Dict[str, Any]] = Field(default_factory=list, description="Memories to be saved")
 
+    # Intent recognition result from IntentNode
+    intent_result: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Intent recognition result with category, intent_type, confidence, source, matched_rule, mcp_service_name"
+    )
+
     model_config = {
         "arbitrary_types_allowed": True
     }

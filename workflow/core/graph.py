@@ -1,7 +1,7 @@
 """GraphOrchestrator - Builds and configures the cognitive graph workflow.
 
 Supports two entry points:
-- Text chat: EmotionNode → MemoryNode → ReasoningNode → (Tools/HITL/END)
+- Text chat: IntentNode → EmotionNode → MemoryNode → ReasoningNode → (Tools/HITL/END)
 - Image chat: ImageNode → MemoryExtractionNode → (HITL/END)
 """
 
@@ -13,6 +13,7 @@ from core.nodes.memory import MemoryNode
 from core.nodes.reasoning import ReasoningNode
 from core.nodes.tool_node import ToolNode
 from core.nodes.hitl import HITLNode
+from core.nodes.intent import IntentNode
 
 
 class GraphOrchestrator:
@@ -45,6 +46,7 @@ class GraphOrchestrator:
         self.entry_point = entry_point
 
         # Initialize nodes
+        self.intent_node = IntentNode()
         self.emotion_node = EmotionNode()
         self.memory_node = MemoryNode()
         self.reasoning_node = ReasoningNode(
@@ -91,14 +93,16 @@ class GraphOrchestrator:
         workflow = StateGraph(GraphState)
 
         # Add Nodes
+        workflow.add_node("intent", self._intent_wrapper)
         workflow.add_node("emotion", self.emotion_node.compute)
         workflow.add_node("memory", self.memory_node.recall)
         workflow.add_node("reasoning", self._reasoning_wrapper)
         workflow.add_node("tools", self.tool_node.execute)
         workflow.add_node("hitl", self.hitl_node.execute)
 
-        # Define Edges: Emotion -> Memory -> Reasoning
-        workflow.set_entry_point("emotion")
+        # Define Edges: Intent -> Emotion -> Memory -> Reasoning
+        workflow.set_entry_point("intent")
+        workflow.add_edge("intent", "emotion")
         workflow.add_edge("emotion", "memory")
         workflow.add_edge("memory", "reasoning")
 
@@ -164,6 +168,12 @@ class GraphOrchestrator:
         workflow.add_edge("hitl", END)
 
         return workflow
+
+    async def _intent_wrapper(self, state: GraphState):
+        """
+        Wrapper for IntentNode.compute that works with LangGraph.
+        """
+        return await self.intent_node.compute(state)
 
     async def _reasoning_wrapper(self, state: GraphState):
         """

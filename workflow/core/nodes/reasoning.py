@@ -66,12 +66,30 @@ class ReasoningNode:
             user_message=state.semantic_input.text,
         )
 
-        # Inject intent if available
-        if state.semantic_input.intent:
-            from intent_types import IntentResult
-            # Create a simple intent result for the context
+        # Inject intent from IntentNode if available
+        if state.intent_result:
+            from intent_types import IntentResult, IntentCategory
+            # Convert dict back to IntentResult for chat_context
+            category_str = state.intent_result.get("category", "normal")
+            try:
+                category = IntentCategory(category_str)
+            except ValueError:
+                category = IntentCategory.NORMAL
+
             chat_context.intent_result = IntentResult(
-                category="normal",
+                category=category,
+                intent_type=state.intent_result.get("intent_type"),
+                confidence=state.intent_result.get("confidence", 0.0),
+                source=state.intent_result.get("source", "graph"),
+                matched_rule=state.intent_result.get("matched_rule"),
+                mcp_service_name=state.intent_result.get("mcp_service_name"),
+            )
+            logger.info(f"[ReasoningNode] Using intent from IntentNode: {category_str}/{state.intent_result.get('intent_type')}")
+        elif state.semantic_input.intent:
+            # Fallback: legacy intent from semantic_input
+            from intent_types import IntentResult, IntentCategory
+            chat_context.intent_result = IntentResult(
+                category=IntentCategory.NORMAL,
                 intent_type=state.semantic_input.intent,
                 confidence=1.0,
                 source="graph",
