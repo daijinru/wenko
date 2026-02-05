@@ -53,11 +53,11 @@ export default function App() {
           {isDisplay ? (
             <>
               <HITLDisplay request={request as HITLDisplayRequest} />
-              <HITLDisplayActions
+              {/* <HITLDisplayActions
                 dismissLabel={(request as HITLDisplayRequest).dismiss_label}
                 onDismiss={() => submit('reject')}
                 isSubmitting={isSubmitting}
-              />
+              /> */}
             </>
           ) : (
             <>
