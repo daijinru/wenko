@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useLogs } from '@/hooks/use-logs';
-import { LogViewer } from './log-viewer';
+import { LogViewer, LogViewerRef } from './log-viewer';
 
 interface ConfirmDialogState {
   open: boolean;
@@ -34,6 +34,24 @@ export function LogsTab({ onConfirmDialog: _onConfirmDialog }: LogsTabProps) {
   } = useLogs();
 
   const [keyword, setKeyword] = useState('');
+  const [selectedCount, setSelectedCount] = useState(0);
+  const logViewerRef = useRef<LogViewerRef>(null);
+
+  const handleSelectionChange = useCallback((selectedLines: Set<number>) => {
+    setSelectedCount(selectedLines.size);
+  }, []);
+
+  const handleClearAllSelections = useCallback(() => {
+    logViewerRef.current?.clearAllSelections();
+  }, []);
+
+  const handlePrevSelection = useCallback(() => {
+    logViewerRef.current?.goToPrevSelection();
+  }, []);
+
+  const handleNextSelection = useCallback(() => {
+    logViewerRef.current?.goToNextSelection();
+  }, []);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -117,6 +135,42 @@ export function LogsTab({ onConfirmDialog: _onConfirmDialog }: LogsTabProps) {
           )}
         </div>
 
+        {/* Selection Actions - 选中高亮操作栏 */}
+        {selectedCount > 0 && (
+          <div className="flex items-center gap-1.5 border-l border-slate-300 pl-3 ml-1">
+            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+              {selectedCount} 条高亮
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handlePrevSelection}
+              className="!h-3 !px-2"
+              title="上一条高亮"
+            >
+              ↑
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleNextSelection}
+              className="!h-3 !px-2"
+              title="下一条高亮"
+            >
+              ↓
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleClearAllSelections}
+              className="!h-3 text-red-600 hover:bg-red-50 hover:text-red-700"
+              title="清除所有高亮"
+            >
+              清除全部
+            </Button>
+          </div>
+        )}
+
         {/* Stats - 统计信息 */}
         {selectedDate && (
           <div className="ml-auto flex items-center gap-2 text-sm">
@@ -160,7 +214,12 @@ export function LogsTab({ onConfirmDialog: _onConfirmDialog }: LogsTabProps) {
         ) : (
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-auto !p-1">
-              <LogViewer lines={filteredLines} keyword={keyword} />
+              <LogViewer
+                ref={logViewerRef}
+                lines={filteredLines}
+                keyword={keyword}
+                onSelectionChange={handleSelectionChange}
+              />
             </div>
             {hasMore && (
               <div className="p-3 border-t border-slate-200 bg-slate-50 text-center">
