@@ -2,14 +2,77 @@ const { app, BrowserWindow, Notification } = require('electron');
 const path = require('path');
 const { ipcMain } = require('electron');
 const express = require('express');
+const http = require('http');
 
 app.setName('Wenko');
+
+// ============ Environment Detection ============
+const isDev = !app.isPackaged;
+const DEV_SERVER_PORT = 3000;
+const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
+
+/**
+ * Get renderer page URL (dev) or file path (prod)
+ * @param {string} pageName - Page name (workflow, hitl, image-preview, reminder)
+ * @returns {string}
+ */
+function getRendererPath(pageName) {
+  if (isDev) {
+    return `${DEV_SERVER_URL}/src/renderer/${pageName}/index.html`;
+  }
+  return path.join(__dirname, `dist/src/renderer/${pageName}/index.html`);
+}
+
+/**
+ * Load renderer page into window
+ * @param {BrowserWindow} window
+ * @param {string} pageName
+ */
+function loadRendererPage(window, pageName) {
+  const pagePath = getRendererPath(pageName);
+  if (isDev) {
+    window.loadURL(pagePath);
+  } else {
+    window.loadFile(pagePath);
+  }
+}
+
+/**
+ * Wait for Dev Server to be ready
+ * @param {number} maxAttempts
+ * @param {number} interval
+ * @returns {Promise<boolean>}
+ */
+async function waitForDevServer(maxAttempts = 60, interval = 500) {
+  console.log('[DevServer] Waiting for Vite Dev Server...');
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await new Promise((resolve, reject) => {
+        const req = http.get(DEV_SERVER_URL, (res) => {
+          resolve(true);
+        });
+        req.on('error', reject);
+        req.setTimeout(1000, () => {
+          req.destroy();
+          reject(new Error('timeout'));
+        });
+      });
+      console.log('[DevServer] Vite Dev Server is ready');
+      return true;
+    } catch (e) {
+      await new Promise(r => setTimeout(r, interval));
+    }
+  }
+  console.error('[DevServer] Vite Dev Server failed to start');
+  return false;
+}
 
 // HITL window singleton management
 let hitlWindow = null;
 let hitlTimeoutId = null;
 let mainWindow = null;
 let currentHITLRequest = null;
+let loadingWindow = null;
 
 // Image preview window management
 let imagePreviewWindow = null;
@@ -40,6 +103,50 @@ function createStaticServer() {
 // 启动静态文件服务器
 createStaticServer();
 
+// ============ Loading Window Management ============
+
+/**
+ * Create loading window shown during startup
+ */
+function createLoadingWindow() {
+  loadingWindow = new BrowserWindow({
+    width: 300,
+    height: 200,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    center: true,
+    skipTaskbar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    }
+  });
+
+  loadingWindow.loadFile(path.join(__dirname, 'loading.html'));
+
+  loadingWindow.on('closed', () => {
+    loadingWindow = null;
+  });
+
+  return loadingWindow;
+}
+
+/**
+ * Close loading window with optional delay
+ */
+function closeLoadingWindow(delay = 300) {
+  if (loadingWindow && !loadingWindow.isDestroyed()) {
+    setTimeout(() => {
+      if (loadingWindow && !loadingWindow.isDestroyed()) {
+        loadingWindow.close();
+      }
+      loadingWindow = null;
+    }, delay);
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 350,
@@ -65,7 +172,22 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Show loading window first
+  createLoadingWindow();
+
+  // In dev mode, wait for Vite Dev Server to be ready
+  if (isDev) {
+    const serverReady = await waitForDevServer();
+    if (!serverReady) {
+      console.error('[App] Dev Server not ready, starting anyway...');
+    }
+  }
+
+  // Create main window
   createWindow();
+
+  // Close loading window after main window is ready
+  closeLoadingWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -106,7 +228,8 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
         webSecurity: false  // 关闭同源策略和 CSP 检查，方便开发加载任意脚本
       }
     });
-    shortcutWindow.loadFile(path.join(__dirname, 'dist/src/renderer/workflow/index.html'));
+    // Use environment-aware loading
+    loadRendererPage(shortcutWindow, 'workflow');
   } else {
     console.warn('Unknown action:', action);
   }
@@ -145,7 +268,8 @@ function createHITLWindow(request) {
     }
   });
 
-  hitlWindow.loadFile(path.join(__dirname, 'dist/src/renderer/hitl/index.html'));
+  // Use environment-aware loading
+  loadRendererPage(hitlWindow, 'hitl');
 
   // Show window when ready
   hitlWindow.once('ready-to-show', () => {
@@ -360,7 +484,8 @@ function createImagePreviewWindow() {
     }
   });
 
-  imagePreviewWindow.loadFile(path.join(__dirname, 'dist/src/renderer/image-preview/index.html'));
+  // Use environment-aware loading
+  loadRendererPage(imagePreviewWindow, 'image-preview');
 
   imagePreviewWindow.once('ready-to-show', () => {
     imagePreviewWindow.show();
@@ -618,7 +743,8 @@ function createReminderWindow(plan) {
     }
   });
 
-  reminderWindow.loadFile(path.join(__dirname, 'dist/src/renderer/reminder/index.html'));
+  // Use environment-aware loading
+  loadRendererPage(reminderWindow, 'reminder');
 
   reminderWindow.once('ready-to-show', () => {
     // Show without stealing focus
