@@ -5,6 +5,16 @@ import memory_manager as mm
 
 logger = logging.getLogger(__name__)
 
+
+def _is_memory_emotion_enabled() -> bool:
+    """Check if memory/emotion system is enabled from settings."""
+    try:
+        from chat_processor import is_memory_emotion_enabled
+        return is_memory_emotion_enabled()
+    except ImportError:
+        return True  # Default to enabled if import fails
+
+
 class MemoryNode:
     """
     Node responsible for Long-term Memory interactions (Recall & Consolidate).
@@ -15,6 +25,11 @@ class MemoryNode:
         Retrieve relevant long-term memories based on current input and context.
         Updates state.working_memory.retrieved_memories.
         """
+        # Check if memory system is enabled
+        if not _is_memory_emotion_enabled():
+            logger.info("[MemoryNode] Memory/emotion system disabled, skipping recall")
+            return {}
+
         user_text = state.semantic_input.text
         if not user_text:
             return {}
@@ -63,6 +78,11 @@ class MemoryNode:
         Save new memories extracted during the turn.
         Expected to be called with specific instructions or automatically based on intent.
         """
+        # Check if memory system is enabled
+        if not _is_memory_emotion_enabled():
+            logger.info("[MemoryNode] Memory/emotion system disabled, skipping consolidate")
+            return {}
+
         # This logic depends on how we extract information to save.
         # If the SemanticInput has 'intent' of type 'memory' (preference, fact, etc.), we can save it.
         # Or if ReasoningNode produced a tool call to 'save_memory'.

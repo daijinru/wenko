@@ -482,6 +482,18 @@ def build_chat_context(session_id: str, user_message: str) -> ChatContext:
     import logging
     logger = logging.getLogger(__name__)
 
+    # Check if memory/emotion system is enabled
+    if not is_memory_emotion_enabled():
+        logger.info("[ChatContext] Memory/emotion system disabled, using minimal context")
+        return ChatContext(
+            session_id=session_id,
+            user_message=user_message,
+            working_memory=None,
+            relevant_memories=[],
+            previous_emotion=None,
+            strategy=select_strategy(EmotionResult(primary="neutral")),
+        )
+
     # Get or create working memory
     working_memory = memory_manager.get_or_create_working_memory(session_id)
 
@@ -674,33 +686,37 @@ def process_llm_response(
     # Parse LLM output
     parsed = parse_llm_output(response_text)
 
+    # Check if memory/emotion system is enabled
+    memory_emotion_enabled = is_memory_emotion_enabled()
+
     # Apply confidence threshold
     emotion = apply_confidence_threshold(
         parsed.emotion,
         threshold=get_emotion_confidence_threshold(),
     )
 
-    # Update working memory
-    _update_working_memory_after_response(context, emotion)
+    # Update working memory (only if enabled)
+    if memory_emotion_enabled:
+        _update_working_memory_after_response(context, emotion)
 
-    # Process memory updates
+    # Process memory updates (only if enabled)
     memories_to_store = []
-    if parsed.memory_update.should_store:
+    if memory_emotion_enabled and parsed.memory_update.should_store:
         memories_to_store = _store_suggested_memories(
             context.session_id,
             parsed.memory_update.entries,
         )
 
-    # Update access tracking for used memories
-    if context.relevant_memories:
+    # Update access tracking for used memories (only if enabled)
+    if memory_emotion_enabled and context.relevant_memories:
         memory_ids = [r.memory.id for r in context.relevant_memories]
         memory_manager.update_memory_access(memory_ids)
 
     return ChatResult(
         response=parsed.response,
-        emotion=emotion,
+        emotion=emotion if memory_emotion_enabled else None,
         strategy=context.strategy,
-        memories_used=[r.memory.id for r in context.relevant_memories],
+        memories_used=[r.memory.id for r in context.relevant_memories] if context.relevant_memories else [],
         memories_to_store=memories_to_store,
     )
 
