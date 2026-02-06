@@ -37,7 +37,8 @@ _DEFAULT_SETTINGS = {
     "llm.vision_model": ("volcengine/doubao-embedding-vision", "string", "视觉模型"),
     "llm.deep_thinking_enabled": ("false", "boolean", "启用深度思考模式"),
     # 系统开关
-    "system.memory_emotion_enabled": ("true", "boolean", "启用记忆和情绪系统"),
+    "system.memory_enabled": ("true", "boolean", "启用记忆系统"),
+    "system.emotion_enabled": ("true", "boolean", "启用情绪系统"),
     "system.hitl_enabled": ("true", "boolean", "启用 HITL (人机交互) 系统"),
     "system.intent_recognition_enabled": ("true", "boolean", "启用意图识别系统"),
     "system.emotion_confidence_threshold": ("0.5", "number", "情绪识别置信度阈值"),

@@ -12,18 +12,36 @@ export function SystemConfigSection({ settings, onChange }: SystemConfigSectionP
     <div className="space-y-4 !p-[8px]">
       <div className="flex items-center space-x-3 gap-2 !mb-2">
         <Checkbox
-          id="memory-emotion"
-          checked={settings['system.memory_emotion_enabled'] === true}
+          id="memory"
+          checked={settings['system.memory_enabled'] === true}
           onCheckedChange={(checked) =>
-            onChange('system.memory_emotion_enabled', checked === true)
+            onChange('system.memory_enabled', checked === true)
           }
         />
         <div className="flex-1">
-          <label htmlFor="memory-emotion" className="text-sm font-medium cursor-pointer">
-            启用记忆和情绪系统
+          <label htmlFor="memory" className="text-sm font-medium cursor-pointer">
+            启用记忆系统
           </label>
           <p className="text-xs text-muted-foreground">
-            自动检测用户情绪并存储长期记忆
+            自动存储和检索长期记忆
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center space-x-3 gap-2 !mb-2">
+        <Checkbox
+          id="emotion"
+          checked={settings['system.emotion_enabled'] === true}
+          onCheckedChange={(checked) =>
+            onChange('system.emotion_enabled', checked === true)
+          }
+        />
+        <div className="flex-1">
+          <label htmlFor="emotion" className="text-sm font-medium cursor-pointer">
+            启用情绪系统
+          </label>
+          <p className="text-xs text-muted-foreground">
+            自动检测用户情绪并调整回复策略
           </p>
         </div>
       </div>

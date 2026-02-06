@@ -52,9 +52,14 @@ def _get_system_threshold(key: str, default: float) -> float:
         return default
 
 
-def is_memory_emotion_enabled() -> bool:
-    """Check if memory/emotion system is enabled."""
-    return _get_system_setting("system.memory_emotion_enabled", True)
+def is_memory_enabled() -> bool:
+    """Check if memory system is enabled."""
+    return _get_system_setting("system.memory_enabled", True)
+
+
+def is_emotion_enabled() -> bool:
+    """Check if emotion system is enabled."""
+    return _get_system_setting("system.emotion_enabled", True)
 
 
 def is_hitl_enabled() -> bool:
@@ -482,9 +487,11 @@ def build_chat_context(session_id: str, user_message: str) -> ChatContext:
     import logging
     logger = logging.getLogger(__name__)
 
-    # Check if memory/emotion system is enabled
-    if not is_memory_emotion_enabled():
-        logger.info("[ChatContext] Memory/emotion system disabled, using minimal context")
+    memory_on = is_memory_enabled()
+    emotion_on = is_emotion_enabled()
+
+    if not memory_on and not emotion_on:
+        logger.info("[ChatContext] Memory and emotion systems both disabled, using minimal context")
         return ChatContext(
             session_id=session_id,
             user_message=user_message,
@@ -494,34 +501,38 @@ def build_chat_context(session_id: str, user_message: str) -> ChatContext:
             strategy=select_strategy(EmotionResult(primary="neutral")),
         )
 
-    # Get or create working memory
+    # Get or create working memory (needed by both memory retrieval and emotion tracking)
     working_memory = memory_manager.get_or_create_working_memory(session_id)
 
-    # Retrieve relevant long-term memories
-    relevant_memories = memory_manager.retrieve_relevant_memories(
-        user_message,
-        working_memory=working_memory,
-    )
+    # Retrieve relevant long-term memories (only if memory enabled)
+    relevant_memories = []
+    if memory_on:
+        relevant_memories = memory_manager.retrieve_relevant_memories(
+            user_message,
+            working_memory=working_memory,
+        )
 
-    # Debug: log retrieved memories
-    if relevant_memories:
-        logger.info(f"[Memory] 检索到 {len(relevant_memories)} 条相关记忆:")
-        for r in relevant_memories:
-            logger.info(f"  - [{r.memory.category}] {r.memory.key}: {r.memory.value} (score={r.score:.2f})")
+        # Debug: log retrieved memories
+        if relevant_memories:
+            logger.info(f"[Memory] 检索到 {len(relevant_memories)} 条相关记忆:")
+            for r in relevant_memories:
+                logger.info(f"  - [{r.memory.category}] {r.memory.key}: {r.memory.value} (score={r.score:.2f})")
+        else:
+            keywords = memory_manager.extract_keywords(user_message)
+            logger.info(f"[Memory] 未检索到相关记忆。提取的关键词: {keywords}")
     else:
-        keywords = memory_manager.extract_keywords(user_message)
-        logger.info(f"[Memory] 未检索到相关记忆。提取的关键词: {keywords}")
+        logger.info("[ChatContext] Memory system disabled, skipping memory retrieval")
 
-    # Get previous emotion for strategy selection
-    previous_emotion = working_memory.last_emotion
-
-    # Select strategy based on previous emotion (two-phase strategy)
-    if previous_emotion:
-        prev_emotion_result = EmotionResult(primary=previous_emotion)
-        strategy = select_strategy(prev_emotion_result)
+    # Get previous emotion for strategy selection (only if emotion enabled)
+    previous_emotion = None
+    strategy = select_strategy(EmotionResult(primary="neutral"))
+    if emotion_on:
+        previous_emotion = working_memory.last_emotion
+        if previous_emotion:
+            prev_emotion_result = EmotionResult(primary=previous_emotion)
+            strategy = select_strategy(prev_emotion_result)
     else:
-        # First turn: use neutral strategy
-        strategy = select_strategy(EmotionResult(primary="neutral"))
+        logger.info("[ChatContext] Emotion system disabled, using neutral strategy")
 
     return ChatContext(
         session_id=session_id,
@@ -686,8 +697,9 @@ def process_llm_response(
     # Parse LLM output
     parsed = parse_llm_output(response_text)
 
-    # Check if memory/emotion system is enabled
-    memory_emotion_enabled = is_memory_emotion_enabled()
+    # Check if memory/emotion systems are enabled
+    memory_on = is_memory_enabled()
+    emotion_on = is_emotion_enabled()
 
     # Apply confidence threshold
     emotion = apply_confidence_threshold(
@@ -695,26 +707,26 @@ def process_llm_response(
         threshold=get_emotion_confidence_threshold(),
     )
 
-    # Update working memory (only if enabled)
-    if memory_emotion_enabled:
+    # Update working memory emotion tracking (only if emotion enabled)
+    if emotion_on:
         _update_working_memory_after_response(context, emotion)
 
-    # Process memory updates (only if enabled)
+    # Process memory updates (only if memory enabled)
     memories_to_store = []
-    if memory_emotion_enabled and parsed.memory_update.should_store:
+    if memory_on and parsed.memory_update.should_store:
         memories_to_store = _store_suggested_memories(
             context.session_id,
             parsed.memory_update.entries,
         )
 
-    # Update access tracking for used memories (only if enabled)
-    if memory_emotion_enabled and context.relevant_memories:
+    # Update access tracking for used memories (only if memory enabled)
+    if memory_on and context.relevant_memories:
         memory_ids = [r.memory.id for r in context.relevant_memories]
         memory_manager.update_memory_access(memory_ids)
 
     return ChatResult(
         response=parsed.response,
-        emotion=emotion if memory_emotion_enabled else None,
+        emotion=emotion if emotion_on else None,
         strategy=context.strategy,
         memories_used=[r.memory.id for r in context.relevant_memories] if context.relevant_memories else [],
         memories_to_store=memories_to_store,

@@ -6,11 +6,11 @@ import memory_manager as mm
 logger = logging.getLogger(__name__)
 
 
-def _is_memory_emotion_enabled() -> bool:
-    """Check if memory/emotion system is enabled from settings."""
+def _is_memory_enabled() -> bool:
+    """Check if memory system is enabled from settings."""
     try:
-        from chat_processor import is_memory_emotion_enabled
-        return is_memory_emotion_enabled()
+        from chat_processor import is_memory_enabled
+        return is_memory_enabled()
     except ImportError:
         return True  # Default to enabled if import fails
 
@@ -26,8 +26,8 @@ class MemoryNode:
         Updates state.working_memory.retrieved_memories.
         """
         # Check if memory system is enabled
-        if not _is_memory_emotion_enabled():
-            logger.info("[MemoryNode] Memory/emotion system disabled, skipping recall")
+        if not _is_memory_enabled():
+            logger.info("[MemoryNode] Memory system disabled, skipping recall")
             return {}
 
         user_text = state.semantic_input.text
@@ -79,8 +79,8 @@ class MemoryNode:
         Expected to be called with specific instructions or automatically based on intent.
         """
         # Check if memory system is enabled
-        if not _is_memory_emotion_enabled():
-            logger.info("[MemoryNode] Memory/emotion system disabled, skipping consolidate")
+        if not _is_memory_enabled():
+            logger.info("[MemoryNode] Memory system disabled, skipping consolidate")
             return {}
 
         # This logic depends on how we extract information to save.

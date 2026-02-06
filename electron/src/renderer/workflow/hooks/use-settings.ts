@@ -12,7 +12,8 @@ export interface Settings {
   'llm.vision_model': string;
   'llm.deep_thinking_enabled': boolean;
   // 系统开关
-  'system.memory_emotion_enabled': boolean;
+  'system.memory_enabled': boolean;
+  'system.emotion_enabled': boolean;
   'system.hitl_enabled': boolean;
   'system.intent_recognition_enabled': boolean;
   'system.emotion_confidence_threshold': number;

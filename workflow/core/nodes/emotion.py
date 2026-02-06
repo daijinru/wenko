@@ -1,6 +1,19 @@
+import logging
 from typing import Dict, Any
 from core.state import GraphState, EmotionalContext
 from emotion_detector import extract_emotion_from_text, EmotionResult
+
+logger = logging.getLogger(__name__)
+
+
+def _is_emotion_enabled() -> bool:
+    """Check if emotion system is enabled from settings."""
+    try:
+        from chat_processor import is_emotion_enabled
+        return is_emotion_enabled()
+    except ImportError:
+        return True  # Default to enabled if import fails
+
 
 class EmotionNode:
     """
@@ -11,6 +24,10 @@ class EmotionNode:
         """
         Analyze input and update emotional context.
         """
+        if not _is_emotion_enabled():
+            logger.info("[EmotionNode] Emotion system disabled, skipping")
+            return {}
+
         text = state.semantic_input.text
         if not text:
             return {}
