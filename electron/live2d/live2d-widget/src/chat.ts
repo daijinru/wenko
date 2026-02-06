@@ -494,6 +494,13 @@ export function createChatInput(shadowRoot: ShadowRoot): HTMLElement {
     </button>
   `;
 
+  // Create and mount emotion indicator
+  const emotionIndicator = createEmotionIndicator(shadowRoot);
+  const waifu = shadowRoot.getElementById('waifu');
+  if (waifu) {
+    waifu.appendChild(emotionIndicator);
+  }
+
   const input = container.querySelector('#wenko-chat-text') as HTMLInputElement;
   const sendBtn = container.querySelector('#wenko-chat-send') as HTMLButtonElement;
 
@@ -528,7 +535,10 @@ export function createChatInput(shadowRoot: ShadowRoot): HTMLElement {
         sendBtn.disabled = false;
         input.focus();
       },
-      undefined, // onEmotion
+      (emotion) => {
+        // Update emotion indicator when emotion event received
+        updateEmotionIndicator(emotionIndicator, emotion);
+      },
       (hitlRequest) => {
         // Handle HITL request - open HITL window via IPC
         hitlLog('HITL_CALLBACK_TRIGGERED', { id: hitlRequest.id, title: hitlRequest.title });
@@ -625,7 +635,7 @@ export function createEmotionIndicator(shadowRoot: ShadowRoot): HTMLElement {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     position: absolute;
     top: 10px;
-    right: 10px;
+    right: 200px;
     z-index: 100;
     transition: all 0.3s ease;
   `;

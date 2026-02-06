@@ -783,6 +783,7 @@ class WorkingMemoryInfo(BaseModel):
     context_variables: Dict[str, Any] = {}
     turn_count: int
     last_emotion: Optional[str] = None
+    emotion_history: List[Dict[str, Any]] = []
     created_at: str
     updated_at: str
 
@@ -1077,6 +1078,7 @@ async def list_working_memories(limit: int = 100):
                 context_variables=wm.context_variables,
                 turn_count=wm.turn_count,
                 last_emotion=wm.last_emotion,
+                emotion_history=wm.emotion_history,
                 created_at=wm.created_at.isoformat(),
                 updated_at=wm.updated_at.isoformat(),
             )
@@ -1100,6 +1102,7 @@ async def get_working_memory(session_id: str):
             context_variables=wm.context_variables,
             turn_count=wm.turn_count,
             last_emotion=wm.last_emotion,
+            emotion_history=wm.emotion_history,
             created_at=wm.created_at.isoformat(),
             updated_at=wm.updated_at.isoformat(),
         )

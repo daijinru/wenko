@@ -450,6 +450,7 @@ class ChatContext:
     previous_emotion: Optional[str] = None
     strategy: Optional[ResponseStrategy] = None
     intent_result: Optional[IntentResult] = None  # Result from intent recognition
+    emotional_context: Optional[Any] = None  # EmotionalContext from EmotionNode
 
     def __post_init__(self):
         if self.relevant_memories is None:
@@ -620,7 +621,28 @@ def build_system_prompt(context: ChatContext) -> str:
     """
     working_memory_summary = format_working_memory_summary(context.working_memory)
     relevant_memory_str = format_relevant_memories(context.relevant_memories)
-    strategy_prompt = build_strategy_prompt(context.strategy)
+
+    # Current-turn emotion strategy override:
+    # If EmotionNode detected a high-confidence emotion, use it for this turn
+    strategy = context.strategy
+    emotion_modulation = ""
+    if context.emotional_context and is_emotion_enabled():
+        ec = context.emotional_context
+        current_emotion = getattr(ec, 'current_emotion', 'neutral')
+        arousal = getattr(ec, 'arousal', 0.0)  # arousal stores confidence
+        threshold = get_emotion_confidence_threshold()
+
+        if current_emotion != 'neutral' and arousal >= threshold:
+            # Override strategy with current-turn emotion
+            from response_strategy import get_strategy_for_emotion
+            strategy = get_strategy_for_emotion(current_emotion)
+            logger.info(f"[Emotion] Current-turn override: {current_emotion} (confidence={arousal}) -> strategy.tone={strategy.tone}")
+
+        modulation = getattr(ec, 'modulation_instruction', '')
+        if modulation:
+            emotion_modulation = f"\n\n## 情感调节\n{modulation}"
+
+    strategy_prompt = build_strategy_prompt(strategy)
 
     # Determine HITL instruction based on intent recognition
     hitl_enabled = is_hitl_enabled()
@@ -671,6 +693,10 @@ def build_system_prompt(context: ChatContext) -> str:
         mcp_instruction=mcp_instruction,
         hitl_instruction=hitl_instruction,
     )
+
+    # Inject emotion modulation instruction
+    if emotion_modulation:
+        prompt += emotion_modulation
 
     # 深度思考关闭时追加提示词
     if not is_deep_thinking_enabled():
@@ -743,9 +769,18 @@ def _update_working_memory_after_response(
         context: Chat context
         emotion: Detected emotion
     """
+    # Build emotion history entry for this turn
+    turn_count = context.working_memory.turn_count + 1 if context.working_memory else 1
+    emotion_history_entry = {
+        "emotion": emotion.primary,
+        "confidence": emotion.confidence,
+        "turn": turn_count,
+    }
+
     memory_manager.update_working_memory(
         context.session_id,
         last_emotion=emotion.primary,
+        emotion_history_entry=emotion_history_entry,
         increment_turn=True,
     )
 

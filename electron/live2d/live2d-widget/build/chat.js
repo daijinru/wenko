@@ -309,6 +309,11 @@ export function createChatInput(shadowRoot) {
       </svg>
     </button>
   `;
+    const emotionIndicator = createEmotionIndicator(shadowRoot);
+    const waifu = shadowRoot.getElementById('waifu');
+    if (waifu) {
+        waifu.appendChild(emotionIndicator);
+    }
     const input = container.querySelector('#wenko-chat-text');
     const sendBtn = container.querySelector('#wenko-chat-send');
     let isComposing = false;
@@ -331,7 +336,9 @@ export function createChatInput(shadowRoot) {
             input.disabled = false;
             sendBtn.disabled = false;
             input.focus();
-        }, undefined, (hitlRequest) => {
+        }, (emotion) => {
+            updateEmotionIndicator(emotionIndicator, emotion);
+        }, (hitlRequest) => {
             var _a;
             hitlLog('HITL_CALLBACK_TRIGGERED', { id: hitlRequest.id, title: hitlRequest.title });
             const sessionId = sessionManager.getSessionId();
@@ -401,7 +408,7 @@ export function createEmotionIndicator(shadowRoot) {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     position: absolute;
     top: 10px;
-    right: 10px;
+    right: 200px;
     z-index: 100;
     transition: all 0.3s ease;
   `;

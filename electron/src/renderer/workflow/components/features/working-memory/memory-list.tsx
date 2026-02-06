@@ -4,9 +4,52 @@ import { Spinner } from "@/components/ui/spinner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Fragment, useState } from "react"
 import { formatTime, cn } from "@/lib/utils"
-import type { WorkingMemory, ChatMessage } from "@/types/api"
+import type { WorkingMemory, ChatMessage, EmotionHistoryEntry } from "@/types/api"
 import { MemoryDrilldown } from "./memory-drilldown"
 import { ContextVariableDialog } from "./context-variable-dialog"
+
+const EMOTION_COLORS: Record<string, string> = {
+  neutral: "#9ca3af",
+  happy: "#22c55e",
+  excited: "#f59e0b",
+  grateful: "#ec4899",
+  curious: "#8b5cf6",
+  sad: "#3b82f6",
+  anxious: "#ef4444",
+  frustrated: "#f97316",
+  confused: "#6366f1",
+  help_seeking: "#14b8a6",
+  info_seeking: "#0ea5e9",
+  validation_seeking: "#a855f7",
+}
+
+function EmotionHistory({ history }: { history: EmotionHistoryEntry[] }) {
+  if (!history || history.length === 0) {
+    return (
+      <div className="text-[10px] text-muted-foreground px-2 py-1">
+        暂无情感记录
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1 px-2 py-1">
+      {history.map((entry, idx) => (
+        <div
+          key={idx}
+          className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border"
+        >
+          <span
+            className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+            style={{ backgroundColor: EMOTION_COLORS[entry.emotion] || "#9ca3af" }}
+          />
+          <span className="font-mono">{entry.emotion}</span>
+          <span className="text-muted-foreground">{Math.round(entry.confidence * 100)}%</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 interface MemoryListProps {
   memories: WorkingMemory[]
@@ -147,6 +190,15 @@ export function MemoryList({
                   <tr className="bg-background/50">
                     <td colSpan={5} className="p-0 border-b border-border">
                       <div className="p-4">
+                        {/* Emotion History */}
+                        {wm.emotion_history && wm.emotion_history.length > 0 && (
+                          <div className="mb-3">
+                            <div className="text-[10px] font-bold text-muted-foreground mb-1 px-2">
+                              情感历史
+                            </div>
+                            <EmotionHistory history={wm.emotion_history} />
+                          </div>
+                        )}
                         {/* Drilldown */}
                         <MemoryDrilldown
                           messages={expandedMessages}

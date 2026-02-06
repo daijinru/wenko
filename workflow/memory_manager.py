@@ -175,6 +175,7 @@ class WorkingMemory:
     context_variables: Dict[str, Any] = field(default_factory=dict)
     turn_count: int = 0
     last_emotion: Optional[str] = None
+    emotion_history: List[Dict[str, Any]] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
@@ -328,12 +329,16 @@ def get_working_memory(session_id: str) -> Optional[WorkingMemory]:
         if not row:
             return None
 
+        ctx_vars = json.loads(row["context_variables"] or "{}")
+        emotion_history = ctx_vars.pop("_emotion_history", [])
+
         return WorkingMemory(
             session_id=row["session_id"],
             current_topic=row["current_topic"],
-            context_variables=json.loads(row["context_variables"] or "{}"),
+            context_variables=ctx_vars,
             turn_count=row["turn_count"],
             last_emotion=row["last_emotion"],
+            emotion_history=emotion_history,
             created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.utcnow(),
             updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow(),
         )
@@ -359,6 +364,7 @@ def update_working_memory(
     current_topic: Optional[str] = None,
     context_variables: Optional[Dict[str, Any]] = None,
     last_emotion: Optional[str] = None,
+    emotion_history_entry: Optional[Dict[str, Any]] = None,
     increment_turn: bool = False,
 ) -> Optional[WorkingMemory]:
     """Update working memory fields.
@@ -368,12 +374,29 @@ def update_working_memory(
         current_topic: New topic (None to keep unchanged)
         context_variables: New context variables (None to keep unchanged)
         last_emotion: New emotion (None to keep unchanged)
+        emotion_history_entry: New emotion entry to append to history (None to skip)
         increment_turn: Whether to increment turn count
 
     Returns:
         Updated WorkingMemory or None if not found
     """
     now = datetime.utcnow().isoformat()
+
+    # If appending emotion history, we need to read-modify-write context_variables
+    if emotion_history_entry is not None:
+        existing = get_working_memory(session_id)
+        if existing:
+            # Merge emotion_history into context_variables for storage
+            merged_ctx = dict(existing.context_variables)
+            history = list(existing.emotion_history)
+            history.append(emotion_history_entry)
+            # Keep only the last 10 entries
+            if len(history) > 10:
+                history = history[-10:]
+            merged_ctx["_emotion_history"] = history
+            if context_variables is not None:
+                merged_ctx.update(context_variables)
+            context_variables = merged_ctx
 
     with chat_db.get_connection() as conn:
         # Build dynamic update query
@@ -471,12 +494,15 @@ def list_working_memories(limit: int = 100) -> List[WorkingMemory]:
             except (json.JSONDecodeError, TypeError):
                 ctx_vars = {}
 
+        emotion_history = ctx_vars.pop("_emotion_history", [])
+
         result.append(WorkingMemory(
             session_id=row[0],
             current_topic=row[1],
             context_variables=ctx_vars,
             turn_count=row[3] or 0,
             last_emotion=row[4],
+            emotion_history=emotion_history,
             created_at=datetime.fromisoformat(row[5]) if row[5] else datetime.now(),
             updated_at=datetime.fromisoformat(row[6]) if row[6] else datetime.now(),
         ))

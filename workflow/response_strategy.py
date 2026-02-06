@@ -70,7 +70,7 @@ EMOTION_STRATEGY_MAP: Dict[str, ResponseStrategy] = {
         use_memory=True,
         proactive_question=True,
         formality="casual",
-        emoji_allowed=False,
+        emoji_allowed=True,
     ),
     "excited": ResponseStrategy(
         tone="enthusiastic",
@@ -78,7 +78,7 @@ EMOTION_STRATEGY_MAP: Dict[str, ResponseStrategy] = {
         use_memory=True,
         proactive_question=True,
         formality="casual",
-        emoji_allowed=False,
+        emoji_allowed=True,
     ),
     "grateful": ResponseStrategy(
         tone="warm_appreciative",
@@ -86,7 +86,7 @@ EMOTION_STRATEGY_MAP: Dict[str, ResponseStrategy] = {
         use_memory=True,
         proactive_question=False,
         formality="casual",
-        emoji_allowed=False,
+        emoji_allowed=True,
     ),
     "curious": ResponseStrategy(
         tone="informative_engaging",
@@ -94,7 +94,7 @@ EMOTION_STRATEGY_MAP: Dict[str, ResponseStrategy] = {
         use_memory=True,
         proactive_question=True,
         formality="casual",
-        emoji_allowed=False,
+        emoji_allowed=True,
     ),
 
     # Negative emotions
@@ -138,7 +138,7 @@ EMOTION_STRATEGY_MAP: Dict[str, ResponseStrategy] = {
         use_memory=True,
         proactive_question=True,  # Gather more info to help
         formality="casual",
-        emoji_allowed=False,
+        emoji_allowed=True,
     ),
     "info_seeking": ResponseStrategy(
         tone="informative",
@@ -146,7 +146,7 @@ EMOTION_STRATEGY_MAP: Dict[str, ResponseStrategy] = {
         use_memory=True,
         proactive_question=True,  # Offer related info
         formality="casual",
-        emoji_allowed=False,
+        emoji_allowed=True,
     ),
     "validation_seeking": ResponseStrategy(
         tone="supportive_affirming",
@@ -154,7 +154,7 @@ EMOTION_STRATEGY_MAP: Dict[str, ResponseStrategy] = {
         use_memory=True,
         proactive_question=False,  # Focus on validation
         formality="casual",
-        emoji_allowed=False,
+        emoji_allowed=True,
     ),
 }
 

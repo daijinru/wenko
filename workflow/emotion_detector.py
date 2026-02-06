@@ -398,18 +398,37 @@ def extract_emotion_from_text(text: str) -> EmotionResult:
         "info_seeking": ["what is", "what's", "tell me", "explain", "是什么", "告诉我", "解释"],
     }
 
-    detected_emotions = []
+    # Count keyword matches per emotion type
+    emotion_match_counts: Dict[str, List[str]] = {}
     for emotion, keywords in emotion_keywords.items():
-        if any(kw in text_lower for kw in keywords):
-            detected_emotions.append(emotion)
+        matched = [kw for kw in keywords if kw in text_lower]
+        if matched:
+            emotion_match_counts[emotion] = matched
 
-    if detected_emotions:
-        primary = detected_emotions[0]
+    if emotion_match_counts:
+        # Select the emotion with the most keyword matches
+        primary = max(emotion_match_counts, key=lambda e: len(emotion_match_counts[e]))
+        matched_keywords = emotion_match_counts[primary]
+        match_count = len(matched_keywords)
+
+        # Dynamic confidence based on number of matched keywords
+        if match_count >= 3:
+            confidence = 0.7
+        elif match_count >= 2:
+            confidence = 0.5
+        else:
+            confidence = 0.3
+
+        # Collect all matched keywords as indicators
+        all_indicators = []
+        for emotion, matched in emotion_match_counts.items():
+            all_indicators.extend(matched)
+
         return EmotionResult(
             primary=primary,
             category=EMOTION_CATEGORY_MAP.get(primary, EmotionCategory.NEUTRAL).value,
-            confidence=0.3,  # Low confidence for heuristic detection
-            indicators=detected_emotions,
+            confidence=confidence,
+            indicators=all_indicators,
         )
 
     return EmotionResult(

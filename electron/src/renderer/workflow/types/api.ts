@@ -24,10 +24,17 @@ export interface SessionMessagesResponse {
 }
 
 // Working memory types
+export interface EmotionHistoryEntry {
+  emotion: string;
+  confidence: number;
+  turn: number;
+}
+
 export interface WorkingMemory {
   session_id: string;
   current_topic: string | null;
   last_emotion: string | null;
+  emotion_history: EmotionHistoryEntry[];
   turn_count: number;
   context_variables: Record<string, unknown>;
   updated_at: string;

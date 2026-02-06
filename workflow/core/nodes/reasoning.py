@@ -69,6 +69,10 @@ class ReasoningNode:
             user_message=state.semantic_input.text,
         )
 
+        # Inject emotional_context from EmotionNode
+        if state.emotional_context:
+            chat_context.emotional_context = state.emotional_context
+
         # Inject intent from IntentNode if available
         if state.intent_result:
             from intent_types import IntentResult, IntentCategory
