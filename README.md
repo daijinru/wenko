@@ -10,9 +10,9 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-Frontend-61DAFB)](https://reactjs.org/)
 
-![ECS](./docs/Snipaste_2026-01-21.png)
-![Memory Management](./docs/Snipaste_2026-01-20.png)
-![Plan Reminder](./docs/plan-reminder.png)
+![live2d](./docs/Snipaste_2026-02-06_18-07-45.jpg)
+![Memory Management](./docs/Snipaste_2026-02-06_18-16-43.jpg)
+![Features](./docs/Snipaste_2026-02-07_13-27-25.jpg)
 
 ## 📖 Introduction
 
@@ -45,6 +45,8 @@ Unlike standard AI tools, Wenko:
   - Supports readonly replay mode for reviewing past decisions.
   - Visual display for structured content presentation (tables, lists, code blocks, etc.).
 
+![ECS](./docs/Snipaste_2026-02-07_13-26-27.jpg)
+
 - **🖼️ Image Analysis**
   - Paste images directly into the app for instant preview.
   - OCR-powered text extraction from screenshots and images.
@@ -61,13 +63,15 @@ Unlike standard AI tools, Wenko:
   - Snooze, dismiss, or mark plans as complete directly from the reminder.
   - Recurring reminders for daily, weekly, or custom schedules.
 
+![Plan Reminder](./docs/Snipaste_2026-02-06_18-22-43.jpg)
+
 - **🔌 MCP (Model Context Protocol)**
   - Extend Wenko's capabilities with external tools via MCP servers.
   - Easy registration and management of MCP services.
   - Auto-start support for configured MCP servers.
   - Trigger keywords to invoke specific tools naturally in conversation.
 
-![MCP](./docs/Snipaste_2026-02-01_13-41-01.jpg)
+![MCP](./docs/Snipaste_2026-02-06_18-13-11.jpg)
 
 - **📋 Log Viewer**
   - View backend logs directly in the Electron panel.
@@ -77,7 +81,7 @@ Unlike standard AI tools, Wenko:
   - Color-coded log levels (INFO, WARN, ERROR, DEBUG).
   - Click to highlight specific log lines for comparison.
 
-![Log Viewer](./docs/Snipaste_2026-02-02_18-13-28.jpg)
+![Log Viewer](./docs/Snipaste_2026-02-07_13-32-03.jpg)
 
 - **🔒 Privacy First**
   - All chat history and memory data are stored locally (`workflow/data/`).
@@ -158,7 +162,7 @@ cd electron && ./start.sh
 ```
 
 After starting the app, first fill in the LLM configuration:
-![LLM Config](./docs/llm-config-open.png)
+![LLM Config](./docs/Snipaste_2026-02-06_18-13-34.jpg)
 
 ### Building
 
