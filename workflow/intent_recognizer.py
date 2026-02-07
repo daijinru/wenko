@@ -191,7 +191,7 @@ class LLMIntentClassifier:
             )
 
             if response.status_code != 200:
-                logger.info(f"[Intent] Layer2: API error {response.status_code}")
+                logger.warning(f"[Intent] Layer2: API error {response.status_code}: {response.text[:200]}")
                 return None
 
             data = response.json()
@@ -200,7 +200,7 @@ class LLMIntentClassifier:
             return self._parse_response(content)
 
         except Exception as e:
-            logger.info(f"[Intent] Layer2: classification failed: {e}")
+            logger.warning(f"[Intent] Layer2: classification failed: {e}")
             return None
 
     def _parse_response(self, content: str) -> Optional[IntentResult]:

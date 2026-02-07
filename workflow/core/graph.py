@@ -46,7 +46,12 @@ class GraphOrchestrator:
         self.entry_point = entry_point
 
         # Initialize nodes
-        self.intent_node = IntentNode()
+        self.intent_node = IntentNode(
+            layer2_enabled=True,
+            api_base=api_base,
+            api_key=api_key,
+            model=model,
+        )
         self.emotion_node = EmotionNode()
         self.memory_node = MemoryNode()
         self.reasoning_node = ReasoningNode(

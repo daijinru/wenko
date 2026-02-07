@@ -25,15 +25,20 @@ class IntentNode:
     Respects the system.intent_recognition_enabled setting.
     """
 
-    def __init__(self, layer2_enabled: bool = False):
+    def __init__(self, layer2_enabled: bool = True, api_base: str = "", api_key: str = "", model: str = ""):
         """
         Initialize the IntentNode.
 
         Args:
             layer2_enabled: Whether to enable Layer 2 LLM classification.
-                           Default False for graph flow to minimize latency.
+            api_base: LLM API base URL (avoids redundant config loading).
+            api_key: API key for LLM calls.
+            model: Model name for LLM calls.
         """
         self.layer2_enabled = layer2_enabled
+        self._api_base = api_base
+        self._api_key = api_key
+        self._model = model
         self._matcher = None
         self._mcp_rules_initialized = False
 
@@ -115,27 +120,40 @@ class IntentNode:
         """Run Layer 2 LLM-based classification."""
         try:
             from intent_recognizer import LLMIntentClassifier
-            from graph_runner import load_chat_config
             import httpx
 
-            config = load_chat_config()
+            api_base = self._api_base
+            api_key = self._api_key
+            model = self._model
+
+            # Fallback to loading config if not provided at init
+            if not api_base or not api_key or not model:
+                from graph_runner import load_chat_config
+                config = load_chat_config()
+                api_base = api_base or config.api_base
+                api_key = api_key or config.api_key
+                model = model or config.model
+
+            if not api_key:
+                logger.warning("[IntentNode] Layer2 skipped: no API key configured")
+                return None
 
             async with httpx.AsyncClient() as client:
                 classifier = LLMIntentClassifier(
                     llm_client=client,
-                    model=config.model,
+                    model=model,
                 )
                 result = await classifier.classify(
                     message=text,
-                    api_base=config.api_base,
-                    api_key=config.api_key,
-                    model=config.model,
+                    api_base=api_base,
+                    api_key=api_key,
+                    model=model,
                 )
                 if result:
                     logger.info(f"[IntentNode] Layer2 matched: {result.intent_type}")
                     return result
         except Exception as e:
-            logger.warning(f"[IntentNode] Layer2 failed: {e}")
+            logger.error(f"[IntentNode] Layer2 failed: {e}", exc_info=True)
 
         return None
 
