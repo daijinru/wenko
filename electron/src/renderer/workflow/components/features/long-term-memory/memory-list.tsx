@@ -39,7 +39,8 @@ const PLAN_STATUS_LABELS: Record<string, string> = {
 }
 
 function formatPlanTime(dateStr: string): string {
-  const date = new Date(dateStr)
+  const normalized = dateStr.endsWith('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
+  const date = new Date(normalized)
   const now = new Date()
   const isToday = date.toDateString() === now.toDateString()
   const tomorrow = new Date(now)

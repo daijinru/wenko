@@ -57,7 +57,9 @@ export default function App() {
     );
   }
 
-  const targetTime = new Date(reminder.target_time);
+  const rawTime = reminder.target_time;
+  const normalizedTime = rawTime.endsWith('Z') || rawTime.includes('+') ? rawTime : rawTime + 'Z';
+  const targetTime = new Date(normalizedTime);
   const timeStr = targetTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   const dateStr = targetTime.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 
