@@ -9,7 +9,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src/renderer/workflow'),
-      '@hitl': resolve(__dirname, 'src/renderer/hitl'),
+      '@ecs': resolve(__dirname, 'src/renderer/ecs'),
       '@reminder': resolve(__dirname, 'src/renderer/reminder'),
     },
   },
@@ -20,7 +20,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'src/renderer/workflow/index.html'),
-        hitl: resolve(__dirname, 'src/renderer/hitl/index.html'),
+        ecs: resolve(__dirname, 'src/renderer/ecs/index.html'),
         'image-preview': resolve(__dirname, 'src/renderer/image-preview/index.html'),
         reminder: resolve(__dirname, 'src/renderer/reminder/index.html'),
       },

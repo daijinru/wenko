@@ -1,14 +1,14 @@
-import type { HITLField as HITLFieldType } from '../types/hitl';
+import type { ECSField as ECSFieldType } from '../types/ecs';
 import { cn } from '../lib/utils';
 
-interface HITLFieldProps {
-  field: HITLFieldType;
+interface ECSFieldProps {
+  field: ECSFieldType;
   value: unknown;
   onChange: (value: unknown) => void;
   readonly?: boolean;
 }
 
-export function HITLField({ field, value, onChange, readonly }: HITLFieldProps) {
+export function ECSField({ field, value, onChange, readonly }: ECSFieldProps) {
   const disabledClass = readonly ? 'opacity-75 cursor-not-allowed bg-gray-100' : '';
 
   const renderField = () => {

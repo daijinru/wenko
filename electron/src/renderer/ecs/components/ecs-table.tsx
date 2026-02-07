@@ -1,11 +1,11 @@
-import type { HITLTableData } from '../types/hitl';
+import type { ECSTableData } from '../types/ecs';
 import { cn } from '../lib/utils';
 
-interface HITLTableProps {
-  data: HITLTableData;
+interface ECSTableProps {
+  data: ECSTableData;
 }
 
-export function HITLTable({ data }: HITLTableProps) {
+export function ECSTable({ data }: ECSTableProps) {
   const { headers, rows, alignment, caption } = data;
 
   const getAlignmentClass = (index: number) => {

@@ -124,9 +124,9 @@ MEMORY_RULES: List[IntentRule] = [
 ]
 
 
-# ============ HITL Intent Rules (6 strategies) ============
+# ============ ECS Intent Rules (6 strategies) ============
 
-HITL_RULES: List[IntentRule] = [
+ECS_RULES: List[IntentRule] = [
     # Plan Reminder - 计划提醒 (highest priority for time-related)
     IntentRule(
         name="plan_time_keyword",
@@ -382,7 +382,7 @@ def get_all_rules(include_mcp: bool = True) -> List[IntentRule]:
     Returns:
         List of IntentRule sorted by priority
     """
-    all_rules = MEMORY_RULES + HITL_RULES
+    all_rules = MEMORY_RULES + ECS_RULES
     if include_mcp:
         all_rules = all_rules + MCP_RULES
     return sorted(all_rules, key=lambda r: r.priority, reverse=True)
@@ -393,9 +393,9 @@ def get_memory_rules() -> List[IntentRule]:
     return sorted(MEMORY_RULES, key=lambda r: r.priority, reverse=True)
 
 
-def get_hitl_rules() -> List[IntentRule]:
-    """Get only HITL-related rules."""
-    return sorted(HITL_RULES, key=lambda r: r.priority, reverse=True)
+def get_ecs_rules() -> List[IntentRule]:
+    """Get only ECS-related rules."""
+    return sorted(ECS_RULES, key=lambda r: r.priority, reverse=True)
 
 
 def get_mcp_rules() -> List[IntentRule]:
@@ -412,7 +412,7 @@ def get_all_rules_with_dynamic_mcp(mcp_keyword_rules: List[IntentRule]) -> List[
     Returns:
         List of IntentRule sorted by priority
     """
-    all_rules = MEMORY_RULES + HITL_RULES + MCP_RULES + mcp_keyword_rules
+    all_rules = MEMORY_RULES + ECS_RULES + MCP_RULES + mcp_keyword_rules
     sorted_rules = sorted(all_rules, key=lambda r: r.priority, reverse=True)
-    logger.info(f"[Intent Rules] Combined rules: memory={len(MEMORY_RULES)}, hitl={len(HITL_RULES)}, mcp_static={len(MCP_RULES)}, mcp_dynamic={len(mcp_keyword_rules)}, total={len(sorted_rules)}")
+    logger.info(f"[Intent Rules] Combined rules: memory={len(MEMORY_RULES)}, ecs={len(ECS_RULES)}, mcp_static={len(MCP_RULES)}, mcp_dynamic={len(mcp_keyword_rules)}, total={len(sorted_rules)}")
     return sorted_rules

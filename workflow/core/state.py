@@ -45,8 +45,8 @@ class ExecutionStep(BaseModel):
     result: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
-class HITLRequest(BaseModel):
-    """Data contract for Human-in-the-loop requests"""
+class ECSRequest(BaseModel):
+    """Data contract for Externalized Cognitive Step requests"""
     type: str  # e.g., 'form', 'confirmation', 'visual_display', etc.
     message: str
     options: List[Dict[str, Any]] = Field(default_factory=list)
@@ -70,8 +70,8 @@ class GraphState(BaseModel):
     execution_trace: List[ExecutionStep] = Field(default_factory=list)
 
     # Interaction State
-    hitl_request: Optional[HITLRequest] = None
-    hitl_full_request: Optional[Dict[str, Any]] = Field(default=None, description="Full HITL request data for frontend")
+    ecs_request: Optional[ECSRequest] = None
+    ecs_full_request: Optional[Dict[str, Any]] = Field(default=None, description="Full ECS request data for frontend")
     last_human_input: Optional[Dict[str, Any]] = None
     observation: Optional[str] = Field(default=None, description="Result from tool execution or error message")
     pending_tool_calls: List[Dict[str, Any]] = Field(default_factory=list, description="List of tool calls to be executed")

@@ -53,7 +53,7 @@ class TestMCPIntentTypes:
         assert result.mcp_service_name == "weather"
         assert result.is_mcp()
         assert not result.is_memory()
-        assert not result.is_hitl()
+        assert not result.is_ecs()
         assert not result.is_normal()
 
     def test_intent_result_mcp_no_service(self):

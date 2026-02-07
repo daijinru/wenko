@@ -12,18 +12,18 @@ import { showSSEMessage, showMemoryNotification } from './message.js';
 
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const IMAGE_CHAT_API_URL = 'http://localhost:8002/chat/image';
-const HITL_API_URL = 'http://localhost:8002/hitl/respond';
-const HITL_CONTINUE_API_URL = 'http://localhost:8002/hitl/continue';
+const ECS_API_URL = 'http://localhost:8002/ecs/respond';
+const ECS_CONTINUE_API_URL = 'http://localhost:8002/ecs/continue';
 const MAX_HISTORY_LENGTH = 10;
 const MAX_IMAGE_SIZE = 4 * 1024 * 1024; // 4MB
 const SESSION_ID_KEY = 'wenko-chat-session-id';
 const HISTORY_KEY = 'wenko-chat-history';
 
-// HITL Debug Logger
-const HITL_DEBUG = true;
-function hitlLog(stage: string, data?: any): void {
-  if (HITL_DEBUG) {
-    console.log(`[HITL] ${stage}:`, data);
+// ECS Debug Logger
+const ECS_DEBUG = true;
+function ecsLog(stage: string, data?: any): void {
+  if (ECS_DEBUG) {
+    console.log(`[ECS] ${stage}:`, data);
   }
 }
 
@@ -47,48 +47,48 @@ export interface MemorySavedInfo {
   }>;
 }
 
-// HITL Types
-export interface HITLOption {
+// ECS Types
+export interface ECSOption {
   value: string;
   label: string;
 }
 
-export interface HITLField {
+export interface ECSField {
   name: string;
   type: string;
   label: string;
   required?: boolean;
   placeholder?: string;
   default?: any;
-  options?: HITLOption[];
+  options?: ECSOption[];
   min?: number;
   max?: number;
   step?: number;
 }
 
-export interface HITLActions {
+export interface ECSActions {
   approve?: { label: string; style: string };
   edit?: { label: string; style: string };
   reject?: { label: string; style: string };
 }
 
-export interface HITLRequest {
+export interface ECSRequest {
   id: string;
   type: string;
   title: string;
   description?: string;
-  fields: HITLField[];
-  actions?: HITLActions;
+  fields: ECSField[];
+  actions?: ECSActions;
   session_id: string;
 }
 
-export interface HITLResult {
+export interface ECSResult {
   action: 'approve' | 'edit' | 'reject';
   data?: Record<string, any>;
   result?: any;
 }
 
-export interface HITLContinuationData {
+export interface ECSContinuationData {
   request_title: string;
   action: string;
   form_data?: Record<string, any>;
@@ -112,7 +112,7 @@ const EMOTION_DISPLAY: Record<string, { label: string; color: string }> = {
 };
 
 let currentEmotion: EmotionInfo | null = null;
-let currentHITLRequest: HITLRequest | null = null;
+let currentECSRequest: ECSRequest | null = null;
 
 /**
  * 生成 UUID v4
@@ -191,30 +191,30 @@ const historyManager = new ChatHistoryManager();
 
 let isLoading = false;
 
-// ============ HITL IPC Result Listener ============
+// ============ ECS IPC Result Listener ============
 
 // Track whether listeners have been set up to prevent duplicate registration
-let hitlListenerCleanup: (() => void) | null = null;
+let ecsListenerCleanup: (() => void) | null = null;
 let imagePreviewListenerCleanup: (() => void) | null = null;
 
 /**
- * Setup listener for HITL results from main process
+ * Setup listener for ECS results from main process
  */
-function setupHITLResultListener(): void {
+function setupECSResultListener(): void {
   if (!window.electronAPI?.on) {
-    hitlLog('SETUP_LISTENER', 'electronAPI.on not available, skipping HITL listener setup');
+    ecsLog('SETUP_LISTENER', 'electronAPI.on not available, skipping ECS listener setup');
     return;
   }
 
   // Remove existing listener before adding a new one to prevent duplicates
-  if (hitlListenerCleanup) {
-    hitlLog('SETUP_LISTENER', 'Removing existing HITL listener before re-registering');
-    hitlListenerCleanup();
-    hitlListenerCleanup = null;
+  if (ecsListenerCleanup) {
+    ecsLog('SETUP_LISTENER', 'Removing existing ECS listener before re-registering');
+    ecsListenerCleanup();
+    ecsListenerCleanup = null;
   }
 
-  hitlListenerCleanup = window.electronAPI.on('hitl:result', (result: any) => {
-    hitlLog('HITL_RESULT_RECEIVED', result);
+  ecsListenerCleanup = window.electronAPI.on('ecs:result', (result: any) => {
+    ecsLog('ECS_RESULT_RECEIVED', result);
 
     if (result.action === 'approve' && result.message) {
       showSSEMessage(`<div class="wenko-chat-system">${result.message}</div>`, 'wenko-chat-system-msg');
@@ -228,12 +228,12 @@ function setupHITLResultListener(): void {
 
     // Handle continuation if present
     if (result.success && result.continuationData) {
-      hitlLog('HITL_CONTINUATION_TRIGGERED', result.continuationData);
-      handleHITLContinuation(result.continuationData);
+      ecsLog('ECS_CONTINUATION_TRIGGERED', result.continuationData);
+      handleECSContinuation(result.continuationData);
     }
   });
 
-  hitlLog('SETUP_LISTENER', 'HITL result listener setup complete');
+  ecsLog('SETUP_LISTENER', 'ECS result listener setup complete');
 }
 
 /**
@@ -255,27 +255,27 @@ function setupImagePreviewResultListener(): void {
   imagePreviewListenerCleanup = window.electronAPI.on('image-preview:result', (result: {
     success: boolean;
     action: string;
-    hitlRequest?: HITLRequest;
+    ecsRequest?: ECSRequest;
   }) => {
     console.log('[ImagePreview] Result received:', result);
 
     if (result.action === 'cancel') {
       // User cancelled, no action needed
       console.log('[ImagePreview] User cancelled');
-    } else if (result.action === 'hitl' && result.hitlRequest) {
-      // HITL request from image analysis - open HITL window
-      console.log('[ImagePreview] Opening HITL window for memory confirmation');
+    } else if (result.action === 'ecs' && result.ecsRequest) {
+      // ECS request from image analysis - open ECS window
+      console.log('[ImagePreview] Opening ECS window for memory confirmation');
 
       const sessionId = sessionManager.getSessionId();
 
       if (window.electronAPI?.invoke) {
-        window.electronAPI.invoke('hitl:open-window', {
-          request: result.hitlRequest,
+        window.electronAPI.invoke('ecs:open-window', {
+          request: result.ecsRequest,
           sessionId: sessionId,
         }).then(() => {
-          console.log('[ImagePreview] HITL window opened');
+          console.log('[ImagePreview] ECS window opened');
         }).catch((error: Error) => {
-          console.error('[ImagePreview] Failed to open HITL window:', error);
+          console.error('[ImagePreview] Failed to open ECS window:', error);
           showSSEMessage('<div class="wenko-chat-error">无法打开记忆确认窗口</div>', 'wenko-chat-error-msg');
         });
       }
@@ -289,29 +289,29 @@ function setupImagePreviewResultListener(): void {
 setupImagePreviewResultListener();
 
 /**
- * Handle HITL continuation - trigger AI to continue conversation
+ * Handle ECS continuation - trigger AI to continue conversation
  */
-function handleHITLContinuation(continuationData: HITLContinuationData): void {
+function handleECSContinuation(continuationData: ECSContinuationData): void {
   const sessionId = sessionManager.getSessionId();
 
-  triggerHITLContinuation(
+  triggerECSContinuation(
     sessionId,
     continuationData,
     (chunk) => {
       showSSEMessage(chunk, 'wenko-chat-response');
     },
     () => {
-      hitlLog('HITL_CONTINUATION_DONE');
+      ecsLog('ECS_CONTINUATION_DONE');
     },
     (error) => {
       showSSEMessage(`<div class="wenko-chat-error">错误: ${error}</div>`, 'wenko-chat-error-msg');
     },
-    (newHitlRequest) => {
-      // Handle chained HITL request - open new window
-      hitlLog('HITL_CHAINED_REQUEST', { id: newHitlRequest.id, title: newHitlRequest.title });
+    (newEcsRequest) => {
+      // Handle chained ECS request - open new window
+      ecsLog('ECS_CHAINED_REQUEST', { id: newEcsRequest.id, title: newEcsRequest.title });
       if (window.electronAPI?.invoke) {
-        window.electronAPI.invoke('hitl:open-window', {
-          request: newHitlRequest,
+        window.electronAPI.invoke('ecs:open-window', {
+          request: newEcsRequest,
           sessionId: sessionId,
         });
       }
@@ -319,8 +319,8 @@ function handleHITLContinuation(continuationData: HITLContinuationData): void {
   );
 }
 
-// Initialize HITL listener when module loads
-setupHITLResultListener();
+// Initialize ECS listener when module loads
+setupECSResultListener();
 
 /**
  * 获取当前会话 ID
@@ -345,7 +345,7 @@ export function sendChatMessage(
   onDone?: () => void,
   onError?: (error: string) => void,
   onEmotion?: (emotion: EmotionInfo) => void,
-  onHITL?: (hitlRequest: HITLRequest) => void,
+  onECS?: (ecsRequest: ECSRequest) => void,
   onMemorySaved?: (info: MemorySavedInfo) => void
 ): void {
   if (isLoading) return;
@@ -355,7 +355,7 @@ export function sendChatMessage(
 
   // 获取当前会话 ID
   const sessionId = sessionManager.getSessionId();
-  hitlLog('SEND_MESSAGE', { message, sessionId });
+  ecsLog('SEND_MESSAGE', { message, sessionId });
 
   // 添加用户消息到本地历史
   historyManager.addMessage({ role: 'user', content: message });
@@ -374,12 +374,12 @@ export function sendChatMessage(
     }),
     openWhenHidden: true, // Keep connection even when page/window is hidden to prevent duplicate requests
     onopen: (res: Response) => {
-      hitlLog('SSE_OPEN', { status: res.status });
+      ecsLog('SSE_OPEN', { status: res.status });
       if (res.ok) return Promise.resolve();
       throw new Error(`HTTP ${res.status}`);
     },
     onmessage: (event: { event: string; data: string }) => {
-      hitlLog('SSE_EVENT', { event: event.event, data: event.data?.substring(0, 200) });
+      ecsLog('SSE_EVENT', { event: event.event, data: event.data?.substring(0, 200) });
       try {
         if (event.event === 'text') {
           const data = JSON.parse(event.data);
@@ -409,18 +409,18 @@ export function sendChatMessage(
             console.log(`[Memory] 自动保存了 ${memorySavedInfo.count} 条记忆:`, memorySavedInfo.entries);
             onMemorySaved?.(memorySavedInfo);
           }
-        } else if (event.event === 'hitl') {
-          // Handle HITL event
-          hitlLog('HITL_EVENT_RECEIVED', event.data);
+        } else if (event.event === 'ecs') {
+          // Handle ECS event
+          ecsLog('ECS_EVENT_RECEIVED', event.data);
           const data = JSON.parse(event.data);
-          if (data.type === 'hitl' && data.payload) {
-            currentHITLRequest = data.payload as HITLRequest;
-            hitlLog('HITL_REQUEST_PARSED', {
-              id: currentHITLRequest.id,
-              title: currentHITLRequest.title,
-              fields: currentHITLRequest.fields?.length
+          if (data.type === 'ecs' && data.payload) {
+            currentECSRequest = data.payload as ECSRequest;
+            ecsLog('ECS_REQUEST_PARSED', {
+              id: currentECSRequest.id,
+              title: currentECSRequest.title,
+              fields: currentECSRequest.fields?.length
             });
-            onHITL?.(currentHITLRequest);
+            onECS?.(currentECSRequest);
           }
         } else if (event.event === 'done') {
           // 添加助手响应到本地历史
@@ -539,27 +539,27 @@ export function createChatInput(shadowRoot: ShadowRoot): HTMLElement {
         // Update emotion indicator when emotion event received
         updateEmotionIndicator(emotionIndicator, emotion);
       },
-      (hitlRequest) => {
-        // Handle HITL request - open HITL window via IPC
-        hitlLog('HITL_CALLBACK_TRIGGERED', { id: hitlRequest.id, title: hitlRequest.title });
+      (ecsRequest) => {
+        // Handle ECS request - open ECS window via IPC
+        ecsLog('ECS_CALLBACK_TRIGGERED', { id: ecsRequest.id, title: ecsRequest.title });
 
         const sessionId = sessionManager.getSessionId();
 
-        // Open HITL window via Electron IPC
+        // Open ECS window via Electron IPC
         if (window.electronAPI?.invoke) {
-          window.electronAPI.invoke('hitl:open-window', {
-            request: hitlRequest,
+          window.electronAPI.invoke('ecs:open-window', {
+            request: ecsRequest,
             sessionId: sessionId,
           }).then((result: any) => {
-            hitlLog('HITL_WINDOW_OPENED', result);
+            ecsLog('ECS_WINDOW_OPENED', result);
           }).catch((error: any) => {
-            hitlLog('HITL_WINDOW_ERROR', error);
-            showSSEMessage(`<div class="wenko-chat-error">无法打开 HITL 窗口</div>`, 'wenko-chat-error-msg');
+            ecsLog('ECS_WINDOW_ERROR', error);
+            showSSEMessage(`<div class="wenko-chat-error">无法打开 ECS 窗口</div>`, 'wenko-chat-error-msg');
           });
         } else {
           // Fallback for non-Electron environment
-          hitlLog('HITL_NO_ELECTRON_API', 'electronAPI not available');
-          showSSEMessage(`<div class="wenko-chat-system">HITL 请求: ${hitlRequest.title}</div>`, 'wenko-chat-system-msg');
+          ecsLog('ECS_NO_ELECTRON_API', 'electronAPI not available');
+          showSSEMessage(`<div class="wenko-chat-system">ECS 请求: ${ecsRequest.title}</div>`, 'wenko-chat-system-msg');
         }
       },
       (memorySavedInfo) => {
@@ -678,34 +678,34 @@ export function hideEmotionIndicator(container: HTMLElement): void {
   container.style.display = 'none';
 }
 
-// ============ HITL Functions ============
+// ============ ECS Functions ============
 
 /**
- * 获取当前 HITL 请求
+ * 获取当前 ECS 请求
  */
-export function getCurrentHITLRequest(): HITLRequest | null {
-  return currentHITLRequest;
+export function getCurrentECSRequest(): ECSRequest | null {
+  return currentECSRequest;
 }
 
 /**
- * 清除当前 HITL 请求
+ * 清除当前 ECS 请求
  */
-export function clearHITLRequest(): void {
-  currentHITLRequest = null;
+export function clearECSRequest(): void {
+  currentECSRequest = null;
 }
 
 /**
- * 提交 HITL 响应到后端
+ * 提交 ECS 响应到后端
  */
-export async function submitHITLResponse(
+export async function submitECSResponse(
   requestId: string,
   sessionId: string,
   action: string,
   data: Record<string, any> | null
 ): Promise<any> {
-  hitlLog('SUBMIT_START', { requestId, sessionId, action, data });
+  ecsLog('SUBMIT_START', { requestId, sessionId, action, data });
   try {
-    const response = await fetch(HITL_API_URL, {
+    const response = await fetch(ECS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -716,36 +716,36 @@ export async function submitHITLResponse(
       }),
     });
 
-    hitlLog('SUBMIT_RESPONSE', { status: response.status });
+    ecsLog('SUBMIT_RESPONSE', { status: response.status });
 
     if (!response.ok) {
       const errorData = await response.json();
-      hitlLog('SUBMIT_ERROR', errorData);
-      throw new Error(errorData.detail || 'HITL 提交失败');
+      ecsLog('SUBMIT_ERROR', errorData);
+      throw new Error(errorData.detail || 'ECS 提交失败');
     }
 
     const result = await response.json();
-    hitlLog('SUBMIT_SUCCESS', result);
-    currentHITLRequest = null;
+    ecsLog('SUBMIT_SUCCESS', result);
+    currentECSRequest = null;
     return result;
   } catch (error: any) {
-    hitlLog('SUBMIT_EXCEPTION', { message: error.message });
+    ecsLog('SUBMIT_EXCEPTION', { message: error.message });
     throw error;
   }
 }
 
 /**
- * 创建 HITL 表单 UI
+ * 创建 ECS 表单 UI
  */
-export function createHITLForm(
-  hitlRequest: HITLRequest,
-  onComplete?: (result: HITLResult) => void
+export function createECSForm(
+  ecsRequest: ECSRequest,
+  onComplete?: (result: ECSResult) => void
 ): HTMLElement {
-  hitlLog('CREATE_FORM_START', { id: hitlRequest.id, fields: hitlRequest.fields?.length });
+  ecsLog('CREATE_FORM_START', { id: ecsRequest.id, fields: ecsRequest.fields?.length });
 
   const container = document.createElement('div');
-  container.id = 'wenko-hitl-form';
-  container.className = 'wenko-hitl-form';
+  container.id = 'wenko-ecs-form';
+  container.className = 'wenko-ecs-form';
   container.style.cssText = `
     position: fixed;
     bottom: 120px;
@@ -769,18 +769,18 @@ export function createHITLForm(
     font-weight: bold;
     font-size: 14px;
   `;
-  header.textContent = hitlRequest.title || '请选择';
+  header.textContent = ecsRequest.title || '请选择';
   container.appendChild(header);
 
   // Description
-  if (hitlRequest.description) {
+  if (ecsRequest.description) {
     const desc = document.createElement('p');
     desc.style.cssText = `
       margin: 12px 16px 8px;
       color: #666;
       font-size: 12px;
     `;
-    desc.textContent = hitlRequest.description;
+    desc.textContent = ecsRequest.description;
     container.appendChild(desc);
   }
 
@@ -794,8 +794,8 @@ export function createHITLForm(
 
   const formData: Record<string, any> = {};
 
-  hitlRequest.fields?.forEach(field => {
-    hitlLog('CREATE_FIELD', { name: field.name, type: field.type });
+  ecsRequest.fields?.forEach(field => {
+    ecsLog('CREATE_FIELD', { name: field.name, type: field.type });
 
     const fieldDiv = document.createElement('div');
     fieldDiv.style.cssText = 'margin-bottom: 12px;';
@@ -836,7 +836,7 @@ export function createHITLForm(
 
       select.onchange = () => {
         formData[field.name] = select.value;
-        hitlLog('FIELD_CHANGE', { field: field.name, value: select.value });
+        ecsLog('FIELD_CHANGE', { field: field.name, value: select.value });
       };
       fieldDiv.appendChild(select);
     } else if (field.type === 'radio' && field.options) {
@@ -859,7 +859,7 @@ export function createHITLForm(
         radio.value = opt.value;
         radio.onchange = () => {
           formData[field.name] = opt.value;
-          hitlLog('FIELD_CHANGE', { field: field.name, value: opt.value });
+          ecsLog('FIELD_CHANGE', { field: field.name, value: opt.value });
         };
 
         radioLabel.appendChild(radio);
@@ -892,7 +892,7 @@ export function createHITLForm(
           } else {
             formData[field.name] = formData[field.name].filter((v: string) => v !== opt.value);
           }
-          hitlLog('FIELD_CHANGE', { field: field.name, value: formData[field.name] });
+          ecsLog('FIELD_CHANGE', { field: field.name, value: formData[field.name] });
         };
 
         checkLabel.appendChild(checkbox);
@@ -963,12 +963,12 @@ export function createHITLForm(
   };
 
   const rejectBtn = createButton(
-    hitlRequest.actions?.reject?.label || '跳过',
+    ecsRequest.actions?.reject?.label || '跳过',
     'background: #f3f4f6; color: #374151;',
     async () => {
-      hitlLog('ACTION_REJECT', { requestId: hitlRequest.id });
+      ecsLog('ACTION_REJECT', { requestId: ecsRequest.id });
       try {
-        await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'reject', null);
+        await submitECSResponse(ecsRequest.id, ecsRequest.session_id, 'reject', null);
         container.remove();
         onComplete?.({ action: 'reject' });
       } catch (e) {
@@ -978,12 +978,12 @@ export function createHITLForm(
   );
 
   const approveBtn = createButton(
-    hitlRequest.actions?.approve?.label || '确认',
+    ecsRequest.actions?.approve?.label || '确认',
     'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;',
     async () => {
-      hitlLog('ACTION_APPROVE', { requestId: hitlRequest.id, formData });
+      ecsLog('ACTION_APPROVE', { requestId: ecsRequest.id, formData });
       try {
-        const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'approve', formData);
+        const result = await submitECSResponse(ecsRequest.id, ecsRequest.session_id, 'approve', formData);
         container.remove();
         onComplete?.({ action: 'approve', data: formData, result });
       } catch (e) {
@@ -996,20 +996,20 @@ export function createHITLForm(
   actions.appendChild(approveBtn);
   container.appendChild(actions);
 
-  hitlLog('CREATE_FORM_DONE', { id: hitlRequest.id });
+  ecsLog('CREATE_FORM_DONE', { id: ecsRequest.id });
   return container;
 }
 
 /**
- * 创建内联 HITL 表单 HTML（用于渲染到气泡内）
+ * 创建内联 ECS 表单 HTML（用于渲染到气泡内）
  */
-export function createHITLFormHtml(hitlRequest: HITLRequest): string {
-  hitlLog('CREATE_INLINE_FORM', { id: hitlRequest.id, fields: hitlRequest.fields?.length });
+export function createECSFormHtml(ecsRequest: ECSRequest): string {
+  ecsLog('CREATE_INLINE_FORM', { id: ecsRequest.id, fields: ecsRequest.fields?.length });
 
   let fieldsHtml = '';
 
-  hitlRequest.fields?.forEach(field => {
-    hitlLog('RENDER_FIELD', { name: field.name, type: field.type, label: field.label, hasOptions: !!field.options });
+  ecsRequest.fields?.forEach(field => {
+    ecsLog('RENDER_FIELD', { name: field.name, type: field.type, label: field.label, hasOptions: !!field.options });
     let fieldHtml = '';
 
     if (field.type === 'select' && field.options) {
@@ -1017,7 +1017,7 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
         `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`
       ).join('');
       fieldHtml = `
-        <select class="hitl-field" data-field="${escapeHtml(field.name)}" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;background:transparent;">
+        <select class="ecs-field" data-field="${escapeHtml(field.name)}" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;background:transparent;">
           <option value="">请选择...</option>
           ${optionsHtml}
         </select>
@@ -1025,7 +1025,7 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
     } else if (field.type === 'radio' && field.options) {
       const optionsHtml = field.options.map(opt =>
         `<label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:11px;cursor:pointer;">
-          <input type="radio" name="hitl_${escapeHtml(field.name)}" value="${escapeHtml(opt.value)}" class="hitl-field" data-field="${escapeHtml(field.name)}" style="margin:0;">
+          <input type="radio" name="ecs_${escapeHtml(field.name)}" value="${escapeHtml(opt.value)}" class="ecs-field" data-field="${escapeHtml(field.name)}" style="margin:0;">
           ${escapeHtml(opt.label)}
         </label>`
       ).join('');
@@ -1033,24 +1033,24 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
     } else if (field.type === 'checkbox' && field.options) {
       const optionsHtml = field.options.map(opt =>
         `<label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:11px;cursor:pointer;">
-          <input type="checkbox" value="${escapeHtml(opt.value)}" class="hitl-field hitl-checkbox" data-field="${escapeHtml(field.name)}" style="margin:0;">
+          <input type="checkbox" value="${escapeHtml(opt.value)}" class="ecs-field ecs-checkbox" data-field="${escapeHtml(field.name)}" style="margin:0;">
           ${escapeHtml(opt.label)}
         </label>`
       ).join('');
       fieldHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;">${optionsHtml}</div>`;
     } else if (field.type === 'textarea') {
       fieldHtml = `
-        <textarea class="hitl-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
+        <textarea class="ecs-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;resize:vertical;min-height:40px;"></textarea>
       `;
     } else if (field.type === 'date') {
       fieldHtml = `
-        <input type="date" class="hitl-field" data-field="${escapeHtml(field.name)}"
+        <input type="date" class="ecs-field" data-field="${escapeHtml(field.name)}"
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
       `;
     } else if (field.type === 'datetime') {
       fieldHtml = `
-        <input type="datetime-local" class="hitl-field" data-field="${escapeHtml(field.name)}"
+        <input type="datetime-local" class="ecs-field" data-field="${escapeHtml(field.name)}"
           ${field.default ? `value="${escapeHtml(String(field.default))}"` : ''}
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
       `;
@@ -1061,16 +1061,16 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
       const defaultVal = field.default ?? min;
       fieldHtml = `
         <div style="display:flex;align-items:center;gap:8px;">
-          <input type="range" class="hitl-field hitl-slider" data-field="${escapeHtml(field.name)}"
+          <input type="range" class="ecs-field ecs-slider" data-field="${escapeHtml(field.name)}"
             min="${min}" max="${max}" step="${step}" value="${defaultVal}"
             style="flex:1;">
-          <span class="hitl-slider-value" style="min-width:30px;text-align:right;font-size:11px;">${defaultVal}</span>
+          <span class="ecs-slider-value" style="min-width:30px;text-align:right;font-size:11px;">${defaultVal}</span>
         </div>
       `;
     } else if (field.type === 'boolean') {
       fieldHtml = `
         <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
-          <input type="checkbox" class="hitl-field hitl-boolean" data-field="${escapeHtml(field.name)}" style="margin:0;">
+          <input type="checkbox" class="ecs-field ecs-boolean" data-field="${escapeHtml(field.name)}" style="margin:0;">
           <span>${escapeHtml(field.placeholder || '是')}</span>
         </label>
       `;
@@ -1078,7 +1078,7 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
       // Default: text, number, or unknown types
       const inputType = field.type === 'number' ? 'number' : 'text';
       fieldHtml = `
-        <input type="${inputType}" class="hitl-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
+        <input type="${inputType}" class="ecs-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
       `;
     }
@@ -1094,24 +1094,24 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
     `;
   });
 
-  const approveLabel = hitlRequest.actions?.approve?.label || '确认';
-  const rejectLabel = hitlRequest.actions?.reject?.label || '跳过';
+  const approveLabel = ecsRequest.actions?.approve?.label || '确认';
+  const rejectLabel = ecsRequest.actions?.reject?.label || '跳过';
 
   return `
-    <div class="wenko-hitl-inline" data-hitl-id="${escapeHtml(hitlRequest.id)}" data-session-id="${escapeHtml(hitlRequest.session_id)}"
+    <div class="wenko-ecs-inline" data-ecs-id="${escapeHtml(ecsRequest.id)}" data-session-id="${escapeHtml(ecsRequest.session_id)}"
       style="background:transparent;border:1px solid #e0e0e0;border-radius:8px;padding:10px;margin-top:8px;">
       <div style="font-weight:bold;font-size:12px;color:#333;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #eee;">
-        ${escapeHtml(hitlRequest.title || '请选择')}
+        ${escapeHtml(ecsRequest.title || '请选择')}
       </div>
-      ${hitlRequest.description ? `<div style="font-size:11px;color:#666;margin-bottom:8px;">${escapeHtml(hitlRequest.description)}</div>` : ''}
-      <div class="hitl-fields">
+      ${ecsRequest.description ? `<div style="font-size:11px;color:#666;margin-bottom:8px;">${escapeHtml(ecsRequest.description)}</div>` : ''}
+      <div class="ecs-fields">
         ${fieldsHtml}
       </div>
       <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:10px;padding-top:8px;border-top:1px solid #eee;">
-        <button class="hitl-btn-reject" style="padding:5px 12px;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;color:#666;">
+        <button class="ecs-btn-reject" style="padding:5px 12px;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;color:#666;">
           ${escapeHtml(rejectLabel)}
         </button>
-        <button class="hitl-btn-approve" style="padding:5px 12px;border-radius:4px;font-size:11px;cursor:pointer;border:none;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;">
+        <button class="ecs-btn-approve" style="padding:5px 12px;border-radius:4px;font-size:11px;cursor:pointer;border:none;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;">
           ${escapeHtml(approveLabel)}
         </button>
       </div>
@@ -1120,18 +1120,18 @@ export function createHITLFormHtml(hitlRequest: HITLRequest): string {
 }
 
 /**
- * 显示 HITL 表单错误信息
+ * 显示 ECS 表单错误信息
  */
-function showHITLError(formContainer: HTMLElement, errorMessage: string): void {
+function showECSError(formContainer: HTMLElement, errorMessage: string): void {
   // Remove any existing error message
-  const existingError = formContainer.querySelector('.hitl-error-msg');
+  const existingError = formContainer.querySelector('.ecs-error-msg');
   if (existingError) {
     existingError.remove();
   }
 
   // Create error element
   const errorEl = document.createElement('div');
-  errorEl.className = 'hitl-error-msg';
+  errorEl.className = 'ecs-error-msg';
   errorEl.style.cssText = `
     color: #dc2626;
     background: #fef2f2;
@@ -1166,30 +1166,30 @@ function showHITLError(formContainer: HTMLElement, errorMessage: string): void {
 }
 
 /**
- * 绑定内联 HITL 表单事件
+ * 绑定内联 ECS 表单事件
  */
-export function bindHITLFormEvents(
-  hitlRequest: HITLRequest,
-  onComplete?: (result: HITLResult) => void
+export function bindECSFormEvents(
+  ecsRequest: ECSRequest,
+  onComplete?: (result: ECSResult) => void
 ): void {
   const shadowRoot = document.getElementById('WENKO__CONTAINER-ROOT')?.shadowRoot;
   if (!shadowRoot) {
-    hitlLog('BIND_EVENTS_ERROR', 'shadowRoot not found');
+    ecsLog('BIND_EVENTS_ERROR', 'shadowRoot not found');
     return;
   }
 
-  const formContainer = shadowRoot.querySelector(`.wenko-hitl-inline[data-hitl-id="${hitlRequest.id}"]`) as HTMLElement;
+  const formContainer = shadowRoot.querySelector(`.wenko-ecs-inline[data-ecs-id="${ecsRequest.id}"]`) as HTMLElement;
   if (!formContainer) {
-    hitlLog('BIND_EVENTS_ERROR', 'form container not found');
+    ecsLog('BIND_EVENTS_ERROR', 'form container not found');
     return;
   }
 
-  hitlLog('BIND_EVENTS_START', { id: hitlRequest.id });
+  ecsLog('BIND_EVENTS_START', { id: ecsRequest.id });
 
   const formData: Record<string, any> = {};
 
   // Initialize checkbox arrays and boolean defaults
-  hitlRequest.fields?.forEach(field => {
+  ecsRequest.fields?.forEach(field => {
     if (field.type === 'checkbox') {
       formData[field.name] = [];
     } else if (field.type === 'boolean') {
@@ -1201,7 +1201,7 @@ export function bindHITLFormEvents(
   });
 
   // Bind field change events
-  const fields = formContainer.querySelectorAll('.hitl-field');
+  const fields = formContainer.querySelectorAll('.ecs-field');
   fields.forEach(el => {
     const fieldName = el.getAttribute('data-field');
     if (!fieldName) return;
@@ -1209,7 +1209,7 @@ export function bindHITLFormEvents(
     if (el.tagName === 'SELECT') {
       (el as HTMLSelectElement).onchange = () => {
         formData[fieldName] = (el as HTMLSelectElement).value;
-        hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+        ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
       };
     } else if (el.tagName === 'INPUT') {
       const input = el as HTMLInputElement;
@@ -1217,15 +1217,15 @@ export function bindHITLFormEvents(
         input.onchange = () => {
           if (input.checked) {
             formData[fieldName] = input.value;
-            hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+            ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
           }
         };
       } else if (input.type === 'checkbox') {
         // Check if this is a boolean field or a multi-select checkbox
-        if (el.classList.contains('hitl-boolean')) {
+        if (el.classList.contains('ecs-boolean')) {
           input.onchange = () => {
             formData[fieldName] = input.checked;
-            hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+            ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
           };
         } else {
           input.onchange = () => {
@@ -1239,7 +1239,7 @@ export function bindHITLFormEvents(
             } else {
               formData[fieldName] = formData[fieldName].filter((v: string) => v !== input.value);
             }
-            hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+            ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
           };
         }
       } else if (input.type === 'range') {
@@ -1247,11 +1247,11 @@ export function bindHITLFormEvents(
         input.oninput = () => {
           formData[fieldName] = parseFloat(input.value);
           // Update the value display
-          const valueDisplay = el.parentElement?.querySelector('.hitl-slider-value');
+          const valueDisplay = el.parentElement?.querySelector('.ecs-slider-value');
           if (valueDisplay) {
             valueDisplay.textContent = input.value;
           }
-          hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+          ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
         };
       } else {
         input.oninput = () => {
@@ -1266,43 +1266,43 @@ export function bindHITLFormEvents(
   });
 
   // Bind button events
-  const approveBtn = formContainer.querySelector('.hitl-btn-approve') as HTMLButtonElement;
-  const rejectBtn = formContainer.querySelector('.hitl-btn-reject') as HTMLButtonElement;
+  const approveBtn = formContainer.querySelector('.ecs-btn-approve') as HTMLButtonElement;
+  const rejectBtn = formContainer.querySelector('.ecs-btn-reject') as HTMLButtonElement;
 
-  // Helper function to handle continuation after HITL response
-  const handleContinuation = (continuationData: HITLContinuationData) => {
-    hitlLog('AUTO_CONTINUATION_TRIGGERED', continuationData);
+  // Helper function to handle continuation after ECS response
+  const handleContinuation = (continuationData: ECSContinuationData) => {
+    ecsLog('AUTO_CONTINUATION_TRIGGERED', continuationData);
 
-    // Build field labels from hitlRequest
+    // Build field labels from ecsRequest
     const fieldLabels: Record<string, string> = {};
-    hitlRequest.fields?.forEach(field => {
+    ecsRequest.fields?.forEach(field => {
       fieldLabels[field.name] = field.label;
     });
 
     // Update continuation data with field labels
     continuationData.field_labels = fieldLabels;
 
-    triggerHITLContinuation(
-      hitlRequest.session_id,
+    triggerECSContinuation(
+      ecsRequest.session_id,
       continuationData,
       (chunk) => {
         showSSEMessage(chunk, 'wenko-chat-response');
       },
       () => {
-        hitlLog('AUTO_CONTINUATION_DONE');
+        ecsLog('AUTO_CONTINUATION_DONE');
       },
       (error) => {
         showSSEMessage(`<div class="wenko-chat-error">错误: ${escapeHtml(error)}</div>`, 'wenko-chat-error-msg');
       },
-      (newHitlRequest) => {
-        // Handle chained HITL request
-        hitlLog('CHAINED_HITL_REQUEST', { id: newHitlRequest.id, title: newHitlRequest.title });
-        const formHtml = createHITLFormHtml(newHitlRequest);
-        showSSEMessage(formHtml, 'wenko-hitl-form');
+      (newEcsRequest) => {
+        // Handle chained ECS request
+        ecsLog('CHAINED_ECS_REQUEST', { id: newEcsRequest.id, title: newEcsRequest.title });
+        const formHtml = createECSFormHtml(newEcsRequest);
+        showSSEMessage(formHtml, 'wenko-ecs-form');
 
-        // Recursively bind events for chained HITL
+        // Recursively bind events for chained ECS
         setTimeout(() => {
-          bindHITLFormEvents(newHitlRequest, onComplete);
+          bindECSFormEvents(newEcsRequest, onComplete);
         }, 50);
       }
     );
@@ -1310,17 +1310,17 @@ export function bindHITLFormEvents(
 
   if (approveBtn) {
     approveBtn.onclick = async () => {
-      hitlLog('ACTION_APPROVE', { requestId: hitlRequest.id, formData });
+      ecsLog('ACTION_APPROVE', { requestId: ecsRequest.id, formData });
       approveBtn.disabled = true;
       rejectBtn.disabled = true;
       try {
-        const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'approve', formData);
+        const result = await submitECSResponse(ecsRequest.id, ecsRequest.session_id, 'approve', formData);
 
         // Check if response indicates an error (e.g., required field missing)
         if (!result.success && result.error) {
-          hitlLog('VALIDATION_ERROR', { error: result.error });
+          ecsLog('VALIDATION_ERROR', { error: result.error });
           // Show error message in the form
-          showHITLError(formContainer, result.error);
+          showECSError(formContainer, result.error);
           approveBtn.disabled = false;
           rejectBtn.disabled = false;
           return;
@@ -1331,7 +1331,7 @@ export function bindHITLFormEvents(
 
         // Auto-trigger continuation if continuation_data is present
         if (result.continuation_data) {
-          handleContinuation(result.continuation_data as HITLContinuationData);
+          handleContinuation(result.continuation_data as ECSContinuationData);
         }
       } catch (e) {
         console.error('Approve failed:', e);
@@ -1343,17 +1343,17 @@ export function bindHITLFormEvents(
 
   if (rejectBtn) {
     rejectBtn.onclick = async () => {
-      hitlLog('ACTION_REJECT', { requestId: hitlRequest.id });
+      ecsLog('ACTION_REJECT', { requestId: ecsRequest.id });
       approveBtn.disabled = true;
       rejectBtn.disabled = true;
       try {
-        const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'reject', null);
+        const result = await submitECSResponse(ecsRequest.id, ecsRequest.session_id, 'reject', null);
         formContainer.remove();
         onComplete?.({ action: 'reject', result });
 
         // Auto-trigger continuation for reject as well
         if (result.continuation_data) {
-          handleContinuation(result.continuation_data as HITLContinuationData);
+          handleContinuation(result.continuation_data as ECSContinuationData);
         }
       } catch (e) {
         console.error('Reject failed:', e);
@@ -1363,34 +1363,34 @@ export function bindHITLFormEvents(
     };
   }
 
-  hitlLog('BIND_EVENTS_DONE', { id: hitlRequest.id });
+  ecsLog('BIND_EVENTS_DONE', { id: ecsRequest.id });
 }
 
 /**
- * 触发 HITL 继续对话
- * 在用户响应 HITL 表单后自动调用，让 AI 基于用户响应继续对话
+ * 触发 ECS 继续对话
+ * 在用户响应 ECS 表单后自动调用，让 AI 基于用户响应继续对话
  */
-export function triggerHITLContinuation(
+export function triggerECSContinuation(
   sessionId: string,
-  continuationData: HITLContinuationData,
+  continuationData: ECSContinuationData,
   onChunk: (text: string) => void,
   onDone?: () => void,
   onError?: (error: string) => void,
-  onHITL?: (hitlRequest: HITLRequest) => void
+  onECS?: (ecsRequest: ECSRequest) => void
 ): void {
-  hitlLog('CONTINUATION_START', { sessionId, continuationData });
+  ecsLog('CONTINUATION_START', { sessionId, continuationData });
 
   // Prevent multiple concurrent requests
   if (isLoading) {
-    hitlLog('CONTINUATION_BLOCKED', 'Already loading');
+    ecsLog('CONTINUATION_BLOCKED', 'Already loading');
     return;
   }
   isLoading = true;
 
-  // Show loading indicator - specialized message for HITL form submission
-  hitlLog('CONTINUATION_SHOW_LOADING', 'Calling showSSEMessage for loading indicator');
+  // Show loading indicator - specialized message for ECS form submission
+  ecsLog('CONTINUATION_SHOW_LOADING', 'Calling showSSEMessage for loading indicator');
   showSSEMessage('<div class="wenko-chat-loading">AI 正在分析您的信息...</div>', 'wenko-chat-loading-msg');
-  hitlLog('CONTINUATION_SHOW_LOADING_DONE', 'showSSEMessage called');
+  ecsLog('CONTINUATION_SHOW_LOADING_DONE', 'showSSEMessage called');
 
   let assistantResponse = '';
 
@@ -1404,7 +1404,7 @@ export function triggerHITLContinuation(
     }
   };
 
-  fetchEventSource(HITL_CONTINUE_API_URL, {
+  fetchEventSource(ECS_CONTINUE_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1415,16 +1415,16 @@ export function triggerHITLContinuation(
     }),
     openWhenHidden: true, // Keep connection even when page is hidden
     onopen: async (res: Response) => {
-      hitlLog('CONTINUATION_SSE_OPEN', { status: res.status, ok: res.ok });
+      ecsLog('CONTINUATION_SSE_OPEN', { status: res.status, ok: res.ok });
       // Don't remove loading here - wait for first text chunk
       if (res.ok) return;
       const text = await res.text();
-      hitlLog('CONTINUATION_SSE_OPEN_ERROR', { status: res.status, text });
+      ecsLog('CONTINUATION_SSE_OPEN_ERROR', { status: res.status, text });
       removeLoadingIndicator();
       throw new Error(`HTTP ${res.status}: ${text}`);
     },
     onmessage: (event: { event: string; data: string }) => {
-      hitlLog('CONTINUATION_SSE_EVENT', { event: event.event, dataLen: event.data?.length });
+      ecsLog('CONTINUATION_SSE_EVENT', { event: event.event, dataLen: event.data?.length });
       try {
         if (event.event === 'text') {
           // Remove loading indicator on first text chunk
@@ -1432,44 +1432,44 @@ export function triggerHITLContinuation(
           const data = JSON.parse(event.data);
           if (data.type === 'text' && data.payload?.content) {
             assistantResponse += data.payload.content;
-            hitlLog('CONTINUATION_TEXT_CHUNK', { contentLen: data.payload.content.length, totalLen: assistantResponse.length });
+            ecsLog('CONTINUATION_TEXT_CHUNK', { contentLen: data.payload.content.length, totalLen: assistantResponse.length });
             onChunk(data.payload.content);
           }
-        } else if (event.event === 'hitl') {
-          // Handle chained HITL request
-          hitlLog('CONTINUATION_HITL_EVENT', event.data);
+        } else if (event.event === 'ecs') {
+          // Handle chained ECS request
+          ecsLog('CONTINUATION_ECS_EVENT', event.data);
           const data = JSON.parse(event.data);
-          if (data.type === 'hitl' && data.payload) {
-            currentHITLRequest = data.payload as HITLRequest;
-            hitlLog('CONTINUATION_HITL_PARSED', {
-              id: currentHITLRequest.id,
-              title: currentHITLRequest.title,
-              fields: currentHITLRequest.fields?.length
+          if (data.type === 'ecs' && data.payload) {
+            currentECSRequest = data.payload as ECSRequest;
+            ecsLog('CONTINUATION_ECS_PARSED', {
+              id: currentECSRequest.id,
+              title: currentECSRequest.title,
+              fields: currentECSRequest.fields?.length
             });
-            onHITL?.(currentHITLRequest);
+            onECS?.(currentECSRequest);
           }
         } else if (event.event === 'done') {
           // Add assistant response to local history
           if (assistantResponse) {
             historyManager.addMessage({ role: 'assistant', content: assistantResponse });
           }
-          hitlLog('CONTINUATION_DONE', { responseLength: assistantResponse.length });
+          ecsLog('CONTINUATION_DONE', { responseLength: assistantResponse.length });
           isLoading = false;
           onDone?.();
         } else if (event.event === 'error') {
           const data = JSON.parse(event.data);
           const errorMsg = data.payload?.message || '未知错误';
-          hitlLog('CONTINUATION_ERROR', { error: errorMsg });
+          ecsLog('CONTINUATION_ERROR', { error: errorMsg });
           isLoading = false;
           onError?.(errorMsg);
         }
       } catch (e) {
         console.error('解析 continuation SSE 消息失败:', e);
-        hitlLog('CONTINUATION_PARSE_ERROR', { error: String(e), data: event.data?.substring(0, 100) });
+        ecsLog('CONTINUATION_PARSE_ERROR', { error: String(e), data: event.data?.substring(0, 100) });
       }
     },
     onclose: () => {
-      hitlLog('CONTINUATION_SSE_CLOSE', { isLoading, assistantResponseLength: assistantResponse.length });
+      ecsLog('CONTINUATION_SSE_CLOSE', { isLoading, assistantResponseLength: assistantResponse.length });
       removeLoadingIndicator();
       if (isLoading) {
         if (assistantResponse) {
@@ -1481,7 +1481,7 @@ export function triggerHITLContinuation(
     },
     onerror: (err: Error) => {
       console.error('Continuation SSE error:', err);
-      hitlLog('CONTINUATION_SSE_ERROR', { message: err.message, name: err.name });
+      ecsLog('CONTINUATION_SSE_ERROR', { message: err.message, name: err.name });
       removeLoadingIndicator();
       isLoading = false;
       onError?.(err.message || '连接错误');
@@ -1563,7 +1563,7 @@ export function sendImageMessage(
   onChunk: (text: string) => void,
   onDone?: () => void,
   onError?: (error: string) => void,
-  onHITL?: (hitlRequest: HITLRequest) => void
+  onECS?: (ecsRequest: ECSRequest) => void
 ): void {
   if (isLoading) return;
 
@@ -1595,11 +1595,11 @@ export function sendImageMessage(
           if (data.type === 'text' && data.payload?.content) {
             onChunk(data.payload.content);
           }
-        } else if (event.event === 'hitl') {
+        } else if (event.event === 'ecs') {
           const data = JSON.parse(event.data);
-          if (data.type === 'hitl' && data.payload) {
-            currentHITLRequest = data.payload as HITLRequest;
-            onHITL?.(currentHITLRequest);
+          if (data.type === 'ecs' && data.payload) {
+            currentECSRequest = data.payload as ECSRequest;
+            onECS?.(currentECSRequest);
           }
         } else if (event.event === 'done') {
           isLoading = false;

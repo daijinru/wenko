@@ -1,10 +1,10 @@
-import type { HITLAsciiData } from '../types/hitl';
+import type { ECSAsciiData } from '../types/ecs';
 
-interface HITLAsciiProps {
-  data: HITLAsciiData;
+interface ECSAsciiProps {
+  data: ECSAsciiData;
 }
 
-export function HITLAscii({ data }: HITLAsciiProps) {
+export function ECSAscii({ data }: ECSAsciiProps) {
   const { content, title } = data;
 
   return (

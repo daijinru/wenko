@@ -62,9 +62,9 @@ def is_emotion_enabled() -> bool:
     return _get_system_setting("system.emotion_enabled", True)
 
 
-def is_hitl_enabled() -> bool:
-    """Check if HITL system is enabled."""
-    return _get_system_setting("system.hitl_enabled", True)
+def is_ecs_enabled() -> bool:
+    """Check if ECS system is enabled."""
+    return _get_system_setting("system.ecs_enabled", True)
 
 
 def is_intent_recognition_enabled() -> bool:
@@ -117,19 +117,19 @@ memory_update 用于保存用户信息，格式：
 
 {mcp_instruction}
 
-{hitl_instruction}
+{ecs_instruction}
 
 现在请直接输出 JSON:"""
 
 
-# ============ HITL Instruction Template ============
+# ============ ECS Instruction Template ============
 
-HITL_INSTRUCTION = """
-人机交互表单 (HITL) - 重要：请积极使用表单收集用户信息！
+ECS_INSTRUCTION = """
+外部化认知步骤 (ECS) 表单 - 重要：请积极使用表单收集用户信息！
 
-hitl_request 格式:
+ecs_request 格式:
 {{
-  "hitl_request": {{
+  "ecs_request": {{
     "type": "form",
     "title": "表单标题",
     "description": "可选的描述文字",
@@ -155,34 +155,34 @@ hitl_request 格式:
    - 当相关记忆较少或为空时，主动通过表单了解用户
    - 对话开始时，可以用表单收集用户基本偏好
    示例：用户说"你好"，相关记忆为空
-   {{"response":"你好！让我更好地了解你","hitl_request":{{"type":"form","title":"认识你","fields":[{{"name":"name","type":"text","label":"怎么称呼你","required":false}},{{"name":"interests","type":"multiselect","label":"你感兴趣的话题","required":false,"options":[{{"value":"tech","label":"科技"}},{{"value":"music","label":"音乐"}},{{"value":"sports","label":"运动"}},{{"value":"food","label":"美食"}},{{"value":"travel","label":"旅行"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+   {{"response":"你好！让我更好地了解你","ecs_request":{{"type":"form","title":"认识你","fields":[{{"name":"name","type":"text","label":"怎么称呼你","required":false}},{{"name":"interests","type":"multiselect","label":"你感兴趣的话题","required":false,"options":[{{"value":"tech","label":"科技"}},{{"value":"music","label":"音乐"}},{{"value":"sports","label":"运动"}},{{"value":"food","label":"美食"}},{{"value":"travel","label":"旅行"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
 
 2. 话题深化触发 (Topic Deepening):
    - 用户提到某个领域但未详细说明时，用表单深入了解
    - 用户表达模糊喜好时（如"我喜欢..."），用表单收集具体偏好
    示例：用户说"我喜欢听音乐"
-   {{"response":"音乐是很棒的爱好！让我了解你的音乐品味","hitl_request":{{"type":"form","title":"音乐偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的音乐类型","required":true,"options":[{{"value":"pop","label":"流行"}},{{"value":"rock","label":"摇滚"}},{{"value":"classical","label":"古典"}},{{"value":"jazz","label":"爵士"}},{{"value":"electronic","label":"电子"}}]}},{{"name":"when","type":"select","label":"通常什么时候听","required":false,"options":[{{"value":"work","label":"工作时"}},{{"value":"commute","label":"通勤时"}},{{"value":"relax","label":"休息时"}},{{"value":"exercise","label":"运动时"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+   {{"response":"音乐是很棒的爱好！让我了解你的音乐品味","ecs_request":{{"type":"form","title":"音乐偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的音乐类型","required":true,"options":[{{"value":"pop","label":"流行"}},{{"value":"rock","label":"摇滚"}},{{"value":"classical","label":"古典"}},{{"value":"jazz","label":"爵士"}},{{"value":"electronic","label":"电子"}}]}},{{"name":"when","type":"select","label":"通常什么时候听","required":false,"options":[{{"value":"work","label":"工作时"}},{{"value":"commute","label":"通勤时"}},{{"value":"relax","label":"休息时"}},{{"value":"exercise","label":"运动时"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
 
 3. 情感驱动触发 (Emotion-driven):
    - 检测到积极情绪时，收集让用户开心的事物
    - 检测到消极情绪时，了解用户的困扰
    示例：用户说"今天心情很好，刚看完一部好电影"
-   {{"response":"听起来很棒！好奇你喜欢什么类型的电影","hitl_request":{{"type":"form","title":"电影偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的电影类型","required":true,"options":[{{"value":"action","label":"动作片"}},{{"value":"comedy","label":"喜剧片"}},{{"value":"scifi","label":"科幻片"}},{{"value":"romance","label":"爱情片"}},{{"value":"thriller","label":"悬疑片"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+   {{"response":"听起来很棒！好奇你喜欢什么类型的电影","ecs_request":{{"type":"form","title":"电影偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的电影类型","required":true,"options":[{{"value":"action","label":"动作片"}},{{"value":"comedy","label":"喜剧片"}},{{"value":"scifi","label":"科幻片"}},{{"value":"romance","label":"爱情片"}},{{"value":"thriller","label":"悬疑片"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
 
 4. 记忆补全触发 (Memory Gap Detection):
    - 对话涉及某话题但相关记忆为空时，通过表单补全
    - 用户行为暗示某偏好但记忆中没有记录时，主动确认
    示例：用户问"推荐一本书"，但记忆中没有阅读偏好
-   {{"response":"我来帮你推荐！先了解下你的阅读口味","hitl_request":{{"type":"form","title":"阅读偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的书籍类型","required":true,"options":[{{"value":"fiction","label":"小说"}},{{"value":"nonfiction","label":"非虚构"}},{{"value":"tech","label":"技术"}},{{"value":"selfhelp","label":"自我提升"}},{{"value":"history","label":"历史"}}]}},{{"name":"format","type":"select","label":"偏好的阅读方式","required":false,"options":[{{"value":"paper","label":"纸质书"}},{{"value":"ebook","label":"电子书"}},{{"value":"audio","label":"有声书"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+   {{"response":"我来帮你推荐！先了解下你的阅读口味","ecs_request":{{"type":"form","title":"阅读偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的书籍类型","required":true,"options":[{{"value":"fiction","label":"小说"}},{{"value":"nonfiction","label":"非虚构"}},{{"value":"tech","label":"技术"}},{{"value":"selfhelp","label":"自我提升"}},{{"value":"history","label":"历史"}}]}},{{"name":"format","type":"select","label":"偏好的阅读方式","required":false,"options":[{{"value":"paper","label":"纸质书"}},{{"value":"ebook","label":"电子书"}},{{"value":"audio","label":"有声书"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
 
 5. 问答转表单 (Question-to-Form) - 核心策略:
    - 当你想问用户问题时，优先用表单而非纯文本提问
    - 任何可以转化为选项的问题，都应该用表单收集
    - 这样用户回答更方便，数据也更结构化
    示例：想问用户想去日本哪个城市
-   {{"response":"听说你想去日本，真不错呢！那边的科技和电影文化也很有意思","hitl_request":{{"type":"form","title":"日本旅行计划","fields":[{{"name":"city","type":"select","label":"最想去的城市","required":false,"options":[{{"value":"tokyo","label":"东京"}},{{"value":"osaka","label":"大阪"}},{{"value":"kyoto","label":"京都"}},{{"value":"hokkaido","label":"北海道"}},{{"value":"okinawa","label":"冲绳"}}]}},{{"name":"experience","type":"multiselect","label":"想体验的活动","required":false,"options":[{{"value":"food","label":"美食探店"}},{{"value":"anime","label":"动漫圣地巡礼"}},{{"value":"temple","label":"寺庙神社"}},{{"value":"shopping","label":"购物"}},{{"value":"nature","label":"自然风光"}},{{"value":"tech","label":"科技体验"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
+   {{"response":"听说你想去日本，真不错呢！那边的科技和电影文化也很有意思","ecs_request":{{"type":"form","title":"日本旅行计划","fields":[{{"name":"city","type":"select","label":"最想去的城市","required":false,"options":[{{"value":"tokyo","label":"东京"}},{{"value":"osaka","label":"大阪"}},{{"value":"kyoto","label":"京都"}},{{"value":"hokkaido","label":"北海道"}},{{"value":"okinawa","label":"冲绳"}}]}},{{"name":"experience","type":"multiselect","label":"想体验的活动","required":false,"options":[{{"value":"food","label":"美食探店"}},{{"value":"anime","label":"动漫圣地巡礼"}},{{"value":"temple","label":"寺庙神社"}},{{"value":"shopping","label":"购物"}},{{"value":"nature","label":"自然风光"}},{{"value":"tech","label":"科技体验"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}
    示例：想问用户周末计划
-   {{"response":"周末快到了！","hitl_request":{{"type":"form","title":"周末计划","fields":[{{"name":"activity","type":"select","label":"周末打算做什么","required":false,"options":[{{"value":"rest","label":"在家休息"}},{{"value":"outdoor","label":"户外活动"}},{{"value":"social","label":"和朋友聚会"}},{{"value":"study","label":"学习充电"}},{{"value":"entertainment","label":"看电影/追剧"}}]}}],"context":{{"intent":"collect_preference","memory_category":"pattern"}}}}}}
+   {{"response":"周末快到了！","ecs_request":{{"type":"form","title":"周末计划","fields":[{{"name":"activity","type":"select","label":"周末打算做什么","required":false,"options":[{{"value":"rest","label":"在家休息"}},{{"value":"outdoor","label":"户外活动"}},{{"value":"social","label":"和朋友聚会"}},{{"value":"study","label":"学习充电"}},{{"value":"entertainment","label":"看电影/追剧"}}]}}],"context":{{"intent":"collect_preference","memory_category":"pattern"}}}}}}
 
 【核心原则】
 凡是你想向用户提问的内容，都应该优先考虑用表单收集！表单比纯文本提问更友好、更高效。
@@ -193,11 +193,11 @@ hitl_request 格式:
    - 计划关键词：提醒、记得、别忘了、要、需要、打算、计划、安排、会议、开会、约、预约
    - 识别到时间意图后，提取标题、描述和预估时间，预填到表单
    示例1：用户说"提醒我明天下午3点开会"
-   {{"response":"好的，让我帮你设置这个提醒","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"开会"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
+   {{"response":"好的，让我帮你设置这个提醒","ecs_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"开会"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
    示例2：用户说"下周三10点要交报告，别让我忘了"
-   {{"response":"没问题，我来帮你记住这件事","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"交报告"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
+   {{"response":"没问题，我来帮你记住这件事","ecs_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"交报告"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
    示例3：用户说"每天早上8点提醒我吃药"
-   {{"response":"好的，我来帮你设置每日提醒","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"吃药"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"0","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"daily","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
+   {{"response":"好的，我来帮你设置每日提醒","ecs_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息，系统将在指定时间提醒您。","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"吃药"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"0","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"daily","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}
 
 7. 图形化展示触发 (Visual Display) - 重要:
    - 当用户请求比较、对比、列表、表格、流程图、架构图等可视化内容时，使用 visual_display 类型
@@ -205,7 +205,7 @@ hitl_request 格式:
    - 支持两种组件: table（表格）和 ascii（ASCII艺术/流程图）
 
    visual_display 格式:
-   {{"hitl_request":{{"type":"visual_display","title":"展示标题","description":"可选描述","displays":[{{"type":"table|ascii","data":{{...}}}}],"dismiss_label":"关闭"}}}}
+   {{"ecs_request":{{"type":"visual_display","title":"展示标题","description":"可选描述","displays":[{{"type":"table|ascii","data":{{...}}}}],"dismiss_label":"关闭"}}}}
 
    table 组件格式:
    {{"type":"table","data":{{"headers":["列1","列2","列3"],"rows":[["值1","值2","值3"],["值4","值5","值6"]],"alignment":["left","center","right"],"caption":"可选表格标题"}}}}
@@ -215,13 +215,13 @@ hitl_request 格式:
 
    触发场景示例:
    示例1：用户说"比较一下 iPhone 和 Android 的优缺点"
-   {{"response":"好的，让我用表格为你展示对比","hitl_request":{{"type":"visual_display","title":"iPhone vs Android 对比","displays":[{{"type":"table","data":{{"headers":["特性","iPhone","Android"],"rows":[["系统流畅度","优秀","因设备而异"],["生态系统","封闭统一","开放多样"],["价格区间","较高","覆盖全价位"],["自定义程度","有限","高度自由"]],"caption":"主要特性对比"}}}}]}}}}
+   {{"response":"好的，让我用表格为你展示对比","ecs_request":{{"type":"visual_display","title":"iPhone vs Android 对比","displays":[{{"type":"table","data":{{"headers":["特性","iPhone","Android"],"rows":[["系统流畅度","优秀","因设备而异"],["生态系统","封闭统一","开放多样"],["价格区间","较高","覆盖全价位"],["自定义程度","有限","高度自由"]],"caption":"主要特性对比"}}}}]}}}}
 
    示例2：用户说"画一个简单的流程图说明登录过程"
-   {{"response":"好的，这是登录流程的示意图","hitl_request":{{"type":"visual_display","title":"登录流程图","displays":[{{"type":"ascii","data":{{"content":"┌─────────┐\\n│  开始   │\\n└────┬────┘\\n     │\\n     v\\n┌─────────┐\\n│输入账号 │\\n└────┬────┘\\n     │\\n     v\\n┌─────────┐\\n│输入密码 │\\n└────┬────┘\\n     │\\n     v\\n◇ 验证 ◇──否──> [错误提示]\\n     │\\n    是\\n     │\\n     v\\n┌─────────┐\\n│登录成功 │\\n└─────────┘","title":"用户登录流程"}}}}]}}}}
+   {{"response":"好的，这是登录流程的示意图","ecs_request":{{"type":"visual_display","title":"登录流程图","displays":[{{"type":"ascii","data":{{"content":"┌─────────┐\\n│  开始   │\\n└────┬────┘\\n     │\\n     v\\n┌─────────┐\\n│输入账号 │\\n└────┬────┘\\n     │\\n     v\\n┌─────────┐\\n│输入密码 │\\n└────┬────┘\\n     │\\n     v\\n◇ 验证 ◇──否──> [错误提示]\\n     │\\n    是\\n     │\\n     v\\n┌─────────┐\\n│登录成功 │\\n└─────────┘","title":"用户登录流程"}}}}]}}}}
 
    示例3：用户说"列出常用的 Git 命令"
-   {{"response":"好的，这是常用 Git 命令汇总","hitl_request":{{"type":"visual_display","title":"常用 Git 命令","displays":[{{"type":"table","data":{{"headers":["命令","用途","示例"],"rows":[["git init","初始化仓库","git init"],["git clone","克隆仓库","git clone url"],["git add","添加文件","git add ."],["git commit","提交更改","git commit -m 'msg'"],["git push","推送到远程","git push origin main"],["git pull","拉取更新","git pull"]]}}}}]}}}}
+   {{"response":"好的，这是常用 Git 命令汇总","ecs_request":{{"type":"visual_display","title":"常用 Git 命令","displays":[{{"type":"table","data":{{"headers":["命令","用途","示例"],"rows":[["git init","初始化仓库","git init"],["git clone","克隆仓库","git clone url"],["git add","添加文件","git add ."],["git commit","提交更改","git commit -m 'msg'"],["git push","推送到远程","git push origin main"],["git pull","拉取更新","git pull"]]}}}}]}}}}
 
 【visual_display 触发关键词】
 - 比较、对比、VS、versus、哪个好
@@ -236,13 +236,13 @@ hitl_request 格式:
 - 简单的是/否确认问题
 """
 
-HITL_INSTRUCTION_DISABLED = ""
+ECS_INSTRUCTION_DISABLED = ""
 
-# Simplified HITL instruction for continuation scenarios
-# Much shorter than full HITL_INSTRUCTION (~300 chars vs ~3K chars)
-HITL_CONTINUATION_INSTRUCTION = """
-如果需要继续收集信息，可使用 hitl_request 表单:
-{{"hitl_request":{{"type":"form","title":"表单标题","fields":[{{"name":"字段名","type":"select|text|textarea|radio","label":"标签","required":true,"options":[{{"value":"值","label":"文字"}}]}}]}}}}
+# Simplified ECS instruction for continuation scenarios
+# Much shorter than full ECS_INSTRUCTION (~300 chars vs ~3K chars)
+ECS_CONTINUATION_INSTRUCTION = """
+如果需要继续收集信息，可使用 ecs_request 表单:
+{{"ecs_request":{{"type":"form","title":"表单标题","fields":[{{"name":"字段名","type":"select|text|textarea|radio","label":"标签","required":true,"options":[{{"value":"值","label":"文字"}}]}}]}}}}
 
 注意：只有确实需要追问时才发起新表单，避免过度打扰用户。
 """
@@ -251,13 +251,13 @@ SIMPLE_SYSTEM_PROMPT = """你是一个友好的 AI 助手。"""
 
 
 # ============ Intent-Specific Prompt Snippets ============
-# These are much smaller (~200-400 chars) than the full HITL_INSTRUCTION (~3K chars)
+# These are much smaller (~200-400 chars) than the full ECS_INSTRUCTION (~3K chars)
 # Used when intent recognition matches a specific intent type
 
-# HITL base format - included with all HITL snippets
-HITL_BASE_FORMAT = """
-hitl_request 格式:
-{{"hitl_request":{{"type":"form","title":"表单标题","description":"可选描述","fields":[{{"name":"字段名","type":"select|multiselect|text|textarea|radio|checkbox|number|slider|datetime","label":"显示标签","required":true/false,"options":[{{"value":"值","label":"显示文字"}}],"default":"默认值"}}],"context":{{"intent":"意图","memory_category":"类别"}}}}}}
+# ECS base format - included with all ECS snippets
+ECS_BASE_FORMAT = """
+ecs_request 格式:
+{{"ecs_request":{{"type":"form","title":"表单标题","description":"可选描述","fields":[{{"name":"字段名","type":"select|multiselect|text|textarea|radio|checkbox|number|slider|datetime","label":"显示标签","required":true/false,"options":[{{"value":"值","label":"显示文字"}}],"default":"默认值"}}],"context":{{"intent":"意图","memory_category":"类别"}}}}}}
 """
 
 # Memory intent snippets (for 4 memory save rules)
@@ -283,56 +283,56 @@ MEMORY_INTENT_SNIPPETS = {
 - value: 观点的核心要点""",
 }
 
-# HITL intent snippets (for 6 HITL strategies)
-HITL_INTENT_SNIPPETS = {
-    "proactive_inquiry": HITL_BASE_FORMAT + """
-【HITL指令】检测到问候意图。必须生成 hitl_request 表单主动了解用户:
-示例：{{"response":"你好！让我更好地了解你","hitl_request":{{"type":"form","title":"认识你","fields":[{{"name":"name","type":"text","label":"怎么称呼你","required":false}},{{"name":"interests","type":"multiselect","label":"你感兴趣的话题","required":false,"options":[{{"value":"tech","label":"科技"}},{{"value":"music","label":"音乐"}},{{"value":"sports","label":"运动"}},{{"value":"food","label":"美食"}},{{"value":"travel","label":"旅行"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+# ECS intent snippets (for 6 ECS strategies)
+ECS_INTENT_SNIPPETS = {
+    "proactive_inquiry": ECS_BASE_FORMAT + """
+【ECS指令】检测到问候意图。必须生成 ecs_request 表单主动了解用户:
+示例：{{"response":"你好！让我更好地了解你","ecs_request":{{"type":"form","title":"认识你","fields":[{{"name":"name","type":"text","label":"怎么称呼你","required":false}},{{"name":"interests","type":"multiselect","label":"你感兴趣的话题","required":false,"options":[{{"value":"tech","label":"科技"}},{{"value":"music","label":"音乐"}},{{"value":"sports","label":"运动"}},{{"value":"food","label":"美食"}},{{"value":"travel","label":"旅行"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
 
-    "topic_deepening": HITL_BASE_FORMAT + """
-【HITL指令】用户提到感兴趣的话题。必须生成 hitl_request 表单深入了解该话题的具体偏好:
+    "topic_deepening": ECS_BASE_FORMAT + """
+【ECS指令】用户提到感兴趣的话题。必须生成 ecs_request 表单深入了解该话题的具体偏好:
 - 根据用户提到的话题类型设计合适的 fields
 - 使用 multiselect 收集多个选项
 - context.intent: "collect_preference"
-示例（音乐话题）：{{"response":"音乐是很棒的爱好！让我了解你的音乐品味","hitl_request":{{"type":"form","title":"音乐偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的音乐类型","required":true,"options":[{{"value":"pop","label":"流行"}},{{"value":"rock","label":"摇滚"}},{{"value":"classical","label":"古典"}},{{"value":"jazz","label":"爵士"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+示例（音乐话题）：{{"response":"音乐是很棒的爱好！让我了解你的音乐品味","ecs_request":{{"type":"form","title":"音乐偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的音乐类型","required":true,"options":[{{"value":"pop","label":"流行"}},{{"value":"rock","label":"摇滚"}},{{"value":"classical","label":"古典"}},{{"value":"jazz","label":"爵士"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
 
-    "emotion_driven": HITL_BASE_FORMAT + """
-【HITL指令】检测到用户情绪表达。必须生成 hitl_request 表单:
+    "emotion_driven": ECS_BASE_FORMAT + """
+【ECS指令】检测到用户情绪表达。必须生成 ecs_request 表单:
 - 积极情绪: 用表单了解让用户开心的事物
 - 消极情绪: 用表单了解用户的困扰
 - context.intent: "collect_preference"
-示例：{{"response":"听起来很棒！好奇你喜欢什么类型的电影","hitl_request":{{"type":"form","title":"电影偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的电影类型","required":true,"options":[{{"value":"action","label":"动作片"}},{{"value":"comedy","label":"喜剧片"}},{{"value":"scifi","label":"科幻片"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+示例：{{"response":"听起来很棒！好奇你喜欢什么类型的电影","ecs_request":{{"type":"form","title":"电影偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的电影类型","required":true,"options":[{{"value":"action","label":"动作片"}},{{"value":"comedy","label":"喜剧片"}},{{"value":"scifi","label":"科幻片"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
 
-    "memory_gap": HITL_BASE_FORMAT + """
-【HITL指令】用户请求推荐/建议，但相关记忆不足。必须生成 hitl_request 表单收集偏好:
-示例（推荐书）：{{"response":"我来帮你推荐！先了解下你的阅读口味","hitl_request":{{"type":"form","title":"阅读偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的书籍类型","required":true,"options":[{{"value":"fiction","label":"小说"}},{{"value":"nonfiction","label":"非虚构"}},{{"value":"tech","label":"技术"}},{{"value":"selfhelp","label":"自我提升"}}]}},{{"name":"format","type":"select","label":"偏好的阅读方式","required":false,"options":[{{"value":"paper","label":"纸质书"}},{{"value":"ebook","label":"电子书"}},{{"value":"audio","label":"有声书"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+    "memory_gap": ECS_BASE_FORMAT + """
+【ECS指令】用户请求推荐/建议，但相关记忆不足。必须生成 ecs_request 表单收集偏好:
+示例（推荐书）：{{"response":"我来帮你推荐！先了解下你的阅读口味","ecs_request":{{"type":"form","title":"阅读偏好","fields":[{{"name":"genre","type":"multiselect","label":"喜欢的书籍类型","required":true,"options":[{{"value":"fiction","label":"小说"}},{{"value":"nonfiction","label":"非虚构"}},{{"value":"tech","label":"技术"}},{{"value":"selfhelp","label":"自我提升"}}]}},{{"name":"format","type":"select","label":"偏好的阅读方式","required":false,"options":[{{"value":"paper","label":"纸质书"}},{{"value":"ebook","label":"电子书"}},{{"value":"audio","label":"有声书"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
 
-    "question_to_form": HITL_BASE_FORMAT + """
-【HITL指令】用户的问题可以转化为表单。必须将问题转换为结构化的 hitl_request 表单:
+    "question_to_form": ECS_BASE_FORMAT + """
+【ECS指令】用户的问题可以转化为表单。必须将问题转换为结构化的 ecs_request 表单:
 - 使用 select/multiselect 提供选项
 - 比纯文本提问更友好高效
-示例（旅行计划）：{{"response":"听说你想去日本，真不错呢！","hitl_request":{{"type":"form","title":"日本旅行计划","fields":[{{"name":"city","type":"select","label":"最想去的城市","required":false,"options":[{{"value":"tokyo","label":"东京"}},{{"value":"osaka","label":"大阪"}},{{"value":"kyoto","label":"京都"}}]}},{{"name":"experience","type":"multiselect","label":"想体验的活动","required":false,"options":[{{"value":"food","label":"美食探店"}},{{"value":"anime","label":"动漫圣地巡礼"}},{{"value":"temple","label":"寺庙神社"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
+示例（旅行计划）：{{"response":"听说你想去日本，真不错呢！","ecs_request":{{"type":"form","title":"日本旅行计划","fields":[{{"name":"city","type":"select","label":"最想去的城市","required":false,"options":[{{"value":"tokyo","label":"东京"}},{{"value":"osaka","label":"大阪"}},{{"value":"kyoto","label":"京都"}}]}},{{"name":"experience","type":"multiselect","label":"想体验的活动","required":false,"options":[{{"value":"food","label":"美食探店"}},{{"value":"anime","label":"动漫圣地巡礼"}},{{"value":"temple","label":"寺庙神社"}}]}}],"context":{{"intent":"collect_preference","memory_category":"preference"}}}}}}""",
 
-    "plan_reminder": HITL_BASE_FORMAT + """
-【HITL指令】检测到时间相关的计划/提醒意图。必须生成计划提醒表单:
+    "plan_reminder": ECS_BASE_FORMAT + """
+【ECS指令】检测到时间相关的计划/提醒意图。必须生成计划提醒表单:
 - 从用户消息中提取标题和时间信息预填到 default
 - context.intent: "collect_plan", memory_category: "plan"
-示例：{{"response":"好的，让我帮你设置这个提醒","hitl_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"开会"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}""",
+示例：{{"response":"好的，让我帮你设置这个提醒","ecs_request":{{"type":"form","title":"创建计划提醒","description":"请确认或修改以下计划信息","fields":[{{"name":"title","type":"text","label":"计划标题","required":true,"default":"开会"}},{{"name":"description","type":"textarea","label":"详细描述","required":false}},{{"name":"target_datetime","type":"datetime","label":"目标时间","required":true}},{{"name":"reminder_offset","type":"select","label":"提前提醒","required":true,"default":"10","options":[{{"value":"0","label":"准时提醒"}},{{"value":"5","label":"提前5分钟"}},{{"value":"10","label":"提前10分钟"}},{{"value":"30","label":"提前30分钟"}},{{"value":"60","label":"提前1小时"}}]}},{{"name":"repeat_type","type":"select","label":"重复","required":true,"default":"none","options":[{{"value":"none","label":"不重复"}},{{"value":"daily","label":"每天"}},{{"value":"weekly","label":"每周"}},{{"value":"monthly","label":"每月"}}]}}],"context":{{"intent":"collect_plan","memory_category":"plan"}}}}}}""",
 
     "visual_display": """
-【HITL指令】检测到图形化展示意图。必须生成 visual_display 类型的 hitl_request:
+【ECS指令】检测到图形化展示意图。必须生成 visual_display 类型的 ecs_request:
 - 用于展示结构化数据（表格、流程图等），不收集用户输入
 - 支持 table（表格）和 ascii（ASCII艺术/流程图）两种组件
 
 visual_display 格式:
-{{"hitl_request":{{"type":"visual_display","title":"展示标题","description":"可选描述","displays":[{{"type":"table|ascii","data":{{...}}}}],"dismiss_label":"关闭"}}}}
+{{"ecs_request":{{"type":"visual_display","title":"展示标题","description":"可选描述","displays":[{{"type":"table|ascii","data":{{...}}}}],"dismiss_label":"关闭"}}}}
 
 table 格式: {{"type":"table","data":{{"headers":["列1","列2"],"rows":[["值1","值2"]],"caption":"可选标题"}}}}
 ascii 格式: {{"type":"ascii","data":{{"content":"ASCII内容","title":"可选标题"}}}}
 
-示例1（对比）：{{"response":"好的，让我用表格为你展示对比","hitl_request":{{"type":"visual_display","title":"对比分析","displays":[{{"type":"table","data":{{"headers":["特性","选项A","选项B"],"rows":[["优点","xxx","yyy"],["缺点","aaa","bbb"]]}}}}]}}}}
-示例2（列表）：{{"response":"这是常用命令汇总","hitl_request":{{"type":"visual_display","title":"命令列表","displays":[{{"type":"table","data":{{"headers":["命令","用途"],"rows":[["cmd1","描述1"],["cmd2","描述2"]]}}}}]}}}}
-示例3（流程图）：{{"response":"这是流程示意图","hitl_request":{{"type":"visual_display","title":"流程图","displays":[{{"type":"ascii","data":{{"content":"[开始] -> [步骤1] -> [步骤2] -> [结束]","title":"流程"}}}}]}}}}""",
+示例1（对比）：{{"response":"好的，让我用表格为你展示对比","ecs_request":{{"type":"visual_display","title":"对比分析","displays":[{{"type":"table","data":{{"headers":["特性","选项A","选项B"],"rows":[["优点","xxx","yyy"],["缺点","aaa","bbb"]]}}}}]}}}}
+示例2（列表）：{{"response":"这是常用命令汇总","ecs_request":{{"type":"visual_display","title":"命令列表","displays":[{{"type":"table","data":{{"headers":["命令","用途"],"rows":[["cmd1","描述1"],["cmd2","描述2"]]}}}}]}}}}
+示例3（流程图）：{{"response":"这是流程示意图","ecs_request":{{"type":"visual_display","title":"流程图","displays":[{{"type":"ascii","data":{{"content":"[开始] -> [步骤1] -> [步骤2] -> [结束]","title":"流程"}}}}]}}}}""",
 }
 
 
@@ -426,9 +426,9 @@ def get_intent_snippet(intent_result: Optional[IntentResult]) -> str:
         snippet = MEMORY_INTENT_SNIPPETS.get(intent_type, "")
         logger.info(f"[Intent Snippet] Memory intent snippet: {len(snippet)} chars")
         return snippet
-    elif intent_result.is_hitl():
-        snippet = HITL_INTENT_SNIPPETS.get(intent_type, "")
-        logger.info(f"[Intent Snippet] HITL intent snippet: {len(snippet)} chars")
+    elif intent_result.is_ecs():
+        snippet = ECS_INTENT_SNIPPETS.get(intent_type, "")
+        logger.info(f"[Intent Snippet] ECS intent snippet: {len(snippet)} chars")
         return snippet
     elif intent_result.is_mcp():
         logger.info(f"[Intent Snippet] MCP intent, service_name={intent_result.mcp_service_name}")
@@ -568,12 +568,12 @@ def format_working_memory_summary(working_memory: Optional[memory_manager.Workin
         parts.append(f"上轮情绪: {working_memory.last_emotion}")
 
     if working_memory.context_variables:
-        # Format context variables with special handling for HITL form data
+        # Format context variables with special handling for ECS form data
         ctx_parts = []
         for key, value in working_memory.context_variables.items():
-            if key.startswith("hitl_") and isinstance(value, dict):
-                # Format HITL form data in a readable way
-                form_title = key[5:]  # Remove "hitl_" prefix
+            if key.startswith("ecs_") and isinstance(value, dict):
+                # Format ECS form data in a readable way
+                form_title = key[4:]  # Remove "ecs_" prefix
                 fields = value.get("fields", {})
                 if fields:
                     field_strs = [f"{k}: {v}" for k, v in fields.items()]
@@ -611,7 +611,7 @@ def build_system_prompt(context: ChatContext) -> str:
 
     Uses intent recognition to optimize prompt size:
     - If intent matched: use small intent-specific snippet (~200-400 chars)
-    - If no intent: use full HITL_INSTRUCTION (~3K chars) for backward compatibility
+    - If no intent: use full ECS_INSTRUCTION (~3K chars) for backward compatibility
 
     Args:
         context: ChatContext with all information
@@ -644,9 +644,9 @@ def build_system_prompt(context: ChatContext) -> str:
 
     strategy_prompt = build_strategy_prompt(strategy)
 
-    # Determine HITL instruction based on intent recognition
-    hitl_enabled = is_hitl_enabled()
-    hitl_instruction_type = "none"  # 用于日志
+    # Determine ECS instruction based on intent recognition
+    ecs_enabled = is_ecs_enabled()
+    ecs_instruction_type = "none"  # 用于日志
     mcp_instruction = ""  # MCP instruction
 
     if is_intent_recognition_enabled() and context.intent_result:
@@ -654,34 +654,34 @@ def build_system_prompt(context: ChatContext) -> str:
 
         # Check if this is an MCP intent
         if context.intent_result.is_mcp():
-            # MCP intent: use MCP snippet, no HITL instruction
+            # MCP intent: use MCP snippet, no ECS instruction
             mcp_instruction = intent_snippet
-            hitl_instruction = ""
-            hitl_instruction_type = "none (mcp)"
+            ecs_instruction = ""
+            ecs_instruction_type = "none (mcp)"
             logger.info(f"[Intent] Using MCP prompt snippet for: {context.intent_result.mcp_service_name or 'general'}")
         elif intent_snippet:
             # Use intent-specific snippet (much smaller)
-            hitl_instruction = intent_snippet
-            hitl_instruction_type = f"intent_snippet({context.intent_result.intent_type})"
+            ecs_instruction = intent_snippet
+            ecs_instruction_type = f"intent_snippet({context.intent_result.intent_type})"
             logger.info(f"[Intent] Using optimized prompt snippet for: {context.intent_result.intent_type}")
         elif context.intent_result.is_normal():
             # Normal conversation: minimal instructions
-            hitl_instruction = ""
-            hitl_instruction_type = "minimal"
+            ecs_instruction = ""
+            ecs_instruction_type = "minimal"
             logger.info("[Intent] Using minimal prompt (normal conversation)")
         else:
             # Fallback to full instruction
-            hitl_instruction = HITL_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
-            hitl_instruction_type = "full" if hitl_enabled else "disabled"
+            ecs_instruction = ECS_INSTRUCTION if ecs_enabled else ECS_INSTRUCTION_DISABLED
+            ecs_instruction_type = "full" if ecs_enabled else "disabled"
     else:
         # No intent recognition: use full instruction for backward compatibility
-        hitl_instruction = HITL_INSTRUCTION if hitl_enabled else HITL_INSTRUCTION_DISABLED
-        hitl_instruction_type = "full" if hitl_enabled else "disabled"
+        ecs_instruction = ECS_INSTRUCTION if ecs_enabled else ECS_INSTRUCTION_DISABLED
+        ecs_instruction_type = "full" if ecs_enabled else "disabled"
 
-    # 打印 HITL 状态日志
-    hitl_instruction_len = len(hitl_instruction)
+    # 打印 ECS 状态日志
+    ecs_instruction_len = len(ecs_instruction)
     mcp_instruction_len = len(mcp_instruction)
-    logger.info(f"[HITL] Prompt contains HITL: enabled={hitl_enabled}, instruction_type={hitl_instruction_type}, instruction_length={hitl_instruction_len}")
+    logger.info(f"[ECS] Prompt contains ECS: enabled={ecs_enabled}, instruction_type={ecs_instruction_type}, instruction_length={ecs_instruction_len}")
     if mcp_instruction_len > 0:
         logger.info(f"[MCP] Prompt contains MCP instruction: length={mcp_instruction_len}")
 
@@ -691,7 +691,7 @@ def build_system_prompt(context: ChatContext) -> str:
         relevant_long_term_memory=relevant_memory_str,
         strategy_prompt=strategy_prompt,
         mcp_instruction=mcp_instruction,
-        hitl_instruction=hitl_instruction,
+        ecs_instruction=ecs_instruction,
     )
 
     # Inject emotion modulation instruction

@@ -13,7 +13,7 @@ const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
 
 /**
  * Get renderer page URL (dev) or file path (prod)
- * @param {string} pageName - Page name (workflow, hitl, image-preview, reminder)
+ * @param {string} pageName - Page name (workflow, ecs, image-preview, reminder)
  * @returns {string}
  */
 function getRendererPath(pageName) {
@@ -67,11 +67,11 @@ async function waitForDevServer(maxAttempts = 60, interval = 500) {
   return false;
 }
 
-// HITL window singleton management
-let hitlWindow = null;
-let hitlTimeoutId = null;
+// ECS window singleton management
+let ecsWindow = null;
+let ecsTimeoutId = null;
 let mainWindow = null;
-let currentHITLRequest = null;
+let currentECSRequest = null;
 let loadingWindow = null;
 
 // Image preview window management
@@ -84,7 +84,7 @@ let currentReminderPlan = null;
 let reminderQueue = []; // Queue for multiple reminders
 
 // API configuration
-const HITL_API_URL = 'http://localhost:8002/hitl/respond';
+const ECS_API_URL = 'http://localhost:8002/ecs/respond';
 const IMAGE_ANALYZE_API_URL = 'http://localhost:8002/chat/image';
 
 // 创建Express服务器提供live2d静态文件访问
@@ -235,22 +235,22 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
   }
 });
 
-// ============ HITL Window Management ============
+// ============ ECS Window Management ============
 
 /**
- * Create HITL window for form display
+ * Create ECS window for form display
  */
-function createHITLWindow(request) {
+function createECSWindow(request) {
   // If window already exists, focus it
-  if (hitlWindow && !hitlWindow.isDestroyed()) {
-    hitlWindow.focus();
-    return hitlWindow;
+  if (ecsWindow && !ecsWindow.isDestroyed()) {
+    ecsWindow.focus();
+    return ecsWindow;
   }
 
-  hitlWindow = new BrowserWindow({
+  ecsWindow = new BrowserWindow({
     width: 480,
     height: 600,
-    title: request.title || 'HITL',
+    title: request.title || 'ECS',
     parent: mainWindow,
     modal: false,
     show: false,
@@ -269,114 +269,114 @@ function createHITLWindow(request) {
   });
 
   // Use environment-aware loading
-  loadRendererPage(hitlWindow, 'hitl');
+  loadRendererPage(ecsWindow, 'ecs');
 
   // Show window when ready
-  hitlWindow.once('ready-to-show', () => {
-    hitlWindow.show();
-    // Send request data to HITL window
-    hitlWindow.webContents.send('hitl:request-data', currentHITLRequest);
+  ecsWindow.once('ready-to-show', () => {
+    ecsWindow.show();
+    // Send request data to ECS window
+    ecsWindow.webContents.send('ecs:request-data', currentECSRequest);
   });
 
   // Handle window close (treat as cancel)
-  hitlWindow.on('closed', () => {
-    if (hitlTimeoutId) {
-      clearTimeout(hitlTimeoutId);
-      hitlTimeoutId = null;
+  ecsWindow.on('closed', () => {
+    if (ecsTimeoutId) {
+      clearTimeout(ecsTimeoutId);
+      ecsTimeoutId = null;
     }
     // If window closed without submit, treat as cancel
     // Skip sending cancel message for readonly mode (context variable replay)
-    if (currentHITLRequest && !currentHITLRequest.request?.readonly) {
+    if (currentECSRequest && !currentECSRequest.request?.readonly) {
       const cancelResult = {
         success: true,
         action: 'cancel',
         message: '用户取消'
       };
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('hitl:result', cancelResult);
+        mainWindow.webContents.send('ecs:result', cancelResult);
       }
     }
-    currentHITLRequest = null;
-    hitlWindow = null;
+    currentECSRequest = null;
+    ecsWindow = null;
   });
 
-  return hitlWindow;
+  return ecsWindow;
 }
 
 /**
- * Close HITL window
+ * Close ECS window
  */
-function closeHITLWindow() {
-  if (hitlTimeoutId) {
-    clearTimeout(hitlTimeoutId);
-    hitlTimeoutId = null;
+function closeECSWindow() {
+  if (ecsTimeoutId) {
+    clearTimeout(ecsTimeoutId);
+    ecsTimeoutId = null;
   }
-  if (hitlWindow && !hitlWindow.isDestroyed()) {
-    // Clear currentHITLRequest before closing to prevent cancel event
-    currentHITLRequest = null;
-    hitlWindow.close();
+  if (ecsWindow && !ecsWindow.isDestroyed()) {
+    // Clear currentECSRequest before closing to prevent cancel event
+    currentECSRequest = null;
+    ecsWindow.close();
   }
-  hitlWindow = null;
+  ecsWindow = null;
 }
 
 /**
- * Setup TTL timeout for HITL window
+ * Setup TTL timeout for ECS window
  */
-function setupHITLTimeout(ttlSeconds) {
-  if (hitlTimeoutId) {
-    clearTimeout(hitlTimeoutId);
+function setupECSTimeout(ttlSeconds) {
+  if (ecsTimeoutId) {
+    clearTimeout(ecsTimeoutId);
   }
-  hitlTimeoutId = setTimeout(() => {
-    console.log('[HITL] Window timeout, closing...');
-    if (hitlWindow && !hitlWindow.isDestroyed()) {
+  ecsTimeoutId = setTimeout(() => {
+    console.log('[ECS] Window timeout, closing...');
+    if (ecsWindow && !ecsWindow.isDestroyed()) {
       const timeoutResult = {
         success: false,
         action: 'timeout',
         error: '请求已超时'
       };
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('hitl:result', timeoutResult);
+        mainWindow.webContents.send('ecs:result', timeoutResult);
       }
-      currentHITLRequest = null;
-      hitlWindow.close();
+      currentECSRequest = null;
+      ecsWindow.close();
     }
   }, ttlSeconds * 1000);
 }
 
-// ============ HITL IPC Handlers ============
+// ============ ECS IPC Handlers ============
 
 /**
- * Handle request to open HITL window
+ * Handle request to open ECS window
  */
-ipcMain.handle('hitl:open-window', async (event, data) => {
-  console.log('[HITL] Opening window:', data.request?.title, 'readonly:', data.request?.readonly);
+ipcMain.handle('ecs:open-window', async (event, data) => {
+  console.log('[ECS] Opening window:', data.request?.title, 'readonly:', data.request?.readonly);
 
   const { request, sessionId } = data;
-  currentHITLRequest = { request, sessionId };
+  currentECSRequest = { request, sessionId };
 
-  // Create or focus HITL window
-  createHITLWindow(request);
+  // Create or focus ECS window
+  createECSWindow(request);
 
   // Setup TTL timeout (skip for readonly mode)
   if (!request.readonly) {
     const ttlSeconds = request.ttl_seconds || 300;
-    setupHITLTimeout(ttlSeconds);
+    setupECSTimeout(ttlSeconds);
   }
 
   return { success: true };
 });
 
 /**
- * Handle HITL form submission
+ * Handle ECS form submission
  */
-ipcMain.handle('hitl:submit', async (event, data) => {
-  console.log('[HITL] Submit:', data.action);
+ipcMain.handle('ecs:submit', async (event, data) => {
+  console.log('[ECS] Submit:', data.action);
 
   const { requestId, sessionId, action, formData } = data;
 
   try {
     // Call backend API
-    const response = await fetch(HITL_API_URL, {
+    const response = await fetch(ECS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -392,17 +392,17 @@ ipcMain.handle('hitl:submit', async (event, data) => {
       const errorResult = {
         success: false,
         action: action,
-        error: errorData.detail || 'HITL 提交失败'
+        error: errorData.detail || 'ECS 提交失败'
       };
-      // Send error to HITL window (don't close)
+      // Send error to ECS window (don't close)
       return errorResult;
     }
 
     const result = await response.json();
-    console.log('[HITL] Backend response:', result);
+    console.log('[ECS] Backend response:', result);
 
     // Build result for Live2D
-    const hitlResult = {
+    const ecsResult = {
       success: result.success,
       action: action,
       message: result.message,
@@ -413,14 +413,14 @@ ipcMain.handle('hitl:submit', async (event, data) => {
     // If success, send result to Live2D and close window
     if (result.success) {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('hitl:result', hitlResult);
+        mainWindow.webContents.send('ecs:result', ecsResult);
       }
-      closeHITLWindow();
+      closeECSWindow();
     }
 
-    return hitlResult;
+    return ecsResult;
   } catch (error) {
-    console.error('[HITL] Submit error:', error);
+    console.error('[ECS] Submit error:', error);
     return {
       success: false,
       action: action,
@@ -430,13 +430,13 @@ ipcMain.handle('hitl:submit', async (event, data) => {
 });
 
 /**
- * Handle HITL cancel request
+ * Handle ECS cancel request
  */
-ipcMain.handle('hitl:cancel', async (event) => {
-  console.log('[HITL] Cancel requested');
+ipcMain.handle('ecs:cancel', async (event) => {
+  console.log('[ECS] Cancel requested');
 
   // Only send cancel result to Live2D for non-readonly mode
-  const isReadonly = currentHITLRequest?.request?.readonly;
+  const isReadonly = currentECSRequest?.request?.readonly;
 
   if (!isReadonly && mainWindow && !mainWindow.isDestroyed()) {
     const cancelResult = {
@@ -444,10 +444,10 @@ ipcMain.handle('hitl:cancel', async (event) => {
       action: 'cancel',
       message: '用户取消'
     };
-    mainWindow.webContents.send('hitl:result', cancelResult);
+    mainWindow.webContents.send('ecs:result', cancelResult);
   }
 
-  closeHITLWindow();
+  closeECSWindow();
 
   return { success: true, action: 'cancel' };
 });
@@ -623,10 +623,10 @@ ipcMain.handle('image-preview:save-memory', async (event, data) => {
       return { success: false, error: `API error: ${response.status}` };
     }
 
-    // Parse SSE to check for HITL
+    // Parse SSE to check for ECS
     const text = await response.text();
     console.log('[ImagePreview] Save-memory raw SSE response:', text);
-    let hitlPayload = null;
+    let ecsPayload = null;
 
     const lines = text.split('\n');
     for (const line of lines) {
@@ -635,9 +635,9 @@ ipcMain.handle('image-preview:save-memory', async (event, data) => {
           const jsonStr = line.substring(6);
           console.log('[ImagePreview] Save-memory parsing JSON:', jsonStr);
           const data = JSON.parse(jsonStr);
-          if (data.type === 'hitl' && data.payload) {
-            console.log('[ImagePreview] Found HITL payload:', data.payload);
-            hitlPayload = data.payload;
+          if (data.type === 'ecs' && data.payload) {
+            console.log('[ImagePreview] Found ECS payload:', data.payload);
+            ecsPayload = data.payload;
           }
         } catch (e) {
           console.error('[ImagePreview] JSON parse error:', e.message);
@@ -645,20 +645,20 @@ ipcMain.handle('image-preview:save-memory', async (event, data) => {
       }
     }
 
-    // If HITL request found, open HITL window
-    if (hitlPayload) {
+    // If ECS request found, open ECS window
+    if (ecsPayload) {
       closeImagePreviewWindow();
 
-      // Send result to Live2D with HITL data
+      // Send result to Live2D with ECS data
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('image-preview:result', {
           success: true,
-          action: 'hitl',
-          hitlRequest: hitlPayload
+          action: 'ecs',
+          ecsRequest: ecsPayload
         });
       }
 
-      return { success: true, hasHITL: true };
+      return { success: true, hasECS: true };
     }
 
     return { success: true };

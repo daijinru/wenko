@@ -18,14 +18,14 @@ from intent_types import (
     IntentCategory,
     IntentResult,
     MemoryIntent,
-    HITLIntent,
+    ECSIntent,
     parse_intent_type,
 )
 from intent_rules import (
     IntentRule,
     get_all_rules,
     get_memory_rules,
-    get_hitl_rules,
+    get_ecs_rules,
 )
 from intent_recognizer import RuleBasedMatcher
 
@@ -40,14 +40,14 @@ class TestIntentTypes:
         assert MemoryIntent.PATTERN.value == "pattern"
         assert MemoryIntent.OPINION.value == "opinion"
 
-    def test_hitl_intent_values(self):
-        """Test HITLIntent enum values."""
-        assert HITLIntent.PROACTIVE_INQUIRY.value == "proactive_inquiry"
-        assert HITLIntent.TOPIC_DEEPENING.value == "topic_deepening"
-        assert HITLIntent.EMOTION_DRIVEN.value == "emotion_driven"
-        assert HITLIntent.MEMORY_GAP.value == "memory_gap"
-        assert HITLIntent.QUESTION_TO_FORM.value == "question_to_form"
-        assert HITLIntent.PLAN_REMINDER.value == "plan_reminder"
+    def test_ecs_intent_values(self):
+        """Test ECSIntent enum values."""
+        assert ECSIntent.PROACTIVE_INQUIRY.value == "proactive_inquiry"
+        assert ECSIntent.TOPIC_DEEPENING.value == "topic_deepening"
+        assert ECSIntent.EMOTION_DRIVEN.value == "emotion_driven"
+        assert ECSIntent.MEMORY_GAP.value == "memory_gap"
+        assert ECSIntent.QUESTION_TO_FORM.value == "question_to_form"
+        assert ECSIntent.PLAN_REMINDER.value == "plan_reminder"
 
     def test_intent_result_memory(self):
         """Test IntentResult.memory() factory method."""
@@ -56,16 +56,16 @@ class TestIntentTypes:
         assert result.intent_type == "preference"
         assert result.confidence == 0.9
         assert result.is_memory()
-        assert not result.is_hitl()
+        assert not result.is_ecs()
         assert not result.is_normal()
 
-    def test_intent_result_hitl(self):
-        """Test IntentResult.hitl() factory method."""
-        result = IntentResult.hitl(HITLIntent.PLAN_REMINDER, confidence=1.0)
-        assert result.category == IntentCategory.HITL
+    def test_intent_result_ecs(self):
+        """Test IntentResult.ecs() factory method."""
+        result = IntentResult.ecs(ECSIntent.PLAN_REMINDER, confidence=1.0)
+        assert result.category == IntentCategory.ECS
         assert result.intent_type == "plan_reminder"
         assert result.confidence == 1.0
-        assert result.is_hitl()
+        assert result.is_ecs()
         assert not result.is_memory()
         assert not result.is_normal()
 
@@ -77,7 +77,7 @@ class TestIntentTypes:
         assert result.confidence == 1.0
         assert result.is_normal()
         assert not result.is_memory()
-        assert not result.is_hitl()
+        assert not result.is_ecs()
 
     def test_parse_intent_type_memory(self):
         """Test parsing memory intent types."""
@@ -88,10 +88,10 @@ class TestIntentTypes:
         category, intent_type = parse_intent_type("fact")
         assert category == IntentCategory.MEMORY
 
-    def test_parse_intent_type_hitl(self):
-        """Test parsing HITL intent types."""
+    def test_parse_intent_type_ecs(self):
+        """Test parsing ECS intent types."""
         category, intent_type = parse_intent_type("plan_reminder")
-        assert category == IntentCategory.HITL
+        assert category == IntentCategory.ECS
         assert intent_type == "plan_reminder"
 
     def test_parse_intent_type_unknown(self):
@@ -118,14 +118,14 @@ class TestIntentRules:
         for rule in rules:
             assert rule.intent_type in ["preference", "fact", "pattern", "opinion"]
 
-    def test_get_hitl_rules(self):
-        """Test getting HITL-specific rules."""
-        rules = get_hitl_rules()
+    def test_get_ecs_rules(self):
+        """Test getting ECS-specific rules."""
+        rules = get_ecs_rules()
         assert len(rules) > 0
-        hitl_intents = ["proactive_inquiry", "topic_deepening", "emotion_driven",
-                        "memory_gap", "question_to_form", "plan_reminder", "visual_display"]
+        ecs_intents = ["proactive_inquiry", "topic_deepening", "emotion_driven",
+                       "memory_gap", "question_to_form", "plan_reminder", "visual_display"]
         for rule in rules:
-            assert rule.intent_type in hitl_intents
+            assert rule.intent_type in ecs_intents
 
 
 class TestRuleBasedMatcher:
@@ -190,7 +190,7 @@ class TestRuleBasedMatcher:
             assert result is not None, f"Should match: {message}"
             assert result.intent_type == "opinion"
 
-    # ============ HITL Intent Tests ============
+    # ============ ECS Intent Tests ============
 
     def test_match_plan_reminder(self):
         """Test matching plan/reminder patterns."""

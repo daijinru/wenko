@@ -1,14 +1,14 @@
 """ImageNode and MemoryExtractionNode for image processing workflow.
 
 ImageNode: Handles Vision API calls for OCR text extraction
-MemoryExtractionNode: Extracts memory from OCR text and generates HITL forms
+MemoryExtractionNode: Extracts memory from OCR text and generates ECS forms
 """
 
 import logging
 import uuid
 from typing import Dict, Any
 
-from core.state import GraphState, HITLRequest
+from core.state import GraphState, ECSRequest
 
 logger = logging.getLogger(__name__)
 
@@ -81,18 +81,18 @@ class ImageNode:
 class MemoryExtractionNode:
     """
     Node responsible for extracting memory from OCR text.
-    Generates HITL forms for user confirmation.
+    Generates ECS forms for user confirmation.
     """
 
     async def compute(self, state: GraphState) -> Dict[str, Any]:
         """
-        Extract memory from OCR text and generate HITL form.
+        Extract memory from OCR text and generate ECS form.
 
         Args:
             state: Current graph state with OCR result
 
         Returns:
-            State updates including HITL request for memory confirmation
+            State updates including ECS request for memory confirmation
         """
         from memory_extractor import extract_memory_from_message
 
@@ -124,23 +124,23 @@ class MemoryExtractionNode:
                     "response": "\n\n未能从文本中提取出适合保存的记忆信息。",
                 }
 
-            # Generate HITL form for memory confirmation
-            hitl_request = self._create_memory_hitl_request(memory_result)
+            # Generate ECS form for memory confirmation
+            ecs_request = self._create_memory_ecs_request(memory_result)
 
-            logger.info(f"[MemoryExtractionNode] Created HITL request for memory: {memory_result.key}")
+            logger.info(f"[MemoryExtractionNode] Created ECS request for memory: {memory_result.key}")
 
             return {
-                "hitl_request": HITLRequest(
+                "ecs_request": ECSRequest(
                     type="confirmation",
-                    message=hitl_request["title"],
+                    message=ecs_request["title"],
                     options=[],
                     context_data={
-                        "hitl_id": hitl_request["id"],
+                        "ecs_id": ecs_request["id"],
                         "memory_category": memory_result.category,
                     },
                 ),
                 "status": "suspended",
-                "hitl_full_request": hitl_request,
+                "ecs_full_request": ecs_request,
             }
 
         except Exception as e:
@@ -149,15 +149,15 @@ class MemoryExtractionNode:
                 "response": f"\n\n记忆提取失败: {str(e)}",
             }
 
-    def _create_memory_hitl_request(self, memory_result) -> Dict[str, Any]:
-        """Create HITL request dict for memory confirmation."""
-        from hitl_schema import (
-            HITLField,
-            HITLFieldType,
-            HITLOption,
+    def _create_memory_ecs_request(self, memory_result) -> Dict[str, Any]:
+        """Create ECS request dict for memory confirmation."""
+        from ecs_schema import (
+            ECSField,
+            ECSFieldType,
+            ECSOption,
         )
 
-        hitl_id = str(uuid.uuid4())
+        ecs_id = str(uuid.uuid4())
 
         # Base fields
         fields = [
@@ -225,15 +225,15 @@ class MemoryExtractionNode:
         if memory_result.category == "plan":
             title = "保存计划到日程"
             description = "AI 从图片中识别到计划安排，请确认是否保存到日程。"
-            hitl_type = "image_plan_confirm"
+            ecs_type = "image_plan_confirm"
         else:
             title = "保存图片内容到长期记忆"
             description = "AI 从图片中提取了以下信息，请确认是否保存。"
-            hitl_type = "image_memory_confirm"
+            ecs_type = "image_memory_confirm"
 
         return {
-            "id": hitl_id,
-            "type": hitl_type,
+            "id": ecs_id,
+            "type": ecs_type,
             "title": title,
             "description": description,
             "fields": fields,

@@ -1,14 +1,14 @@
-import type { HITLActions as HITLActionsType } from '../types/hitl';
+import type { ECSActions as ECSActionsType } from '../types/ecs';
 
-interface HITLActionsProps {
-  actions?: HITLActionsType;
+interface ECSActionsProps {
+  actions?: ECSActionsType;
   isSubmitting: boolean;
   onApprove: () => void;
   onReject: () => void;
   readonly?: boolean;
 }
 
-export function HITLActions({ actions, isSubmitting, onApprove, onReject, readonly }: HITLActionsProps) {
+export function ECSActions({ actions, isSubmitting, onApprove, onReject, readonly }: ECSActionsProps) {
   const approveLabel = actions?.approve?.label || '确认';
   const rejectLabel = actions?.reject?.label || '跳过';
 
@@ -17,7 +17,7 @@ export function HITLActions({ actions, isSubmitting, onApprove, onReject, readon
     return (
       <div className="!mt-2 flex justify-end gap-2 p-4 border-t border-border">
         <button
-          onClick={() => window.electronAPI.invoke('hitl:cancel')}
+          onClick={() => window.electronAPI.invoke('ecs:cancel')}
           className="px-4 py-1 text-xs border-classic-outset bg-secondary text-secondary-foreground hover:bg-secondary/80"
         >
           关闭

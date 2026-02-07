@@ -1,67 +1,67 @@
-// HITL Types for Electron IPC communication
+// ECS Types for Electron IPC communication
 
-export interface HITLOption {
+export interface ECSOption {
   value: string;
   label: string;
 }
 
-export interface HITLField {
+export interface ECSField {
   name: string;
   type: 'text' | 'textarea' | 'select' | 'multiselect' | 'radio' | 'checkbox' | 'number' | 'slider' | 'date' | 'datetime' | 'boolean';
   label: string;
   required?: boolean;
   placeholder?: string;
   default?: unknown;
-  options?: HITLOption[];
+  options?: ECSOption[];
   min?: number;
   max?: number;
   step?: number;
 }
 
-export interface HITLActions {
+export interface ECSActions {
   approve?: { label: string; style: string };
   edit?: { label: string; style: string };
   reject?: { label: string; style: string };
 }
 
-export interface HITLRequest {
+export interface ECSRequest {
   id: string;
   type: string;
   title: string;
   description?: string;
-  fields: HITLField[];
-  actions?: HITLActions;
+  fields: ECSField[];
+  actions?: ECSActions;
   session_id: string;
   ttl_seconds?: number;
   readonly?: boolean;  // Readonly mode for context variable replay
 }
 
 // Visual Display Types
-export type HITLDisplayType = 'table' | 'ascii';
+export type ECSDisplayType = 'table' | 'ascii';
 
-export interface HITLTableData {
+export interface ECSTableData {
   headers: string[];
   rows: string[][];
   alignment?: ('left' | 'center' | 'right')[];
   caption?: string;
 }
 
-export interface HITLAsciiData {
+export interface ECSAsciiData {
   content: string;
   title?: string;
 }
 
-export interface HITLDisplayField {
-  type: HITLDisplayType;
-  data: HITLTableData | HITLAsciiData;
+export interface ECSDisplayField {
+  type: ECSDisplayType;
+  data: ECSTableData | ECSAsciiData;
 }
 
-export interface HITLDisplayRequest {
+export interface ECSDisplayRequest {
   id: string;
   type: 'visual_display';
   title: string;
   description?: string;
-  displays: HITLDisplayField[];
+  displays: ECSDisplayField[];
   dismiss_label?: string;
   session_id: string;
   ttl_seconds?: number;
@@ -69,14 +69,14 @@ export interface HITLDisplayRequest {
 }
 
 // Type guard for display request
-export function isDisplayRequest(request: HITLRequest | HITLDisplayRequest): request is HITLDisplayRequest {
+export function isDisplayRequest(request: ECSRequest | ECSDisplayRequest): request is ECSDisplayRequest {
   return request.type === 'visual_display';
 }
 
-// Union type for any HITL request
-export type AnyHITLRequest = HITLRequest | HITLDisplayRequest;
+// Union type for any ECS request
+export type AnyECSRequest = ECSRequest | ECSDisplayRequest;
 
-export interface HITLContinuationData {
+export interface ECSContinuationData {
   request_title: string;
   action: string;
   form_data?: Record<string, unknown>;
@@ -84,24 +84,24 @@ export interface HITLContinuationData {
 }
 
 // IPC Message Types
-export interface HITLOpenRequest {
-  request: AnyHITLRequest;
+export interface ECSOpenRequest {
+  request: AnyECSRequest;
   sessionId: string;
 }
 
-export interface HITLSubmitRequest {
+export interface ECSSubmitRequest {
   requestId: string;
   sessionId: string;
   action: 'approve' | 'reject';
   formData: Record<string, unknown> | null;
 }
 
-export interface HITLResultResponse {
+export interface ECSResultResponse {
   success: boolean;
   action: string;
   message?: string;
   error?: string;
-  continuationData?: HITLContinuationData;
+  continuationData?: ECSContinuationData;
 }
 
 // ElectronAPI type declaration

@@ -25,6 +25,6 @@ memory_update 用于保存用户信息，格式：
 
 {mcp_instruction}
 
-{hitl_instruction}
+{ecs_instruction}
 
 现在请直接输出 JSON:"""

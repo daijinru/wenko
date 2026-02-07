@@ -1,6 +1,6 @@
-"""HITL Schema Module
+"""ECS Schema Module
 
-Pydantic models for Human-in-the-Loop form schema system.
+Pydantic models for Externalized Cognitive Step form schema system.
 """
 
 from datetime import datetime
@@ -10,8 +10,8 @@ from pydantic import BaseModel, Field
 import uuid
 
 
-class HITLFieldType(str, Enum):
-    """Supported HITL form field types."""
+class ECSFieldType(str, Enum):
+    """Supported ECS form field types."""
     TEXT = "text"
     TEXTAREA = "textarea"
     SELECT = "select"
@@ -25,13 +25,13 @@ class HITLFieldType(str, Enum):
     BOOLEAN = "boolean"
 
 
-class HITLDisplayType(str, Enum):
-    """Supported HITL display component types."""
+class ECSDisplayType(str, Enum):
+    """Supported ECS display component types."""
     TABLE = "table"
     ASCII = "ascii"
 
 
-class HITLActionStyle(str, Enum):
+class ECSActionStyle(str, Enum):
     """Action button styles."""
     PRIMARY = "primary"
     DEFAULT = "default"
@@ -39,55 +39,55 @@ class HITLActionStyle(str, Enum):
     DANGER = "danger"
 
 
-class HITLAction(str, Enum):
-    """User actions for HITL requests."""
+class ECSAction(str, Enum):
+    """User actions for ECS requests."""
     APPROVE = "approve"
     EDIT = "edit"
     REJECT = "reject"
 
 
-class HITLOption(BaseModel):
+class ECSOption(BaseModel):
     """Option for select/radio/checkbox fields."""
     value: str
     label: str
 
 
-class HITLField(BaseModel):
-    """HITL form field definition."""
+class ECSField(BaseModel):
+    """ECS form field definition."""
     name: str
-    type: HITLFieldType
+    type: ECSFieldType
     label: str
     required: bool = False
     placeholder: Optional[str] = None
     default: Optional[Any] = None
-    options: Optional[List[HITLOption]] = None
+    options: Optional[List[ECSOption]] = None
     # For number/slider
     min: Optional[float] = None
     max: Optional[float] = None
     step: Optional[float] = None
 
 
-class HITLActionButton(BaseModel):
+class ECSActionButton(BaseModel):
     """Action button configuration."""
     label: str
-    style: HITLActionStyle = HITLActionStyle.DEFAULT
+    style: ECSActionStyle = ECSActionStyle.DEFAULT
 
 
-class HITLActions(BaseModel):
-    """HITL action buttons configuration."""
-    approve: HITLActionButton = HITLActionButton(label="确认", style=HITLActionStyle.PRIMARY)
-    edit: HITLActionButton = HITLActionButton(label="修改后提交", style=HITLActionStyle.DEFAULT)
-    reject: HITLActionButton = HITLActionButton(label="跳过", style=HITLActionStyle.SECONDARY)
+class ECSActions(BaseModel):
+    """ECS action buttons configuration."""
+    approve: ECSActionButton = ECSActionButton(label="确认", style=ECSActionStyle.PRIMARY)
+    edit: ECSActionButton = ECSActionButton(label="修改后提交", style=ECSActionStyle.DEFAULT)
+    reject: ECSActionButton = ECSActionButton(label="跳过", style=ECSActionStyle.SECONDARY)
 
 
-class HITLContext(BaseModel):
-    """Context information for HITL request."""
+class ECSContext(BaseModel):
+    """Context information for ECS request."""
     intent: Optional[str] = None
     memory_category: Optional[str] = None
     extra: Optional[Dict[str, Any]] = None
 
 
-class HITLTableData(BaseModel):
+class ECSTableData(BaseModel):
     """Data for table display component."""
     headers: List[str]
     rows: List[List[str]]
@@ -95,100 +95,100 @@ class HITLTableData(BaseModel):
     caption: Optional[str] = None
 
 
-class HITLAsciiData(BaseModel):
+class ECSAsciiData(BaseModel):
     """Data for ASCII art display component."""
     content: str
     title: Optional[str] = None
 
 
-class HITLDisplayField(BaseModel):
+class ECSDisplayField(BaseModel):
     """Display field for visual display request."""
-    type: HITLDisplayType
+    type: ECSDisplayType
     data: Dict[str, Any]  # Will be parsed based on type
 
 
-class HITLDisplayRequest(BaseModel):
-    """HITL visual display request schema."""
+class ECSDisplayRequest(BaseModel):
+    """ECS visual display request schema."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     type: str = "visual_display"
     title: str
     description: Optional[str] = None
-    displays: List[HITLDisplayField]
+    displays: List[ECSDisplayField]
     dismiss_label: str = "关闭"
     created_at: datetime = Field(default_factory=datetime.now)
     ttl_seconds: int = 300
 
 
-class HITLRequest(BaseModel):
-    """HITL form request schema."""
+class ECSRequest(BaseModel):
+    """ECS form request schema."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     type: str = "form"
     title: str
     description: Optional[str] = None
-    fields: List[HITLField]
-    actions: HITLActions = Field(default_factory=HITLActions)
-    context: Optional[HITLContext] = None
+    fields: List[ECSField]
+    actions: ECSActions = Field(default_factory=ECSActions)
+    context: Optional[ECSContext] = None
     created_at: datetime = Field(default_factory=datetime.now)
     ttl_seconds: int = 300  # 5 minutes default
 
 
-class HITLResponseData(BaseModel):
-    """User response to HITL request."""
+class ECSResponseData(BaseModel):
+    """User response to ECS request."""
     request_id: str
     session_id: str
-    action: HITLAction
+    action: ECSAction
     data: Optional[Dict[str, Any]] = None
 
 
-class HITLContinuationData(BaseModel):
-    """Data for HITL continuation to pass to LLM."""
+class ECSContinuationData(BaseModel):
+    """Data for ECS continuation to pass to LLM."""
     request_title: str
     action: str  # approve | reject
     form_data: Optional[Dict[str, Any]] = None
     field_labels: Dict[str, str] = {}  # field_name -> label mapping
 
 
-class HITLResponseResult(BaseModel):
-    """Result of processing HITL response."""
+class ECSResponseResult(BaseModel):
+    """Result of processing ECS response."""
     success: bool
     next_action: str = "continue"  # continue | complete
     message: Optional[str] = None
     error: Optional[str] = None
-    continuation_data: Optional[HITLContinuationData] = None
+    continuation_data: Optional[ECSContinuationData] = None
 
 
-def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[Union[HITLRequest, HITLDisplayRequest]]:
-    """Parse HITL request from a dictionary (e.g., from LLM JSON output).
+def parse_ecs_request_from_dict(data: Dict[str, Any]) -> Optional[Union[ECSRequest, ECSDisplayRequest]]:
+    """Parse ECS request from a dictionary (e.g., from LLM JSON output).
 
     Args:
-        data: Dictionary containing hitl_request data
+        data: Dictionary containing ecs_request data
 
     Returns:
-        HITLRequest or HITLDisplayRequest if valid, None otherwise
+        ECSRequest or ECSDisplayRequest if valid, None otherwise
     """
     try:
-        # Handle nested hitl_request field
-        hitl_data = data.get("hitl_request", data)
+        # Handle nested ecs_request field
+        ecs_data = data.get("ecs_request", data)
 
         # Check if it's a visual_display type
-        if hitl_data.get("type") == "visual_display":
-            return _parse_display_request(hitl_data)
+        if ecs_data.get("type") == "visual_display":
+            return _parse_display_request(ecs_data)
 
         # Validate required fields for form type
-        if "title" not in hitl_data or "fields" not in hitl_data:
+        if "title" not in ecs_data or "fields" not in ecs_data:
             return None
 
         # Parse fields
         fields = []
-        for field_data in hitl_data.get("fields", []):
+        for field_data in ecs_data.get("fields", []):
             # Parse options if present and not None
             options = None
             if field_data.get("options"):
-                options = [HITLOption(**opt) for opt in field_data["options"]]
+                options = [ECSOption(**opt) for opt in field_data["options"]]
 
-            field = HITLField(
+            field = ECSField(
                 name=field_data["name"],
-                type=HITLFieldType(field_data["type"]),
+                type=ECSFieldType(field_data["type"]),
                 label=field_data["label"],
                 required=field_data.get("required", False),
                 placeholder=field_data.get("placeholder"),
@@ -201,58 +201,58 @@ def parse_hitl_request_from_dict(data: Dict[str, Any]) -> Optional[Union[HITLReq
             fields.append(field)
 
         # Parse actions if present
-        actions = HITLActions()
-        if "actions" in hitl_data:
-            actions_data = hitl_data["actions"]
+        actions = ECSActions()
+        if "actions" in ecs_data:
+            actions_data = ecs_data["actions"]
             if "approve" in actions_data:
-                actions.approve = HITLActionButton(**actions_data["approve"])
+                actions.approve = ECSActionButton(**actions_data["approve"])
             if "edit" in actions_data:
-                actions.edit = HITLActionButton(**actions_data["edit"])
+                actions.edit = ECSActionButton(**actions_data["edit"])
             if "reject" in actions_data:
-                actions.reject = HITLActionButton(**actions_data["reject"])
+                actions.reject = ECSActionButton(**actions_data["reject"])
 
         # Parse context if present and not None
         context = None
-        if hitl_data.get("context"):
-            context = HITLContext(**hitl_data["context"])
+        if ecs_data.get("context"):
+            context = ECSContext(**ecs_data["context"])
 
-        return HITLRequest(
-            id=hitl_data.get("id", str(uuid.uuid4())),
-            type=hitl_data.get("type", "form"),
-            title=hitl_data["title"],
-            description=hitl_data.get("description"),
+        return ECSRequest(
+            id=ecs_data.get("id", str(uuid.uuid4())),
+            type=ecs_data.get("type", "form"),
+            title=ecs_data["title"],
+            description=ecs_data.get("description"),
             fields=fields,
             actions=actions,
             context=context,
-            ttl_seconds=hitl_data.get("ttl_seconds", 300),
+            ttl_seconds=ecs_data.get("ttl_seconds", 300),
         )
     except Exception:
         return None
 
 
-def _parse_display_request(hitl_data: Dict[str, Any]) -> Optional[HITLDisplayRequest]:
+def _parse_display_request(ecs_data: Dict[str, Any]) -> Optional[ECSDisplayRequest]:
     """Parse visual display request from dictionary.
 
     Args:
-        hitl_data: Dictionary containing visual_display hitl_request data
+        ecs_data: Dictionary containing visual_display ecs_request data
 
     Returns:
-        HITLDisplayRequest if valid, None otherwise
+        ECSDisplayRequest if valid, None otherwise
     """
     try:
         # Validate required fields
-        if "title" not in hitl_data or "displays" not in hitl_data:
+        if "title" not in ecs_data or "displays" not in ecs_data:
             return None
 
         # Parse display fields
         displays = []
-        for display_data in hitl_data.get("displays", []):
+        for display_data in ecs_data.get("displays", []):
             display_type = display_data.get("type")
-            if display_type not in [t.value for t in HITLDisplayType]:
+            if display_type not in [t.value for t in ECSDisplayType]:
                 continue
 
-            display_field = HITLDisplayField(
-                type=HITLDisplayType(display_type),
+            display_field = ECSDisplayField(
+                type=ECSDisplayType(display_type),
                 data=display_data.get("data", {}),
             )
             displays.append(display_field)
@@ -260,25 +260,25 @@ def _parse_display_request(hitl_data: Dict[str, Any]) -> Optional[HITLDisplayReq
         if not displays:
             return None
 
-        return HITLDisplayRequest(
-            id=hitl_data.get("id", str(uuid.uuid4())),
+        return ECSDisplayRequest(
+            id=ecs_data.get("id", str(uuid.uuid4())),
             type="visual_display",
-            title=hitl_data["title"],
-            description=hitl_data.get("description"),
+            title=ecs_data["title"],
+            description=ecs_data.get("description"),
             displays=displays,
-            dismiss_label=hitl_data.get("dismiss_label", "关闭"),
-            ttl_seconds=hitl_data.get("ttl_seconds", 300),
+            dismiss_label=ecs_data.get("dismiss_label", "关闭"),
+            ttl_seconds=ecs_data.get("ttl_seconds", 300),
         )
     except Exception:
         return None
 
 
-def create_plan_hitl_request(
+def create_plan_ecs_request(
     title: str = "",
     description: str = "",
     target_datetime: str = "",
-) -> HITLRequest:
-    """Create a HITL request for collecting plan/reminder details.
+) -> ECSRequest:
+    """Create a ECS request for collecting plan/reminder details.
 
     Args:
         title: Pre-filled plan title (from LLM extraction)
@@ -286,69 +286,69 @@ def create_plan_hitl_request(
         target_datetime: Pre-filled target datetime (ISO format)
 
     Returns:
-        HITLRequest configured for plan collection
+        ECSRequest configured for plan collection
     """
-    return HITLRequest(
+    return ECSRequest(
         title="创建计划提醒",
         description="请确认或修改以下计划信息，系统将在指定时间提醒您。",
         fields=[
-            HITLField(
+            ECSField(
                 name="title",
-                type=HITLFieldType.TEXT,
+                type=ECSFieldType.TEXT,
                 label="计划标题",
                 required=True,
                 placeholder="例如：开会、提交报告",
                 default=title,
             ),
-            HITLField(
+            ECSField(
                 name="description",
-                type=HITLFieldType.TEXTAREA,
+                type=ECSFieldType.TEXTAREA,
                 label="详细描述",
                 required=False,
                 placeholder="可选，添加更多细节",
                 default=description,
             ),
-            HITLField(
+            ECSField(
                 name="target_datetime",
-                type=HITLFieldType.DATETIME,
+                type=ECSFieldType.DATETIME,
                 label="目标时间",
                 required=True,
                 default=target_datetime,
             ),
-            HITLField(
+            ECSField(
                 name="reminder_offset",
-                type=HITLFieldType.SELECT,
+                type=ECSFieldType.SELECT,
                 label="提前提醒",
                 required=True,
                 default="10",
                 options=[
-                    HITLOption(value="0", label="准时提醒"),
-                    HITLOption(value="5", label="提前5分钟"),
-                    HITLOption(value="10", label="提前10分钟"),
-                    HITLOption(value="30", label="提前30分钟"),
-                    HITLOption(value="60", label="提前1小时"),
+                    ECSOption(value="0", label="准时提醒"),
+                    ECSOption(value="5", label="提前5分钟"),
+                    ECSOption(value="10", label="提前10分钟"),
+                    ECSOption(value="30", label="提前30分钟"),
+                    ECSOption(value="60", label="提前1小时"),
                 ],
             ),
-            HITLField(
+            ECSField(
                 name="repeat_type",
-                type=HITLFieldType.SELECT,
+                type=ECSFieldType.SELECT,
                 label="重复",
                 required=True,
                 default="none",
                 options=[
-                    HITLOption(value="none", label="不重复"),
-                    HITLOption(value="daily", label="每天"),
-                    HITLOption(value="weekly", label="每周"),
-                    HITLOption(value="monthly", label="每月"),
+                    ECSOption(value="none", label="不重复"),
+                    ECSOption(value="daily", label="每天"),
+                    ECSOption(value="weekly", label="每周"),
+                    ECSOption(value="monthly", label="每月"),
                 ],
             ),
         ],
-        actions=HITLActions(
-            approve=HITLActionButton(label="创建提醒", style=HITLActionStyle.PRIMARY),
-            edit=HITLActionButton(label="修改后创建", style=HITLActionStyle.DEFAULT),
-            reject=HITLActionButton(label="取消", style=HITLActionStyle.SECONDARY),
+        actions=ECSActions(
+            approve=ECSActionButton(label="创建提醒", style=ECSActionStyle.PRIMARY),
+            edit=ECSActionButton(label="修改后创建", style=ECSActionStyle.DEFAULT),
+            reject=ECSActionButton(label="取消", style=ECSActionStyle.SECONDARY),
         ),
-        context=HITLContext(
+        context=ECSContext(
             intent="collect_plan",
             memory_category="plan",
         ),

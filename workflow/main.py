@@ -24,17 +24,17 @@ import chat_db
 import memory_manager
 import memory_extractor
 import chat_processor
-import hitl_handler
+import ecs_handler
 import image_analyzer
 import mcp_manager
 import mcp_tool_executor
 from emotion_detector import parse_llm_output
-from hitl_schema import (
-    HITLAction,
-    HITLDisplayRequest,
-    HITLRequest,
-    HITLResponseData,
-    HITLResponseResult,
+from ecs_schema import (
+    ECSAction,
+    ECSDisplayRequest,
+    ECSRequest,
+    ECSResponseData,
+    ECSResponseResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -381,7 +381,7 @@ async def chat(request: ChatRequest):
     """对话接口 - 返回 SSE 流式响应
 
     使用 GraphRunner 驱动的认知图谱执行对话流程。
-    节点流程: EmotionNode → MemoryNode → ReasoningNode → (Tools/HITL/END)
+    节点流程: EmotionNode → MemoryNode → ReasoningNode → (Tools/ECS/END)
     """
     from graph_runner import GraphRunner
 
@@ -400,11 +400,11 @@ async def chat(request: ChatRequest):
 # ============ 图片分析 API ============
 
 async def stream_image_analysis(request: ImageChatRequest):
-    """分析图片并提取文本，可选生成记忆保存 HITL 请求。
+    """分析图片并提取文本，可选生成记忆保存 ECS 请求。
 
     支持两种模式：
     - analyze_only: 仅分析图片返回文本
-    - analyze_for_memory: 分析后生成 HITL 让用户确认保存到记忆
+    - analyze_for_memory: 分析后生成 ECS 让用户确认保存到记忆
     """
     session_id = request.session_id or str(uuid.uuid4())
 
@@ -440,47 +440,47 @@ async def stream_image_analysis(request: ImageChatRequest):
                     logger.info("[ImageAnalysis] memory_result is None")
 
                 if memory_result and memory_result.confidence >= 0.3:
-                    # 生成 HITL 请求让用户确认
-                    from hitl_schema import (
-                        HITLRequest as HITLRequestModel,
-                        HITLField,
-                        HITLFieldType,
-                        HITLOption,
-                        HITLActions,
-                        HITLActionButton,
-                        HITLActionStyle,
-                        HITLContext,
+                    # 生成 ECS 请求让用户确认
+                    from ecs_schema import (
+                        ECSRequest as ECSRequestModel,
+                        ECSField,
+                        ECSFieldType,
+                        ECSOption,
+                        ECSActions,
+                        ECSActionButton,
+                        ECSActionStyle,
+                        ECSContext,
                     )
 
                     # 基础字段
                     fields = [
-                        HITLField(
+                        ECSField(
                             name="key",
-                            type=HITLFieldType.TEXT,
+                            type=ECSFieldType.TEXT,
                             label="记忆名称",
                             required=True,
                             placeholder="例如：会议笔记、书籍摘录、周五聚餐",
                             default=memory_result.key,
                         ),
-                        HITLField(
+                        ECSField(
                             name="value",
-                            type=HITLFieldType.TEXTAREA,
+                            type=ECSFieldType.TEXTAREA,
                             label="记忆内容",
                             required=True,
                             placeholder="提取的文本内容",
                             default=memory_result.value,
                         ),
-                        HITLField(
+                        ECSField(
                             name="category",
-                            type=HITLFieldType.SELECT,
+                            type=ECSFieldType.SELECT,
                             label="类别",
                             required=True,
                             default=memory_result.category,
                             options=[
-                                HITLOption(value="preference", label="偏好"),
-                                HITLOption(value="fact", label="事实"),
-                                HITLOption(value="pattern", label="模式"),
-                                HITLOption(value="plan", label="计划"),
+                                ECSOption(value="preference", label="偏好"),
+                                ECSOption(value="fact", label="事实"),
+                                ECSOption(value="pattern", label="模式"),
+                                ECSOption(value="plan", label="计划"),
                             ],
                         ),
                     ]
@@ -488,25 +488,25 @@ async def stream_image_analysis(request: ImageChatRequest):
                     # 如果是计划类别，添加计划特定字段
                     if memory_result.category == "plan":
                         fields.extend([
-                            HITLField(
+                            ECSField(
                                 name="target_time",
-                                type=HITLFieldType.TEXT,
+                                type=ECSFieldType.TEXT,
                                 label="目标时间",
                                 required=True,
                                 placeholder="例如：2025-01-28T14:00:00",
                                 default=memory_result.target_time or "",
                             ),
-                            HITLField(
+                            ECSField(
                                 name="location",
-                                type=HITLFieldType.TEXT,
+                                type=ECSFieldType.TEXT,
                                 label="地点",
                                 required=False,
                                 placeholder="例如：会议室A、星巴克",
                                 default=memory_result.location or "",
                             ),
-                            HITLField(
+                            ECSField(
                                 name="participants",
-                                type=HITLFieldType.TEXT,
+                                type=ECSFieldType.TEXT,
                                 label="参与者",
                                 required=False,
                                 placeholder="例如：张三,李四",
@@ -517,41 +517,41 @@ async def stream_image_analysis(request: ImageChatRequest):
                     # 确定 intent 和 memory_category
                     if memory_result.category == "plan":
                         intent = "collect_plan"
-                        hitl_type = "image_plan_confirm"
-                        hitl_title = "保存计划到日程"
-                        hitl_description = "AI 从图片中识别到计划安排，请确认是否保存到日程。"
+                        ecs_type = "image_plan_confirm"
+                        ecs_title = "保存计划到日程"
+                        ecs_description = "AI 从图片中识别到计划安排，请确认是否保存到日程。"
                     else:
                         intent = "collect_preference"
-                        hitl_type = "image_memory_confirm"
-                        hitl_title = "保存图片内容到长期记忆"
-                        hitl_description = "AI 从图片中提取了以下信息，请确认是否保存。"
+                        ecs_type = "image_memory_confirm"
+                        ecs_title = "保存图片内容到长期记忆"
+                        ecs_description = "AI 从图片中提取了以下信息，请确认是否保存。"
 
-                    hitl_request = HITLRequestModel(
+                    ecs_request = ECSRequestModel(
                         id=str(uuid.uuid4()),
-                        type=hitl_type,
-                        title=hitl_title,
-                        description=hitl_description,
+                        type=ecs_type,
+                        title=ecs_title,
+                        description=ecs_description,
                         fields=fields,
-                        actions=HITLActions(
-                            approve=HITLActionButton(label="保存", style=HITLActionStyle.PRIMARY),
-                            edit=HITLActionButton(label="编辑", style=HITLActionStyle.DEFAULT),
-                            reject=HITLActionButton(label="跳过", style=HITLActionStyle.SECONDARY),
+                        actions=ECSActions(
+                            approve=ECSActionButton(label="保存", style=ECSActionStyle.PRIMARY),
+                            edit=ECSActionButton(label="编辑", style=ECSActionStyle.DEFAULT),
+                            reject=ECSActionButton(label="跳过", style=ECSActionStyle.SECONDARY),
                         ),
-                        context=HITLContext(
+                        context=ECSContext(
                             intent=intent,
                             memory_category=memory_result.category,
                         ),
                     )
 
-                    # 存储 HITL 请求
-                    hitl_handler.store_hitl_request(hitl_request, session_id)
+                    # 存储 ECS 请求
+                    ecs_handler.store_ecs_request(ecs_request, session_id)
 
-                    # 发送 HITL 事件
-                    hitl_payload = {
-                        "id": hitl_request.id,
-                        "type": hitl_request.type,
-                        "title": hitl_request.title,
-                        "description": hitl_request.description,
+                    # 发送 ECS 事件
+                    ecs_payload = {
+                        "id": ecs_request.id,
+                        "type": ecs_request.type,
+                        "title": ecs_request.title,
+                        "description": ecs_request.description,
                         "fields": [
                             {
                                 "name": f.name,
@@ -562,16 +562,16 @@ async def stream_image_analysis(request: ImageChatRequest):
                                 "default": f.default,
                                 "options": [{"value": o.value, "label": o.label} for o in f.options] if f.options else None,
                             }
-                            for f in hitl_request.fields
+                            for f in ecs_request.fields
                         ],
                         "actions": {
-                            "approve": {"label": hitl_request.actions.approve.label, "style": hitl_request.actions.approve.style.value},
-                            "edit": {"label": hitl_request.actions.edit.label, "style": hitl_request.actions.edit.style.value},
-                            "reject": {"label": hitl_request.actions.reject.label, "style": hitl_request.actions.reject.style.value},
+                            "approve": {"label": ecs_request.actions.approve.label, "style": ecs_request.actions.approve.style.value},
+                            "edit": {"label": ecs_request.actions.edit.label, "style": ecs_request.actions.edit.style.value},
+                            "reject": {"label": ecs_request.actions.reject.label, "style": ecs_request.actions.reject.style.value},
                         },
                         "session_id": session_id,
                     }
-                    yield f'event: hitl\ndata: {json.dumps({"type": "hitl", "payload": hitl_payload})}\n\n'
+                    yield f'event: ecs\ndata: {json.dumps({"type": "ecs", "payload": ecs_payload})}\n\n'
                 else:
                     no_memory_msg = "\n\n未能从文本中提取出适合保存的记忆信息。"
                     yield f'event: text\ndata: {json.dumps({"type": "text", "payload": {"content": no_memory_msg}})}\n\n'
@@ -594,7 +594,7 @@ async def chat_image(request: ImageChatRequest):
     """图片分析接口 - 返回 SSE 流式响应
 
     使用 GraphRunner 驱动的认知图谱处理图片分析。
-    节点流程: ImageNode → MemoryExtractionNode → (HITL/END)
+    节点流程: ImageNode → MemoryExtractionNode → (ECS/END)
     """
     from graph_runner import GraphRunner
 
@@ -1189,43 +1189,43 @@ async def extract_memory(request: MemoryExtractRequest):
         )
 
 
-# ============ HITL API ============
+# ============ ECS API ============
 
-class HITLRespondRequest(BaseModel):
-    """HITL 响应请求"""
+class ECSRespondRequest(BaseModel):
+    """ECS 响应请求"""
     request_id: str
     session_id: str
     action: str  # approve | edit | reject
     data: Optional[Dict[str, Any]] = None
 
 
-class HITLContinuationDataResponse(BaseModel):
-    """HITL continuation data for frontend"""
+class ECSContinuationDataResponse(BaseModel):
+    """ECS continuation data for frontend"""
     request_title: str
     action: str
     form_data: Optional[Dict[str, Any]] = None
     field_labels: Dict[str, str] = {}
 
 
-class HITLRespondResponse(BaseModel):
-    """HITL 响应结果"""
+class ECSRespondResponse(BaseModel):
+    """ECS 响应结果"""
     success: bool
     next_action: str = "continue"
     message: Optional[str] = None
     error: Optional[str] = None
-    continuation_data: Optional[HITLContinuationDataResponse] = None
+    continuation_data: Optional[ECSContinuationDataResponse] = None
 
 
-@app.post("/hitl/respond", response_model=HITLRespondResponse)
-async def hitl_respond(request: HITLRespondRequest):
-    """处理用户对 HITL 请求的响应
+@app.post("/ecs/respond", response_model=ECSRespondResponse)
+async def ecs_respond(request: ECSRespondRequest):
+    """处理用户对 ECS 请求的响应
 
     用户可以选择 approve（批准）、edit（编辑后提交）或 reject（拒绝/跳过）。
     """
     try:
         # 转换 action 字符串为枚举
         try:
-            action = HITLAction(request.action)
+            action = ECSAction(request.action)
         except ValueError:
             raise HTTPException(
                 status_code=400,
@@ -1233,7 +1233,7 @@ async def hitl_respond(request: HITLRespondRequest):
             )
 
         # 构建响应数据
-        response_data = HITLResponseData(
+        response_data = ECSResponseData(
             request_id=request.request_id,
             session_id=request.session_id,
             action=action,
@@ -1241,19 +1241,19 @@ async def hitl_respond(request: HITLRespondRequest):
         )
 
         # 处理响应
-        result = hitl_handler.process_hitl_response(response_data)
+        result = ecs_handler.process_ecs_response(response_data)
 
         # Convert continuation_data if present
         continuation_data_response = None
         if result.continuation_data:
-            continuation_data_response = HITLContinuationDataResponse(
+            continuation_data_response = ECSContinuationDataResponse(
                 request_title=result.continuation_data.request_title,
                 action=result.continuation_data.action,
                 form_data=result.continuation_data.form_data,
                 field_labels=result.continuation_data.field_labels,
             )
 
-        return HITLRespondResponse(
+        return ECSRespondResponse(
             success=result.success,
             next_action=result.next_action,
             message=result.message,
@@ -1263,13 +1263,13 @@ async def hitl_respond(request: HITLRespondRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"处理 HITL 响应失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"处理 ECS 响应失败: {str(e)}")
 
 
-@app.get("/hitl/status/{request_id}")
-async def hitl_status(request_id: str):
-    """检查 HITL 请求状态"""
-    request_data = hitl_handler.get_hitl_request(request_id)
+@app.get("/ecs/status/{request_id}")
+async def ecs_status(request_id: str):
+    """检查 ECS 请求状态"""
+    request_data = ecs_handler.get_ecs_request(request_id)
     if request_data is None:
         return {"exists": False, "expired": True}
 
@@ -1283,17 +1283,17 @@ async def hitl_status(request_id: str):
     }
 
 
-class HITLContinueRequest(BaseModel):
-    """HITL 继续请求"""
+class ECSContinueRequest(BaseModel):
+    """ECS 继续请求"""
     session_id: str
-    continuation_data: HITLContinuationDataResponse
+    continuation_data: ECSContinuationDataResponse
 
 
-@app.post("/hitl/continue")
-async def hitl_continue(request: HITLContinueRequest):
-    """HITL 继续对话接口 - 返回 SSE 流式响应
+@app.post("/ecs/continue")
+async def ecs_continue(request: ECSContinueRequest):
+    """ECS 继续对话接口 - 返回 SSE 流式响应
 
-    在用户响应 HITL 表单后，使用 GraphRunner.resume() 继续对话。
+    在用户响应 ECS 表单后，使用 GraphRunner.resume() 继续对话。
     """
     from graph_runner import GraphRunner
 

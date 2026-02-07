@@ -58,7 +58,7 @@ class GraphRunner:
             SSE formatted event strings
         """
         from chat_db import add_message
-        from hitl_handler import store_hitl_request
+        from ecs_handler import store_ecs_request
 
         session_id = request.session_id or str(uuid.uuid4())
 
@@ -131,19 +131,19 @@ class GraphRunner:
                             "payload": em,
                         })
 
-                    # Emit HITL request
-                    if "hitl_request" in update and update["hitl_request"]:
-                        hitl_req = update.get("hitl_full_request")
-                        if hitl_req:
-                            # Store HITL request
+                    # Emit ECS request
+                    if "ecs_request" in update and update["ecs_request"]:
+                        ecs_req = update.get("ecs_full_request")
+                        if ecs_req:
+                            # Store ECS request
                             try:
-                                store_hitl_request(hitl_req, session_id)
+                                store_ecs_request(ecs_req, session_id)
                             except Exception as e:
-                                logger.error(f"Failed to store HITL request: {e}")
+                                logger.error(f"Failed to store ECS request: {e}")
 
-                            # Format HITL payload for frontend
-                            hitl_payload = self._format_hitl_payload(hitl_req, session_id)
-                            yield self._format_sse("hitl", {"type": "hitl", "payload": hitl_payload})
+                            # Format ECS payload for frontend
+                            ecs_payload = self._format_ecs_payload(ecs_req, session_id)
+                            yield self._format_sse("ecs", {"type": "ecs", "payload": ecs_payload})
 
                     # Emit tool result
                     if "observation" in update and update["observation"] and node_name == "tools":
@@ -183,7 +183,7 @@ class GraphRunner:
         Yields:
             SSE formatted event strings
         """
-        from hitl_handler import store_hitl_request
+        from ecs_handler import store_ecs_request
 
         session_id = request.session_id or str(uuid.uuid4())
 
@@ -226,19 +226,19 @@ class GraphRunner:
                     if "response" in update and update["response"]:
                         yield self._format_sse("text", {"type": "text", "payload": {"content": update["response"]}})
 
-                    # Emit HITL request for memory confirmation
-                    if "hitl_request" in update and update["hitl_request"]:
-                        hitl_req = update.get("hitl_full_request")
-                        if hitl_req:
-                            # Store HITL request
+                    # Emit ECS request for memory confirmation
+                    if "ecs_request" in update and update["ecs_request"]:
+                        ecs_req = update.get("ecs_full_request")
+                        if ecs_req:
+                            # Store ECS request
                             try:
-                                store_hitl_request(hitl_req, session_id)
+                                store_ecs_request(ecs_req, session_id)
                             except Exception as e:
-                                logger.error(f"Failed to store HITL request: {e}")
+                                logger.error(f"Failed to store ECS request: {e}")
 
-                            # Format HITL payload
-                            hitl_payload = self._format_hitl_payload(hitl_req, session_id)
-                            yield self._format_sse("hitl", {"type": "hitl", "payload": hitl_payload})
+                            # Format ECS payload
+                            ecs_payload = self._format_ecs_payload(ecs_req, session_id)
+                            yield self._format_sse("ecs", {"type": "ecs", "payload": ecs_payload})
 
             yield self._format_sse("done", {"type": "done"})
 
@@ -248,36 +248,36 @@ class GraphRunner:
 
     async def resume(self, request) -> AsyncGenerator[str, None]:
         """
-        Resume graph execution after HITL form submission.
+        Resume graph execution after ECS form submission.
 
         Args:
-            request: HITLContinueRequest with session_id and continuation_data
+            request: ECSContinueRequest with session_id and continuation_data
 
         Yields:
             SSE formatted event strings
         """
         from chat_db import add_message
-        from hitl_handler import store_hitl_request, build_continuation_context
-        from hitl_schema import HITLContinuationData, HITLDisplayRequest
+        from ecs_handler import store_ecs_request, build_continuation_context
+        from ecs_schema import ECSContinuationData, ECSDisplayRequest
 
         session_id = request.session_id
 
-        # Build continuation context from the HITL response data
-        continuation_data = HITLContinuationData(
+        # Build continuation context from the ECS response data
+        continuation_data = ECSContinuationData(
             request_title=request.continuation_data.request_title,
             action=request.continuation_data.action,
             form_data=request.continuation_data.form_data,
             field_labels=request.continuation_data.field_labels,
         )
 
-        hitl_context = build_continuation_context(continuation_data)
-        logger.info(f"[GraphRunner Resume] HITL context built: length={len(hitl_context)}")
+        ecs_context = build_continuation_context(continuation_data)
+        logger.info(f"[GraphRunner Resume] ECS context built: length={len(ecs_context)}")
 
-        # 1. Initialize State with HITL continuation as input
+        # 1. Initialize State with ECS continuation as input
         initial_state = GraphState(
             conversation_id=session_id,
             semantic_input=SemanticInput(
-                text=f"请根据我刚才提交的表单信息给出回复。\n\n{hitl_context}",
+                text=f"请根据我刚才提交的表单信息给出回复。\n\n{ecs_context}",
                 raw_event=request.model_dump() if hasattr(request, 'model_dump') else {},
             ),
             working_memory=WorkingMemory(),
@@ -326,19 +326,19 @@ class GraphRunner:
                             "payload": em,
                         })
 
-                    # Emit chained HITL request
-                    if "hitl_request" in update and update["hitl_request"]:
-                        hitl_req = update.get("hitl_full_request")
-                        if hitl_req:
-                            # Store HITL request
+                    # Emit chained ECS request
+                    if "ecs_request" in update and update["ecs_request"]:
+                        ecs_req = update.get("ecs_full_request")
+                        if ecs_req:
+                            # Store ECS request
                             try:
-                                store_hitl_request(hitl_req, session_id)
+                                store_ecs_request(ecs_req, session_id)
                             except Exception as e:
-                                logger.error(f"Failed to store HITL request: {e}")
+                                logger.error(f"Failed to store ECS request: {e}")
 
-                            # Format HITL payload for frontend
-                            hitl_payload = self._format_hitl_payload(hitl_req, session_id)
-                            yield self._format_sse("hitl", {"type": "hitl", "payload": hitl_payload})
+                            # Format ECS payload for frontend
+                            ecs_payload = self._format_ecs_payload(ecs_req, session_id)
+                            yield self._format_sse("ecs", {"type": "ecs", "payload": ecs_payload})
 
                     # Emit tool result
                     if "observation" in update and update["observation"] and node_name == "tools":
@@ -372,61 +372,61 @@ class GraphRunner:
         """Format an SSE event string."""
         return f'event: {event}\ndata: {json.dumps(data)}\n\n'
 
-    def _format_hitl_payload(self, hitl_req, session_id: str) -> Dict[str, Any]:
-        """Format HITL request for frontend SSE payload."""
+    def _format_ecs_payload(self, ecs_req, session_id: str) -> Dict[str, Any]:
+        """Format ECS request for frontend SSE payload."""
         # Handle both dict and object formats
-        if isinstance(hitl_req, dict):
-            hitl_type = hitl_req.get("type", "form")
-            if hitl_type == "visual_display":
+        if isinstance(ecs_req, dict):
+            ecs_type = ecs_req.get("type", "form")
+            if ecs_type == "visual_display":
                 # Visual display type
                 payload = {
-                    "id": hitl_req.get("id"),
+                    "id": ecs_req.get("id"),
                     "type": "visual_display",
-                    "title": hitl_req.get("title"),
-                    "description": hitl_req.get("description"),
-                    "displays": hitl_req.get("displays", []),
-                    "dismiss_label": hitl_req.get("dismiss_label", "关闭"),
+                    "title": ecs_req.get("title"),
+                    "description": ecs_req.get("description"),
+                    "displays": ecs_req.get("displays", []),
+                    "dismiss_label": ecs_req.get("dismiss_label", "关闭"),
                     "session_id": session_id,
                 }
             else:
                 # Form type
                 payload = {
-                    "id": hitl_req.get("id"),
-                    "type": hitl_req.get("type"),
-                    "title": hitl_req.get("title"),
-                    "description": hitl_req.get("description"),
-                    "fields": hitl_req.get("fields", []),
-                    "actions": hitl_req.get("actions", {}),
+                    "id": ecs_req.get("id"),
+                    "type": ecs_req.get("type"),
+                    "title": ecs_req.get("title"),
+                    "description": ecs_req.get("description"),
+                    "fields": ecs_req.get("fields", []),
+                    "actions": ecs_req.get("actions", {}),
                     "session_id": session_id,
                 }
         else:
             # Object with attributes
-            hitl_type = getattr(hitl_req, 'type', 'form')
+            ecs_type = getattr(ecs_req, 'type', 'form')
 
-            if hitl_type == "visual_display":
+            if ecs_type == "visual_display":
                 # Visual display type - format displays
                 displays = []
-                if hasattr(hitl_req, 'displays'):
-                    for d in hitl_req.displays:
+                if hasattr(ecs_req, 'displays'):
+                    for d in ecs_req.displays:
                         displays.append({
                             "type": d.type.value if hasattr(d.type, 'value') else str(d.type),
                             "data": d.data,
                         })
 
                 payload = {
-                    "id": hitl_req.id,
+                    "id": ecs_req.id,
                     "type": "visual_display",
-                    "title": hitl_req.title,
-                    "description": getattr(hitl_req, 'description', ''),
+                    "title": ecs_req.title,
+                    "description": getattr(ecs_req, 'description', ''),
                     "displays": displays,
-                    "dismiss_label": getattr(hitl_req, 'dismiss_label', '关闭'),
+                    "dismiss_label": getattr(ecs_req, 'dismiss_label', '关闭'),
                     "session_id": session_id,
                 }
             else:
                 # Form type - format fields and actions
                 fields = []
-                if hasattr(hitl_req, 'fields'):
-                    for f in hitl_req.fields:
+                if hasattr(ecs_req, 'fields'):
+                    for f in ecs_req.fields:
                         field_dict = {
                             "name": f.name,
                             "type": f.type.value if hasattr(f.type, 'value') else str(f.type),
@@ -440,27 +440,27 @@ class GraphRunner:
                         fields.append(field_dict)
 
                 actions = {}
-                if hasattr(hitl_req, 'actions'):
+                if hasattr(ecs_req, 'actions'):
                     actions = {
                         "approve": {
-                            "label": hitl_req.actions.approve.label,
-                            "style": hitl_req.actions.approve.style.value if hasattr(hitl_req.actions.approve.style, 'value') else str(hitl_req.actions.approve.style),
+                            "label": ecs_req.actions.approve.label,
+                            "style": ecs_req.actions.approve.style.value if hasattr(ecs_req.actions.approve.style, 'value') else str(ecs_req.actions.approve.style),
                         },
                         "edit": {
-                            "label": hitl_req.actions.edit.label,
-                            "style": hitl_req.actions.edit.style.value if hasattr(hitl_req.actions.edit.style, 'value') else str(hitl_req.actions.edit.style),
+                            "label": ecs_req.actions.edit.label,
+                            "style": ecs_req.actions.edit.style.value if hasattr(ecs_req.actions.edit.style, 'value') else str(ecs_req.actions.edit.style),
                         },
                         "reject": {
-                            "label": hitl_req.actions.reject.label,
-                            "style": hitl_req.actions.reject.style.value if hasattr(hitl_req.actions.reject.style, 'value') else str(hitl_req.actions.reject.style),
+                            "label": ecs_req.actions.reject.label,
+                            "style": ecs_req.actions.reject.style.value if hasattr(ecs_req.actions.reject.style, 'value') else str(ecs_req.actions.reject.style),
                         },
                     }
 
                 payload = {
-                    "id": hitl_req.id,
-                    "type": hitl_req.type,
-                    "title": hitl_req.title,
-                    "description": getattr(hitl_req, 'description', ''),
+                    "id": ecs_req.id,
+                    "type": ecs_req.type,
+                    "title": ecs_req.title,
+                    "description": getattr(ecs_req, 'description', ''),
                     "fields": fields,
                     "actions": actions,
                     "session_id": session_id,

@@ -67,7 +67,7 @@ class TestIntentNodeBasic:
 
         assert "intent_result" in result
         intent = result["intent_result"]
-        assert intent["category"] == "hitl"
+        assert intent["category"] == "ecs"
         assert intent["intent_type"] == "plan_reminder"
         assert intent["confidence"] == 1.0
         assert intent["source"] == "layer1"
@@ -101,7 +101,7 @@ class TestIntentNodeBasic:
 
         assert "intent_result" in result
         intent = result["intent_result"]
-        assert intent["category"] == "hitl"
+        assert intent["category"] == "ecs"
         assert intent["intent_type"] == "proactive_inquiry"
 
     @pytest.mark.asyncio

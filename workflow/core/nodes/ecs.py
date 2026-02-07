@@ -1,17 +1,17 @@
 from typing import Dict, Any
 from core.state import GraphState
 
-class HITLNode:
+class ECSNode:
     """
-    Node representing a Human-in-the-Loop interaction point.
-    Execution reaches here when the system needs human input.
+    Node representing an Externalized Cognitive Step interaction point.
+    Execution reaches here when the system needs external input.
     """
 
     async def execute(self, state: GraphState) -> Dict[str, Any]:
         """
         Prepare for suspension.
         """
-        if not state.hitl_request:
+        if not state.ecs_request:
              # If we ended up here without a request, it's an error or we should just resume/skip
              return {"status": "processing"}
 

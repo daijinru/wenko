@@ -1,10 +1,10 @@
-interface HITLDisplayActionsProps {
+interface ECSDisplayActionsProps {
   dismissLabel?: string;
   onDismiss: () => void;
   isSubmitting: boolean;
 }
 
-export function HITLDisplayActions({ dismissLabel = '关闭', onDismiss, isSubmitting }: HITLDisplayActionsProps) {
+export function ECSDisplayActions({ dismissLabel = '关闭', onDismiss, isSubmitting }: ECSDisplayActionsProps) {
   return (
     <div className="!mt-2 flex justify-end gap-2 p-4 border-t border-border">
       <button

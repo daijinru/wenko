@@ -16,8 +16,8 @@ class MemoryIntent(Enum):
     OPINION = "opinion"            # 个人观点 - 看法、认为、觉得
 
 
-class HITLIntent(Enum):
-    """HITL form trigger intent types mapping to 7 HITL strategies."""
+class ECSIntent(Enum):
+    """ECS form trigger intent types mapping to 7 ECS strategies."""
     PROACTIVE_INQUIRY = "proactive_inquiry"   # 主动询问 - 问候、初次对话
     TOPIC_DEEPENING = "topic_deepening"       # 话题深化 - 模糊喜好、领域提及
     EMOTION_DRIVEN = "emotion_driven"         # 情感驱动 - 情绪表达
@@ -35,7 +35,7 @@ class MCPIntent(Enum):
 class IntentCategory(Enum):
     """Top-level intent categories."""
     MEMORY = "memory"      # Triggers memory save rules
-    HITL = "hitl"          # Triggers HITL form strategies
+    ECS = "ecs"            # Triggers ECS form strategies
     MCP = "mcp"            # Triggers MCP tool calls
     NORMAL = "normal"      # Normal conversation, no special handling
 
@@ -45,8 +45,8 @@ class IntentResult:
     """Result from intent recognition.
 
     Attributes:
-        category: Top-level category (memory, hitl, mcp, or normal)
-        intent_type: Specific intent (MemoryIntent, HITLIntent, or MCPIntent value)
+        category: Top-level category (memory, ecs, mcp, or normal)
+        intent_type: Specific intent (MemoryIntent, ECSIntent, or MCPIntent value)
         confidence: Confidence score (0.0-1.0)
         matched_rule: Name of the rule that matched (for Layer 1)
         source: Which layer produced this result ("layer1", "layer2", "fallback")
@@ -72,11 +72,11 @@ class IntentResult:
         )
 
     @classmethod
-    def hitl(cls, intent: HITLIntent, confidence: float = 1.0,
-             matched_rule: Optional[str] = None, source: str = "layer1") -> "IntentResult":
-        """Create a HITL intent result."""
+    def ecs(cls, intent: ECSIntent, confidence: float = 1.0,
+            matched_rule: Optional[str] = None, source: str = "layer1") -> "IntentResult":
+        """Create an ECS intent result."""
         return cls(
-            category=IntentCategory.HITL,
+            category=IntentCategory.ECS,
             intent_type=intent.value,
             confidence=confidence,
             matched_rule=matched_rule,
@@ -111,9 +111,9 @@ class IntentResult:
         """Check if this is a memory intent."""
         return self.category == IntentCategory.MEMORY
 
-    def is_hitl(self) -> bool:
-        """Check if this is a HITL intent."""
-        return self.category == IntentCategory.HITL
+    def is_ecs(self) -> bool:
+        """Check if this is an ECS intent."""
+        return self.category == IntentCategory.ECS
 
     def is_mcp(self) -> bool:
         """Check if this is an MCP tool call intent."""
@@ -126,7 +126,7 @@ class IntentResult:
 
 # Intent type string to enum mapping for parsing
 MEMORY_INTENT_MAP = {intent.value: intent for intent in MemoryIntent}
-HITL_INTENT_MAP = {intent.value: intent for intent in HITLIntent}
+ECS_INTENT_MAP = {intent.value: intent for intent in ECSIntent}
 MCP_INTENT_MAP = {intent.value: intent for intent in MCPIntent}
 
 
@@ -141,8 +141,8 @@ def parse_intent_type(intent_str: str) -> tuple[Optional[IntentCategory], Option
     """
     if intent_str in MEMORY_INTENT_MAP:
         return IntentCategory.MEMORY, intent_str
-    if intent_str in HITL_INTENT_MAP:
-        return IntentCategory.HITL, intent_str
+    if intent_str in ECS_INTENT_MAP:
+        return IntentCategory.ECS, intent_str
     if intent_str in MCP_INTENT_MAP:
         return IntentCategory.MCP, intent_str
     return None, None

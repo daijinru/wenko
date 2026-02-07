@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import type { WorkingMemory } from "@/types/api"
-import type { HITLField, HITLDisplayField } from "@hitl/types/hitl"
+import type { ECSField, ECSDisplayField } from "@ecs/types/ecs"
 
 interface ContextVariableDialogProps {
   open: boolean
@@ -15,10 +15,10 @@ interface ContextVariableDialogProps {
   memory: WorkingMemory | null
 }
 
-// Context variable value structure (from backend hitl_handler.py)
-interface HITLContextValue {
+// Context variable value structure (from backend ecs_handler.py)
+interface ECSContextValue {
   fields: Record<string, unknown>  // labeled data (label -> value)
-  fields_def?: HITLField[]  // original field definitions
+  fields_def?: ECSField[]  // original field definitions
   form_data?: Record<string, unknown>  // original form data (field_name -> value)
   timestamp: string
 }
@@ -26,8 +26,8 @@ interface HITLContextValue {
 // Visual Display context value structure
 interface VisualDisplayContextValue {
   type: 'visual_display'
-  displays: HITLDisplayField[]
-  displays_def: HITLDisplayField[]
+  displays: ECSDisplayField[]
+  displays_def: ECSDisplayField[]
   timestamp: string
 }
 
@@ -46,9 +46,9 @@ function isVisualDisplayContextValue(value: unknown): value is VisualDisplayCont
 }
 
 /**
- * Check if value is a HITL context value with fields_def
+ * Check if value is an ECS context value with fields_def
  */
-function isHITLContextValue(value: unknown): value is HITLContextValue {
+function isECSContextValue(value: unknown): value is ECSContextValue {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -59,11 +59,11 @@ function isHITLContextValue(value: unknown): value is HITLContextValue {
 }
 
 /**
- * Build HITL fields for replay with proper types and values
+ * Build ECS fields for replay with proper types and values
  */
-function buildReplayFields(key: string, value: unknown): HITLField[] {
-  // Check if this is a HITL context value with fields_def
-  if (isHITLContextValue(value) && value.fields_def && value.form_data) {
+function buildReplayFields(key: string, value: unknown): ECSField[] {
+  // Check if this is an ECS context value with fields_def
+  if (isECSContextValue(value) && value.fields_def && value.form_data) {
     // Use original field definitions with form values
     return value.fields_def.map((fieldDef) => ({
       ...fieldDef,
@@ -72,8 +72,8 @@ function buildReplayFields(key: string, value: unknown): HITLField[] {
     }))
   }
 
-  // Fallback: convert to simple fields (for legacy data or non-HITL context)
-  if (isHITLContextValue(value)) {
+  // Fallback: convert to simple fields (for legacy data or non-ECS context)
+  if (isECSContextValue(value)) {
     // Has fields but no fields_def - use labeled data
     return Object.entries(value.fields).map(([label, val]) => ({
       name: label,
@@ -106,22 +106,22 @@ function buildReplayFields(key: string, value: unknown): HITLField[] {
  * Get title for replay window
  */
 function getReplayTitle(key: string): string {
-  // Remove "hitl_" prefix if present for cleaner title
-  if (key.startsWith('hitl_')) {
-    return key.substring(5)
+  // Remove "ecs_" prefix if present for cleaner title
+  if (key.startsWith('ecs_')) {
+    return key.substring(4)
   }
   return key
 }
 
 /**
- * Open HITL window in readonly mode to display context variable details
+ * Open ECS window in readonly mode to display context variable details
  */
 async function handleReplay(key: string, value: unknown, sessionId: string) {
   const title = getReplayTitle(key)
 
   // Check if this is a visual display type
   if (isVisualDisplayContextValue(value)) {
-    await window.electronAPI.invoke('hitl:open-window', {
+    await window.electronAPI.invoke('ecs:open-window', {
       request: {
         id: `context-replay-${Date.now()}`,
         type: 'visual_display',
@@ -138,7 +138,7 @@ async function handleReplay(key: string, value: unknown, sessionId: string) {
   // Form type replay
   const fields = buildReplayFields(key, value)
 
-  await window.electronAPI.invoke('hitl:open-window', {
+  await window.electronAPI.invoke('ecs:open-window', {
     request: {
       id: `context-replay-${Date.now()}`,
       type: 'context-replay',
@@ -164,10 +164,10 @@ function getEntryDisplayInfo(_: string, value: unknown): { type: string; preview
     }
   }
 
-  if (isHITLContextValue(value)) {
+  if (isECSContextValue(value)) {
     const fieldCount = value.fields_def?.length ?? Object.keys(value.fields).length
     return {
-      type: 'hitl',
+      type: 'ecs',
       preview: `${fieldCount} 个字段 (${value.timestamp.split('T')[0]})`,
     }
   }
@@ -213,7 +213,7 @@ export function ContextVariableDialog({
                 <tbody>
                   {entries.map(([key, value]) => {
                     const { type, preview } = getEntryDisplayInfo(key, value)
-                    const displayKey = key.startsWith('hitl_') ? key.substring(5) : key
+                    const displayKey = key.startsWith('ecs_') ? key.substring(4) : key
 
                     return (
                       <tr

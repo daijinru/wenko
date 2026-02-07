@@ -1,7 +1,7 @@
 """ReasoningNode - The Brain of the Cognitive Graph
 
 Generates responses using LLM with full context from emotion detection and memory retrieval.
-Supports streaming token output, tool calls, HITL requests, and memory updates.
+Supports streaming token output, tool calls, ECS requests, and memory updates.
 """
 
 import json
@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, AsyncGenerator, Callable
 
 import httpx
 
-from core.state import GraphState, HITLRequest
+from core.state import GraphState, ECSRequest
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class ReasoningNode:
             stream_callback: Optional callback for streaming tokens
 
         Returns:
-            State updates including response, tool_calls, or hitl_request
+            State updates including response, tool_calls, or ecs_request
         """
         # 1. Build prompt using chat_processor
         from chat_processor import (
@@ -59,9 +59,9 @@ class ReasoningNode:
             build_system_prompt,
             process_llm_response,
             extract_tool_call,
-            is_hitl_enabled,
+            is_ecs_enabled,
         )
-        from hitl_handler import extract_hitl_from_llm_response
+        from ecs_handler import extract_ecs_from_llm_response
 
         # Build context from state
         chat_context = build_chat_context(
@@ -180,21 +180,21 @@ class ReasoningNode:
                 pass
             return updates
 
-        # Try to extract HITL request
-        if is_hitl_enabled():
-            hitl_request = extract_hitl_from_llm_response(full_response)
-            if hitl_request:
-                logger.info(f"[ReasoningNode] HITL request detected: {hitl_request.type}")
-                # Convert to state HITLRequest format
-                updates["hitl_request"] = HITLRequest(
-                    type=hitl_request.type,
-                    message=hitl_request.title,
+        # Try to extract ECS request
+        if is_ecs_enabled():
+            ecs_request = extract_ecs_from_llm_response(full_response)
+            if ecs_request:
+                logger.info(f"[ReasoningNode] ECS request detected: {ecs_request.type}")
+                # Convert to state ECSRequest format
+                updates["ecs_request"] = ECSRequest(
+                    type=ecs_request.type,
+                    message=ecs_request.title,
                     options=[],
-                    context_data={"hitl_id": hitl_request.id},
+                    context_data={"ecs_id": ecs_request.id},
                 )
                 updates["status"] = "suspended"
-                # Store full HITL data for frontend (as dict for LangGraph serialization)
-                updates["hitl_full_request"] = hitl_request.model_dump(mode='json') if hasattr(hitl_request, 'model_dump') else dict(hitl_request)
+                # Store full ECS data for frontend (as dict for LangGraph serialization)
+                updates["ecs_full_request"] = ecs_request.model_dump(mode='json') if hasattr(ecs_request, 'model_dump') else dict(ecs_request)
                 # Also extract response text
                 try:
                     parsed = json.loads(full_response)

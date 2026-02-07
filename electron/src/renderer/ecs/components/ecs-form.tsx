@@ -1,15 +1,15 @@
-import type { HITLRequest } from '../types/hitl';
-import { HITLField } from './hitl-field';
+import type { ECSRequest } from '../types/ecs';
+import { ECSField } from './ecs-field';
 
-interface HITLFormProps {
-  request: HITLRequest;
+interface ECSFormProps {
+  request: ECSRequest;
   formData: Record<string, unknown>;
   onFieldChange: (fieldName: string, value: unknown) => void;
   error: string | null;
   readonly?: boolean;
 }
 
-export function HITLForm({ request, formData, onFieldChange, error, readonly }: HITLFormProps) {
+export function ECSForm({ request, formData, onFieldChange, error, readonly }: ECSFormProps) {
   return (
     <div className="flex-1 overflow-auto p-4">
       {request.description && (
@@ -20,7 +20,7 @@ export function HITLForm({ request, formData, onFieldChange, error, readonly }: 
 
       <div className="space-y-1">
         {request.fields.map((field) => (
-          <HITLField
+          <ECSField
             key={field.name}
             field={field}
             value={formData[field.name]}

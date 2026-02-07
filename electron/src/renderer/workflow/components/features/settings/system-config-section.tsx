@@ -48,15 +48,15 @@ export function SystemConfigSection({ settings, onChange }: SystemConfigSectionP
 
       <div className="flex items-center space-x-3 gap-2 !mb-2">
         <Checkbox
-          id="hitl"
-          checked={settings['system.hitl_enabled'] === true}
+          id="ecs"
+          checked={settings['system.ecs_enabled'] === true}
           onCheckedChange={(checked) =>
-            onChange('system.hitl_enabled', checked === true)
+            onChange('system.ecs_enabled', checked === true)
           }
         />
         <div className="flex-1">
-          <label htmlFor="hitl" className="text-sm font-medium cursor-pointer">
-            启用 HITL (人机交互) 系统
+          <label htmlFor="ecs" className="text-sm font-medium cursor-pointer">
+            启用 ECS (外部化认知步骤) 系统
           </label>
           <p className="text-xs text-muted-foreground">
             允许 AI 请求用户确认敏感操作（如保存记忆、创建计划）

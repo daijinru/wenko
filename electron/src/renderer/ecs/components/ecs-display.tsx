@@ -1,11 +1,11 @@
-import type { HITLDisplayRequest } from '../types/hitl';
-import { HITLDisplayField } from './hitl-display-field';
+import type { ECSDisplayRequest } from '../types/ecs';
+import { ECSDisplayField } from './ecs-display-field';
 
-interface HITLDisplayProps {
-  request: HITLDisplayRequest;
+interface ECSDisplayProps {
+  request: ECSDisplayRequest;
 }
 
-export function HITLDisplay({ request }: HITLDisplayProps) {
+export function ECSDisplay({ request }: ECSDisplayProps) {
   return (
     <div className="flex-1 overflow-auto p-4">
       {request.description && (
@@ -16,7 +16,7 @@ export function HITLDisplay({ request }: HITLDisplayProps) {
 
       <div className="space-y-2">
         {request.displays.map((display, index) => (
-          <HITLDisplayField key={index} field={display} />
+          <ECSDisplayField key={index} field={display} />
         ))}
       </div>
     </div>

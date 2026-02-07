@@ -2,16 +2,16 @@ import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
 import { showSSEMessage, showMemoryNotification } from './message.js';
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const IMAGE_CHAT_API_URL = 'http://localhost:8002/chat/image';
-const HITL_API_URL = 'http://localhost:8002/hitl/respond';
-const HITL_CONTINUE_API_URL = 'http://localhost:8002/hitl/continue';
+const ECS_API_URL = 'http://localhost:8002/ecs/respond';
+const ECS_CONTINUE_API_URL = 'http://localhost:8002/ecs/continue';
 const MAX_HISTORY_LENGTH = 10;
 const MAX_IMAGE_SIZE = 4 * 1024 * 1024;
 const SESSION_ID_KEY = 'wenko-chat-session-id';
 const HISTORY_KEY = 'wenko-chat-history';
-const HITL_DEBUG = true;
-function hitlLog(stage, data) {
-    if (HITL_DEBUG) {
-        console.log(`[HITL] ${stage}:`, data);
+const ECS_DEBUG = true;
+function ecsLog(stage, data) {
+    if (ECS_DEBUG) {
+        console.log(`[ECS] ${stage}:`, data);
     }
 }
 const EMOTION_DISPLAY = {
@@ -29,7 +29,7 @@ const EMOTION_DISPLAY = {
     validation_seeking: { label: 'Validation', color: '#a855f7' },
 };
 let currentEmotion = null;
-let currentHITLRequest = null;
+let currentECSRequest = null;
 function generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
         const r = Math.random() * 16 | 0;
@@ -83,21 +83,21 @@ class ChatHistoryManager {
 const sessionManager = new SessionManager();
 const historyManager = new ChatHistoryManager();
 let isLoading = false;
-let hitlListenerCleanup = null;
+let ecsListenerCleanup = null;
 let imagePreviewListenerCleanup = null;
-function setupHITLResultListener() {
+function setupECSResultListener() {
     var _a;
     if (!((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.on)) {
-        hitlLog('SETUP_LISTENER', 'electronAPI.on not available, skipping HITL listener setup');
+        ecsLog('SETUP_LISTENER', 'electronAPI.on not available, skipping ECS listener setup');
         return;
     }
-    if (hitlListenerCleanup) {
-        hitlLog('SETUP_LISTENER', 'Removing existing HITL listener before re-registering');
-        hitlListenerCleanup();
-        hitlListenerCleanup = null;
+    if (ecsListenerCleanup) {
+        ecsLog('SETUP_LISTENER', 'Removing existing ECS listener before re-registering');
+        ecsListenerCleanup();
+        ecsListenerCleanup = null;
     }
-    hitlListenerCleanup = window.electronAPI.on('hitl:result', (result) => {
-        hitlLog('HITL_RESULT_RECEIVED', result);
+    ecsListenerCleanup = window.electronAPI.on('ecs:result', (result) => {
+        ecsLog('ECS_RESULT_RECEIVED', result);
         if (result.action === 'approve' && result.message) {
             showSSEMessage(`<div class="wenko-chat-system">${result.message}</div>`, 'wenko-chat-system-msg');
         }
@@ -111,11 +111,11 @@ function setupHITLResultListener() {
             showSSEMessage(`<div class="wenko-chat-error">请求已超时</div>`, 'wenko-chat-error-msg');
         }
         if (result.success && result.continuationData) {
-            hitlLog('HITL_CONTINUATION_TRIGGERED', result.continuationData);
-            handleHITLContinuation(result.continuationData);
+            ecsLog('ECS_CONTINUATION_TRIGGERED', result.continuationData);
+            handleECSContinuation(result.continuationData);
         }
     });
-    hitlLog('SETUP_LISTENER', 'HITL result listener setup complete');
+    ecsLog('SETUP_LISTENER', 'ECS result listener setup complete');
 }
 function setupImagePreviewResultListener() {
     var _a;
@@ -134,17 +134,17 @@ function setupImagePreviewResultListener() {
         if (result.action === 'cancel') {
             console.log('[ImagePreview] User cancelled');
         }
-        else if (result.action === 'hitl' && result.hitlRequest) {
-            console.log('[ImagePreview] Opening HITL window for memory confirmation');
+        else if (result.action === 'ecs' && result.ecsRequest) {
+            console.log('[ImagePreview] Opening ECS window for memory confirmation');
             const sessionId = sessionManager.getSessionId();
             if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
-                window.electronAPI.invoke('hitl:open-window', {
-                    request: result.hitlRequest,
+                window.electronAPI.invoke('ecs:open-window', {
+                    request: result.ecsRequest,
                     sessionId: sessionId,
                 }).then(() => {
-                    console.log('[ImagePreview] HITL window opened');
+                    console.log('[ImagePreview] ECS window opened');
                 }).catch((error) => {
-                    console.error('[ImagePreview] Failed to open HITL window:', error);
+                    console.error('[ImagePreview] Failed to open ECS window:', error);
                     showSSEMessage('<div class="wenko-chat-error">无法打开记忆确认窗口</div>', 'wenko-chat-error-msg');
                 });
             }
@@ -153,40 +153,40 @@ function setupImagePreviewResultListener() {
     console.log('[ImagePreview] Result listener setup complete');
 }
 setupImagePreviewResultListener();
-function handleHITLContinuation(continuationData) {
+function handleECSContinuation(continuationData) {
     const sessionId = sessionManager.getSessionId();
-    triggerHITLContinuation(sessionId, continuationData, (chunk) => {
+    triggerECSContinuation(sessionId, continuationData, (chunk) => {
         showSSEMessage(chunk, 'wenko-chat-response');
     }, () => {
-        hitlLog('HITL_CONTINUATION_DONE');
+        ecsLog('ECS_CONTINUATION_DONE');
     }, (error) => {
         showSSEMessage(`<div class="wenko-chat-error">错误: ${error}</div>`, 'wenko-chat-error-msg');
-    }, (newHitlRequest) => {
+    }, (newEcsRequest) => {
         var _a;
-        hitlLog('HITL_CHAINED_REQUEST', { id: newHitlRequest.id, title: newHitlRequest.title });
+        ecsLog('ECS_CHAINED_REQUEST', { id: newEcsRequest.id, title: newEcsRequest.title });
         if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
-            window.electronAPI.invoke('hitl:open-window', {
-                request: newHitlRequest,
+            window.electronAPI.invoke('ecs:open-window', {
+                request: newEcsRequest,
                 sessionId: sessionId,
             });
         }
     });
 }
-setupHITLResultListener();
+setupECSResultListener();
 export function getSessionId() {
     return sessionManager.getSessionId();
 }
 export function createNewSession() {
     return sessionManager.createNewSession();
 }
-export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, onHITL, onMemorySaved) {
+export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, onECS, onMemorySaved) {
     if (isLoading)
         return;
     if (!message.trim())
         return;
     isLoading = true;
     const sessionId = sessionManager.getSessionId();
-    hitlLog('SEND_MESSAGE', { message, sessionId });
+    ecsLog('SEND_MESSAGE', { message, sessionId });
     historyManager.addMessage({ role: 'user', content: message });
     let assistantResponse = '';
     fetchEventSource(CHAT_API_URL, {
@@ -201,14 +201,14 @@ export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, on
         }),
         openWhenHidden: true,
         onopen: (res) => {
-            hitlLog('SSE_OPEN', { status: res.status });
+            ecsLog('SSE_OPEN', { status: res.status });
             if (res.ok)
                 return Promise.resolve();
             throw new Error(`HTTP ${res.status}`);
         },
         onmessage: (event) => {
             var _a, _b, _c, _d;
-            hitlLog('SSE_EVENT', { event: event.event, data: (_a = event.data) === null || _a === void 0 ? void 0 : _a.substring(0, 200) });
+            ecsLog('SSE_EVENT', { event: event.event, data: (_a = event.data) === null || _a === void 0 ? void 0 : _a.substring(0, 200) });
             try {
                 if (event.event === 'text') {
                     const data = JSON.parse(event.data);
@@ -239,17 +239,17 @@ export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, on
                         onMemorySaved === null || onMemorySaved === void 0 ? void 0 : onMemorySaved(memorySavedInfo);
                     }
                 }
-                else if (event.event === 'hitl') {
-                    hitlLog('HITL_EVENT_RECEIVED', event.data);
+                else if (event.event === 'ecs') {
+                    ecsLog('ECS_EVENT_RECEIVED', event.data);
                     const data = JSON.parse(event.data);
-                    if (data.type === 'hitl' && data.payload) {
-                        currentHITLRequest = data.payload;
-                        hitlLog('HITL_REQUEST_PARSED', {
-                            id: currentHITLRequest.id,
-                            title: currentHITLRequest.title,
-                            fields: (_c = currentHITLRequest.fields) === null || _c === void 0 ? void 0 : _c.length
+                    if (data.type === 'ecs' && data.payload) {
+                        currentECSRequest = data.payload;
+                        ecsLog('ECS_REQUEST_PARSED', {
+                            id: currentECSRequest.id,
+                            title: currentECSRequest.title,
+                            fields: (_c = currentECSRequest.fields) === null || _c === void 0 ? void 0 : _c.length
                         });
-                        onHITL === null || onHITL === void 0 ? void 0 : onHITL(currentHITLRequest);
+                        onECS === null || onECS === void 0 ? void 0 : onECS(currentECSRequest);
                     }
                 }
                 else if (event.event === 'done') {
@@ -338,24 +338,24 @@ export function createChatInput(shadowRoot) {
             input.focus();
         }, (emotion) => {
             updateEmotionIndicator(emotionIndicator, emotion);
-        }, (hitlRequest) => {
+        }, (ecsRequest) => {
             var _a;
-            hitlLog('HITL_CALLBACK_TRIGGERED', { id: hitlRequest.id, title: hitlRequest.title });
+            ecsLog('ECS_CALLBACK_TRIGGERED', { id: ecsRequest.id, title: ecsRequest.title });
             const sessionId = sessionManager.getSessionId();
             if ((_a = window.electronAPI) === null || _a === void 0 ? void 0 : _a.invoke) {
-                window.electronAPI.invoke('hitl:open-window', {
-                    request: hitlRequest,
+                window.electronAPI.invoke('ecs:open-window', {
+                    request: ecsRequest,
                     sessionId: sessionId,
                 }).then((result) => {
-                    hitlLog('HITL_WINDOW_OPENED', result);
+                    ecsLog('ECS_WINDOW_OPENED', result);
                 }).catch((error) => {
-                    hitlLog('HITL_WINDOW_ERROR', error);
-                    showSSEMessage(`<div class="wenko-chat-error">无法打开 HITL 窗口</div>`, 'wenko-chat-error-msg');
+                    ecsLog('ECS_WINDOW_ERROR', error);
+                    showSSEMessage(`<div class="wenko-chat-error">无法打开 ECS 窗口</div>`, 'wenko-chat-error-msg');
                 });
             }
             else {
-                hitlLog('HITL_NO_ELECTRON_API', 'electronAPI not available');
-                showSSEMessage(`<div class="wenko-chat-system">HITL 请求: ${hitlRequest.title}</div>`, 'wenko-chat-system-msg');
+                ecsLog('ECS_NO_ELECTRON_API', 'electronAPI not available');
+                showSSEMessage(`<div class="wenko-chat-system">ECS 请求: ${ecsRequest.title}</div>`, 'wenko-chat-system-msg');
             }
         }, (memorySavedInfo) => {
             showMemoryNotification(memorySavedInfo.count, memorySavedInfo.entries);
@@ -438,16 +438,16 @@ export function updateEmotionIndicator(container, emotion) {
 export function hideEmotionIndicator(container) {
     container.style.display = 'none';
 }
-export function getCurrentHITLRequest() {
-    return currentHITLRequest;
+export function getCurrentECSRequest() {
+    return currentECSRequest;
 }
-export function clearHITLRequest() {
-    currentHITLRequest = null;
+export function clearECSRequest() {
+    currentECSRequest = null;
 }
-export async function submitHITLResponse(requestId, sessionId, action, data) {
-    hitlLog('SUBMIT_START', { requestId, sessionId, action, data });
+export async function submitECSResponse(requestId, sessionId, action, data) {
+    ecsLog('SUBMIT_START', { requestId, sessionId, action, data });
     try {
-        const response = await fetch(HITL_API_URL, {
+        const response = await fetch(ECS_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -457,28 +457,28 @@ export async function submitHITLResponse(requestId, sessionId, action, data) {
                 data: data,
             }),
         });
-        hitlLog('SUBMIT_RESPONSE', { status: response.status });
+        ecsLog('SUBMIT_RESPONSE', { status: response.status });
         if (!response.ok) {
             const errorData = await response.json();
-            hitlLog('SUBMIT_ERROR', errorData);
-            throw new Error(errorData.detail || 'HITL 提交失败');
+            ecsLog('SUBMIT_ERROR', errorData);
+            throw new Error(errorData.detail || 'ECS 提交失败');
         }
         const result = await response.json();
-        hitlLog('SUBMIT_SUCCESS', result);
-        currentHITLRequest = null;
+        ecsLog('SUBMIT_SUCCESS', result);
+        currentECSRequest = null;
         return result;
     }
     catch (error) {
-        hitlLog('SUBMIT_EXCEPTION', { message: error.message });
+        ecsLog('SUBMIT_EXCEPTION', { message: error.message });
         throw error;
     }
 }
-export function createHITLForm(hitlRequest, onComplete) {
+export function createECSForm(ecsRequest, onComplete) {
     var _a, _b, _c, _d, _e, _f;
-    hitlLog('CREATE_FORM_START', { id: hitlRequest.id, fields: (_a = hitlRequest.fields) === null || _a === void 0 ? void 0 : _a.length });
+    ecsLog('CREATE_FORM_START', { id: ecsRequest.id, fields: (_a = ecsRequest.fields) === null || _a === void 0 ? void 0 : _a.length });
     const container = document.createElement('div');
-    container.id = 'wenko-hitl-form';
-    container.className = 'wenko-hitl-form';
+    container.id = 'wenko-ecs-form';
+    container.className = 'wenko-ecs-form';
     container.style.cssText = `
     position: fixed;
     bottom: 120px;
@@ -500,16 +500,16 @@ export function createHITLForm(hitlRequest, onComplete) {
     font-weight: bold;
     font-size: 14px;
   `;
-    header.textContent = hitlRequest.title || '请选择';
+    header.textContent = ecsRequest.title || '请选择';
     container.appendChild(header);
-    if (hitlRequest.description) {
+    if (ecsRequest.description) {
         const desc = document.createElement('p');
         desc.style.cssText = `
       margin: 12px 16px 8px;
       color: #666;
       font-size: 12px;
     `;
-        desc.textContent = hitlRequest.description;
+        desc.textContent = ecsRequest.description;
         container.appendChild(desc);
     }
     const formContent = document.createElement('div');
@@ -519,8 +519,8 @@ export function createHITLForm(hitlRequest, onComplete) {
     overflow-y: auto;
   `;
     const formData = {};
-    (_b = hitlRequest.fields) === null || _b === void 0 ? void 0 : _b.forEach(field => {
-        hitlLog('CREATE_FIELD', { name: field.name, type: field.type });
+    (_b = ecsRequest.fields) === null || _b === void 0 ? void 0 : _b.forEach(field => {
+        ecsLog('CREATE_FIELD', { name: field.name, type: field.type });
         const fieldDiv = document.createElement('div');
         fieldDiv.style.cssText = 'margin-bottom: 12px;';
         const label = document.createElement('label');
@@ -555,7 +555,7 @@ export function createHITLForm(hitlRequest, onComplete) {
             });
             select.onchange = () => {
                 formData[field.name] = select.value;
-                hitlLog('FIELD_CHANGE', { field: field.name, value: select.value });
+                ecsLog('FIELD_CHANGE', { field: field.name, value: select.value });
             };
             fieldDiv.appendChild(select);
         }
@@ -577,7 +577,7 @@ export function createHITLForm(hitlRequest, onComplete) {
                 radio.value = opt.value;
                 radio.onchange = () => {
                     formData[field.name] = opt.value;
-                    hitlLog('FIELD_CHANGE', { field: field.name, value: opt.value });
+                    ecsLog('FIELD_CHANGE', { field: field.name, value: opt.value });
                 };
                 radioLabel.appendChild(radio);
                 radioLabel.appendChild(document.createTextNode(opt.label));
@@ -608,7 +608,7 @@ export function createHITLForm(hitlRequest, onComplete) {
                     else {
                         formData[field.name] = formData[field.name].filter((v) => v !== opt.value);
                     }
-                    hitlLog('FIELD_CHANGE', { field: field.name, value: formData[field.name] });
+                    ecsLog('FIELD_CHANGE', { field: field.name, value: formData[field.name] });
                 };
                 checkLabel.appendChild(checkbox);
                 checkLabel.appendChild(document.createTextNode(opt.label));
@@ -672,10 +672,10 @@ export function createHITLForm(hitlRequest, onComplete) {
         btn.onclick = onClick;
         return btn;
     };
-    const rejectBtn = createButton(((_d = (_c = hitlRequest.actions) === null || _c === void 0 ? void 0 : _c.reject) === null || _d === void 0 ? void 0 : _d.label) || '跳过', 'background: #f3f4f6; color: #374151;', async () => {
-        hitlLog('ACTION_REJECT', { requestId: hitlRequest.id });
+    const rejectBtn = createButton(((_d = (_c = ecsRequest.actions) === null || _c === void 0 ? void 0 : _c.reject) === null || _d === void 0 ? void 0 : _d.label) || '跳过', 'background: #f3f4f6; color: #374151;', async () => {
+        ecsLog('ACTION_REJECT', { requestId: ecsRequest.id });
         try {
-            await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'reject', null);
+            await submitECSResponse(ecsRequest.id, ecsRequest.session_id, 'reject', null);
             container.remove();
             onComplete === null || onComplete === void 0 ? void 0 : onComplete({ action: 'reject' });
         }
@@ -683,10 +683,10 @@ export function createHITLForm(hitlRequest, onComplete) {
             console.error('Reject failed:', e);
         }
     });
-    const approveBtn = createButton(((_f = (_e = hitlRequest.actions) === null || _e === void 0 ? void 0 : _e.approve) === null || _f === void 0 ? void 0 : _f.label) || '确认', 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;', async () => {
-        hitlLog('ACTION_APPROVE', { requestId: hitlRequest.id, formData });
+    const approveBtn = createButton(((_f = (_e = ecsRequest.actions) === null || _e === void 0 ? void 0 : _e.approve) === null || _f === void 0 ? void 0 : _f.label) || '确认', 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;', async () => {
+        ecsLog('ACTION_APPROVE', { requestId: ecsRequest.id, formData });
         try {
-            const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'approve', formData);
+            const result = await submitECSResponse(ecsRequest.id, ecsRequest.session_id, 'approve', formData);
             container.remove();
             onComplete === null || onComplete === void 0 ? void 0 : onComplete({ action: 'approve', data: formData, result });
         }
@@ -697,21 +697,21 @@ export function createHITLForm(hitlRequest, onComplete) {
     actions.appendChild(rejectBtn);
     actions.appendChild(approveBtn);
     container.appendChild(actions);
-    hitlLog('CREATE_FORM_DONE', { id: hitlRequest.id });
+    ecsLog('CREATE_FORM_DONE', { id: ecsRequest.id });
     return container;
 }
-export function createHITLFormHtml(hitlRequest) {
+export function createECSFormHtml(ecsRequest) {
     var _a, _b, _c, _d, _e, _f;
-    hitlLog('CREATE_INLINE_FORM', { id: hitlRequest.id, fields: (_a = hitlRequest.fields) === null || _a === void 0 ? void 0 : _a.length });
+    ecsLog('CREATE_INLINE_FORM', { id: ecsRequest.id, fields: (_a = ecsRequest.fields) === null || _a === void 0 ? void 0 : _a.length });
     let fieldsHtml = '';
-    (_b = hitlRequest.fields) === null || _b === void 0 ? void 0 : _b.forEach(field => {
+    (_b = ecsRequest.fields) === null || _b === void 0 ? void 0 : _b.forEach(field => {
         var _a, _b, _c, _d;
-        hitlLog('RENDER_FIELD', { name: field.name, type: field.type, label: field.label, hasOptions: !!field.options });
+        ecsLog('RENDER_FIELD', { name: field.name, type: field.type, label: field.label, hasOptions: !!field.options });
         let fieldHtml = '';
         if (field.type === 'select' && field.options) {
             const optionsHtml = field.options.map(opt => `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join('');
             fieldHtml = `
-        <select class="hitl-field" data-field="${escapeHtml(field.name)}" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;background:transparent;">
+        <select class="ecs-field" data-field="${escapeHtml(field.name)}" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;background:transparent;">
           <option value="">请选择...</option>
           ${optionsHtml}
         </select>
@@ -719,33 +719,33 @@ export function createHITLFormHtml(hitlRequest) {
         }
         else if (field.type === 'radio' && field.options) {
             const optionsHtml = field.options.map(opt => `<label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:11px;cursor:pointer;">
-          <input type="radio" name="hitl_${escapeHtml(field.name)}" value="${escapeHtml(opt.value)}" class="hitl-field" data-field="${escapeHtml(field.name)}" style="margin:0;">
+          <input type="radio" name="ecs_${escapeHtml(field.name)}" value="${escapeHtml(opt.value)}" class="ecs-field" data-field="${escapeHtml(field.name)}" style="margin:0;">
           ${escapeHtml(opt.label)}
         </label>`).join('');
             fieldHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;">${optionsHtml}</div>`;
         }
         else if (field.type === 'checkbox' && field.options) {
             const optionsHtml = field.options.map(opt => `<label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;font-size:11px;cursor:pointer;">
-          <input type="checkbox" value="${escapeHtml(opt.value)}" class="hitl-field hitl-checkbox" data-field="${escapeHtml(field.name)}" style="margin:0;">
+          <input type="checkbox" value="${escapeHtml(opt.value)}" class="ecs-field ecs-checkbox" data-field="${escapeHtml(field.name)}" style="margin:0;">
           ${escapeHtml(opt.label)}
         </label>`).join('');
             fieldHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;">${optionsHtml}</div>`;
         }
         else if (field.type === 'textarea') {
             fieldHtml = `
-        <textarea class="hitl-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
+        <textarea class="ecs-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;resize:vertical;min-height:40px;"></textarea>
       `;
         }
         else if (field.type === 'date') {
             fieldHtml = `
-        <input type="date" class="hitl-field" data-field="${escapeHtml(field.name)}"
+        <input type="date" class="ecs-field" data-field="${escapeHtml(field.name)}"
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
       `;
         }
         else if (field.type === 'datetime') {
             fieldHtml = `
-        <input type="datetime-local" class="hitl-field" data-field="${escapeHtml(field.name)}"
+        <input type="datetime-local" class="ecs-field" data-field="${escapeHtml(field.name)}"
           ${field.default ? `value="${escapeHtml(String(field.default))}"` : ''}
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
       `;
@@ -757,17 +757,17 @@ export function createHITLFormHtml(hitlRequest) {
             const defaultVal = (_d = field.default) !== null && _d !== void 0 ? _d : min;
             fieldHtml = `
         <div style="display:flex;align-items:center;gap:8px;">
-          <input type="range" class="hitl-field hitl-slider" data-field="${escapeHtml(field.name)}"
+          <input type="range" class="ecs-field ecs-slider" data-field="${escapeHtml(field.name)}"
             min="${min}" max="${max}" step="${step}" value="${defaultVal}"
             style="flex:1;">
-          <span class="hitl-slider-value" style="min-width:30px;text-align:right;font-size:11px;">${defaultVal}</span>
+          <span class="ecs-slider-value" style="min-width:30px;text-align:right;font-size:11px;">${defaultVal}</span>
         </div>
       `;
         }
         else if (field.type === 'boolean') {
             fieldHtml = `
         <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
-          <input type="checkbox" class="hitl-field hitl-boolean" data-field="${escapeHtml(field.name)}" style="margin:0;">
+          <input type="checkbox" class="ecs-field ecs-boolean" data-field="${escapeHtml(field.name)}" style="margin:0;">
           <span>${escapeHtml(field.placeholder || '是')}</span>
         </label>
       `;
@@ -775,7 +775,7 @@ export function createHITLFormHtml(hitlRequest) {
         else {
             const inputType = field.type === 'number' ? 'number' : 'text';
             fieldHtml = `
-        <input type="${inputType}" class="hitl-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
+        <input type="${inputType}" class="ecs-field" data-field="${escapeHtml(field.name)}" placeholder="${escapeHtml(field.placeholder || '')}"
           style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
       `;
         }
@@ -789,37 +789,37 @@ export function createHITLFormHtml(hitlRequest) {
       </div>
     `;
     });
-    const approveLabel = ((_d = (_c = hitlRequest.actions) === null || _c === void 0 ? void 0 : _c.approve) === null || _d === void 0 ? void 0 : _d.label) || '确认';
-    const rejectLabel = ((_f = (_e = hitlRequest.actions) === null || _e === void 0 ? void 0 : _e.reject) === null || _f === void 0 ? void 0 : _f.label) || '跳过';
+    const approveLabel = ((_d = (_c = ecsRequest.actions) === null || _c === void 0 ? void 0 : _c.approve) === null || _d === void 0 ? void 0 : _d.label) || '确认';
+    const rejectLabel = ((_f = (_e = ecsRequest.actions) === null || _e === void 0 ? void 0 : _e.reject) === null || _f === void 0 ? void 0 : _f.label) || '跳过';
     return `
-    <div class="wenko-hitl-inline" data-hitl-id="${escapeHtml(hitlRequest.id)}" data-session-id="${escapeHtml(hitlRequest.session_id)}"
+    <div class="wenko-ecs-inline" data-ecs-id="${escapeHtml(ecsRequest.id)}" data-session-id="${escapeHtml(ecsRequest.session_id)}"
       style="background:transparent;border:1px solid #e0e0e0;border-radius:8px;padding:10px;margin-top:8px;">
       <div style="font-weight:bold;font-size:12px;color:#333;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #eee;">
-        ${escapeHtml(hitlRequest.title || '请选择')}
+        ${escapeHtml(ecsRequest.title || '请选择')}
       </div>
-      ${hitlRequest.description ? `<div style="font-size:11px;color:#666;margin-bottom:8px;">${escapeHtml(hitlRequest.description)}</div>` : ''}
-      <div class="hitl-fields">
+      ${ecsRequest.description ? `<div style="font-size:11px;color:#666;margin-bottom:8px;">${escapeHtml(ecsRequest.description)}</div>` : ''}
+      <div class="ecs-fields">
         ${fieldsHtml}
       </div>
       <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:10px;padding-top:8px;border-top:1px solid #eee;">
-        <button class="hitl-btn-reject" style="padding:5px 12px;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;color:#666;">
+        <button class="ecs-btn-reject" style="padding:5px 12px;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5;color:#666;">
           ${escapeHtml(rejectLabel)}
         </button>
-        <button class="hitl-btn-approve" style="padding:5px 12px;border-radius:4px;font-size:11px;cursor:pointer;border:none;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;">
+        <button class="ecs-btn-approve" style="padding:5px 12px;border-radius:4px;font-size:11px;cursor:pointer;border:none;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;">
           ${escapeHtml(approveLabel)}
         </button>
       </div>
     </div>
   `;
 }
-function showHITLError(formContainer, errorMessage) {
+function showECSError(formContainer, errorMessage) {
     var _a;
-    const existingError = formContainer.querySelector('.hitl-error-msg');
+    const existingError = formContainer.querySelector('.ecs-error-msg');
     if (existingError) {
         existingError.remove();
     }
     const errorEl = document.createElement('div');
-    errorEl.className = 'hitl-error-msg';
+    errorEl.className = 'ecs-error-msg';
     errorEl.style.cssText = `
     color: #dc2626;
     background: #fef2f2;
@@ -849,21 +849,21 @@ function showHITLError(formContainer, errorMessage) {
         errorEl.remove();
     }, 5000);
 }
-export function bindHITLFormEvents(hitlRequest, onComplete) {
+export function bindECSFormEvents(ecsRequest, onComplete) {
     var _a, _b;
     const shadowRoot = (_a = document.getElementById('WENKO__CONTAINER-ROOT')) === null || _a === void 0 ? void 0 : _a.shadowRoot;
     if (!shadowRoot) {
-        hitlLog('BIND_EVENTS_ERROR', 'shadowRoot not found');
+        ecsLog('BIND_EVENTS_ERROR', 'shadowRoot not found');
         return;
     }
-    const formContainer = shadowRoot.querySelector(`.wenko-hitl-inline[data-hitl-id="${hitlRequest.id}"]`);
+    const formContainer = shadowRoot.querySelector(`.wenko-ecs-inline[data-ecs-id="${ecsRequest.id}"]`);
     if (!formContainer) {
-        hitlLog('BIND_EVENTS_ERROR', 'form container not found');
+        ecsLog('BIND_EVENTS_ERROR', 'form container not found');
         return;
     }
-    hitlLog('BIND_EVENTS_START', { id: hitlRequest.id });
+    ecsLog('BIND_EVENTS_START', { id: ecsRequest.id });
     const formData = {};
-    (_b = hitlRequest.fields) === null || _b === void 0 ? void 0 : _b.forEach(field => {
+    (_b = ecsRequest.fields) === null || _b === void 0 ? void 0 : _b.forEach(field => {
         var _a, _b;
         if (field.type === 'checkbox') {
             formData[field.name] = [];
@@ -875,7 +875,7 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
             formData[field.name] = (_b = (_a = field.default) !== null && _a !== void 0 ? _a : field.min) !== null && _b !== void 0 ? _b : 0;
         }
     });
-    const fields = formContainer.querySelectorAll('.hitl-field');
+    const fields = formContainer.querySelectorAll('.ecs-field');
     fields.forEach(el => {
         const fieldName = el.getAttribute('data-field');
         if (!fieldName)
@@ -883,7 +883,7 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
         if (el.tagName === 'SELECT') {
             el.onchange = () => {
                 formData[fieldName] = el.value;
-                hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+                ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
             };
         }
         else if (el.tagName === 'INPUT') {
@@ -892,15 +892,15 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
                 input.onchange = () => {
                     if (input.checked) {
                         formData[fieldName] = input.value;
-                        hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+                        ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
                     }
                 };
             }
             else if (input.type === 'checkbox') {
-                if (el.classList.contains('hitl-boolean')) {
+                if (el.classList.contains('ecs-boolean')) {
                     input.onchange = () => {
                         formData[fieldName] = input.checked;
-                        hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+                        ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
                     };
                 }
                 else {
@@ -916,7 +916,7 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
                         else {
                             formData[fieldName] = formData[fieldName].filter((v) => v !== input.value);
                         }
-                        hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+                        ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
                     };
                 }
             }
@@ -924,11 +924,11 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
                 input.oninput = () => {
                     var _a;
                     formData[fieldName] = parseFloat(input.value);
-                    const valueDisplay = (_a = el.parentElement) === null || _a === void 0 ? void 0 : _a.querySelector('.hitl-slider-value');
+                    const valueDisplay = (_a = el.parentElement) === null || _a === void 0 ? void 0 : _a.querySelector('.ecs-slider-value');
                     if (valueDisplay) {
                         valueDisplay.textContent = input.value;
                     }
-                    hitlLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
+                    ecsLog('FIELD_CHANGE', { field: fieldName, value: formData[fieldName] });
                 };
             }
             else {
@@ -943,41 +943,41 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
             };
         }
     });
-    const approveBtn = formContainer.querySelector('.hitl-btn-approve');
-    const rejectBtn = formContainer.querySelector('.hitl-btn-reject');
+    const approveBtn = formContainer.querySelector('.ecs-btn-approve');
+    const rejectBtn = formContainer.querySelector('.ecs-btn-reject');
     const handleContinuation = (continuationData) => {
         var _a;
-        hitlLog('AUTO_CONTINUATION_TRIGGERED', continuationData);
+        ecsLog('AUTO_CONTINUATION_TRIGGERED', continuationData);
         const fieldLabels = {};
-        (_a = hitlRequest.fields) === null || _a === void 0 ? void 0 : _a.forEach(field => {
+        (_a = ecsRequest.fields) === null || _a === void 0 ? void 0 : _a.forEach(field => {
             fieldLabels[field.name] = field.label;
         });
         continuationData.field_labels = fieldLabels;
-        triggerHITLContinuation(hitlRequest.session_id, continuationData, (chunk) => {
+        triggerECSContinuation(ecsRequest.session_id, continuationData, (chunk) => {
             showSSEMessage(chunk, 'wenko-chat-response');
         }, () => {
-            hitlLog('AUTO_CONTINUATION_DONE');
+            ecsLog('AUTO_CONTINUATION_DONE');
         }, (error) => {
             showSSEMessage(`<div class="wenko-chat-error">错误: ${escapeHtml(error)}</div>`, 'wenko-chat-error-msg');
-        }, (newHitlRequest) => {
-            hitlLog('CHAINED_HITL_REQUEST', { id: newHitlRequest.id, title: newHitlRequest.title });
-            const formHtml = createHITLFormHtml(newHitlRequest);
-            showSSEMessage(formHtml, 'wenko-hitl-form');
+        }, (newEcsRequest) => {
+            ecsLog('CHAINED_ECS_REQUEST', { id: newEcsRequest.id, title: newEcsRequest.title });
+            const formHtml = createECSFormHtml(newEcsRequest);
+            showSSEMessage(formHtml, 'wenko-ecs-form');
             setTimeout(() => {
-                bindHITLFormEvents(newHitlRequest, onComplete);
+                bindECSFormEvents(newEcsRequest, onComplete);
             }, 50);
         });
     };
     if (approveBtn) {
         approveBtn.onclick = async () => {
-            hitlLog('ACTION_APPROVE', { requestId: hitlRequest.id, formData });
+            ecsLog('ACTION_APPROVE', { requestId: ecsRequest.id, formData });
             approveBtn.disabled = true;
             rejectBtn.disabled = true;
             try {
-                const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'approve', formData);
+                const result = await submitECSResponse(ecsRequest.id, ecsRequest.session_id, 'approve', formData);
                 if (!result.success && result.error) {
-                    hitlLog('VALIDATION_ERROR', { error: result.error });
-                    showHITLError(formContainer, result.error);
+                    ecsLog('VALIDATION_ERROR', { error: result.error });
+                    showECSError(formContainer, result.error);
                     approveBtn.disabled = false;
                     rejectBtn.disabled = false;
                     return;
@@ -997,11 +997,11 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
     }
     if (rejectBtn) {
         rejectBtn.onclick = async () => {
-            hitlLog('ACTION_REJECT', { requestId: hitlRequest.id });
+            ecsLog('ACTION_REJECT', { requestId: ecsRequest.id });
             approveBtn.disabled = true;
             rejectBtn.disabled = true;
             try {
-                const result = await submitHITLResponse(hitlRequest.id, hitlRequest.session_id, 'reject', null);
+                const result = await submitECSResponse(ecsRequest.id, ecsRequest.session_id, 'reject', null);
                 formContainer.remove();
                 onComplete === null || onComplete === void 0 ? void 0 : onComplete({ action: 'reject', result });
                 if (result.continuation_data) {
@@ -1015,18 +1015,18 @@ export function bindHITLFormEvents(hitlRequest, onComplete) {
             }
         };
     }
-    hitlLog('BIND_EVENTS_DONE', { id: hitlRequest.id });
+    ecsLog('BIND_EVENTS_DONE', { id: ecsRequest.id });
 }
-export function triggerHITLContinuation(sessionId, continuationData, onChunk, onDone, onError, onHITL) {
-    hitlLog('CONTINUATION_START', { sessionId, continuationData });
+export function triggerECSContinuation(sessionId, continuationData, onChunk, onDone, onError, onECS) {
+    ecsLog('CONTINUATION_START', { sessionId, continuationData });
     if (isLoading) {
-        hitlLog('CONTINUATION_BLOCKED', 'Already loading');
+        ecsLog('CONTINUATION_BLOCKED', 'Already loading');
         return;
     }
     isLoading = true;
-    hitlLog('CONTINUATION_SHOW_LOADING', 'Calling showSSEMessage for loading indicator');
+    ecsLog('CONTINUATION_SHOW_LOADING', 'Calling showSSEMessage for loading indicator');
     showSSEMessage('<div class="wenko-chat-loading">AI 正在分析您的信息...</div>', 'wenko-chat-loading-msg');
-    hitlLog('CONTINUATION_SHOW_LOADING_DONE', 'showSSEMessage called');
+    ecsLog('CONTINUATION_SHOW_LOADING_DONE', 'showSSEMessage called');
     let assistantResponse = '';
     const removeLoadingIndicator = () => {
         var _a;
@@ -1036,7 +1036,7 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
             loadingEl.remove();
         }
     };
-    fetchEventSource(HITL_CONTINUE_API_URL, {
+    fetchEventSource(ECS_CONTINUE_API_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -1047,63 +1047,63 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
         }),
         openWhenHidden: true,
         onopen: async (res) => {
-            hitlLog('CONTINUATION_SSE_OPEN', { status: res.status, ok: res.ok });
+            ecsLog('CONTINUATION_SSE_OPEN', { status: res.status, ok: res.ok });
             if (res.ok)
                 return;
             const text = await res.text();
-            hitlLog('CONTINUATION_SSE_OPEN_ERROR', { status: res.status, text });
+            ecsLog('CONTINUATION_SSE_OPEN_ERROR', { status: res.status, text });
             removeLoadingIndicator();
             throw new Error(`HTTP ${res.status}: ${text}`);
         },
         onmessage: (event) => {
             var _a, _b, _c, _d, _e;
-            hitlLog('CONTINUATION_SSE_EVENT', { event: event.event, dataLen: (_a = event.data) === null || _a === void 0 ? void 0 : _a.length });
+            ecsLog('CONTINUATION_SSE_EVENT', { event: event.event, dataLen: (_a = event.data) === null || _a === void 0 ? void 0 : _a.length });
             try {
                 if (event.event === 'text') {
                     removeLoadingIndicator();
                     const data = JSON.parse(event.data);
                     if (data.type === 'text' && ((_b = data.payload) === null || _b === void 0 ? void 0 : _b.content)) {
                         assistantResponse += data.payload.content;
-                        hitlLog('CONTINUATION_TEXT_CHUNK', { contentLen: data.payload.content.length, totalLen: assistantResponse.length });
+                        ecsLog('CONTINUATION_TEXT_CHUNK', { contentLen: data.payload.content.length, totalLen: assistantResponse.length });
                         onChunk(data.payload.content);
                     }
                 }
-                else if (event.event === 'hitl') {
-                    hitlLog('CONTINUATION_HITL_EVENT', event.data);
+                else if (event.event === 'ecs') {
+                    ecsLog('CONTINUATION_ECS_EVENT', event.data);
                     const data = JSON.parse(event.data);
-                    if (data.type === 'hitl' && data.payload) {
-                        currentHITLRequest = data.payload;
-                        hitlLog('CONTINUATION_HITL_PARSED', {
-                            id: currentHITLRequest.id,
-                            title: currentHITLRequest.title,
-                            fields: (_c = currentHITLRequest.fields) === null || _c === void 0 ? void 0 : _c.length
+                    if (data.type === 'ecs' && data.payload) {
+                        currentECSRequest = data.payload;
+                        ecsLog('CONTINUATION_ECS_PARSED', {
+                            id: currentECSRequest.id,
+                            title: currentECSRequest.title,
+                            fields: (_c = currentECSRequest.fields) === null || _c === void 0 ? void 0 : _c.length
                         });
-                        onHITL === null || onHITL === void 0 ? void 0 : onHITL(currentHITLRequest);
+                        onECS === null || onECS === void 0 ? void 0 : onECS(currentECSRequest);
                     }
                 }
                 else if (event.event === 'done') {
                     if (assistantResponse) {
                         historyManager.addMessage({ role: 'assistant', content: assistantResponse });
                     }
-                    hitlLog('CONTINUATION_DONE', { responseLength: assistantResponse.length });
+                    ecsLog('CONTINUATION_DONE', { responseLength: assistantResponse.length });
                     isLoading = false;
                     onDone === null || onDone === void 0 ? void 0 : onDone();
                 }
                 else if (event.event === 'error') {
                     const data = JSON.parse(event.data);
                     const errorMsg = ((_d = data.payload) === null || _d === void 0 ? void 0 : _d.message) || '未知错误';
-                    hitlLog('CONTINUATION_ERROR', { error: errorMsg });
+                    ecsLog('CONTINUATION_ERROR', { error: errorMsg });
                     isLoading = false;
                     onError === null || onError === void 0 ? void 0 : onError(errorMsg);
                 }
             }
             catch (e) {
                 console.error('解析 continuation SSE 消息失败:', e);
-                hitlLog('CONTINUATION_PARSE_ERROR', { error: String(e), data: (_e = event.data) === null || _e === void 0 ? void 0 : _e.substring(0, 100) });
+                ecsLog('CONTINUATION_PARSE_ERROR', { error: String(e), data: (_e = event.data) === null || _e === void 0 ? void 0 : _e.substring(0, 100) });
             }
         },
         onclose: () => {
-            hitlLog('CONTINUATION_SSE_CLOSE', { isLoading, assistantResponseLength: assistantResponse.length });
+            ecsLog('CONTINUATION_SSE_CLOSE', { isLoading, assistantResponseLength: assistantResponse.length });
             removeLoadingIndicator();
             if (isLoading) {
                 if (assistantResponse) {
@@ -1115,7 +1115,7 @@ export function triggerHITLContinuation(sessionId, continuationData, onChunk, on
         },
         onerror: (err) => {
             console.error('Continuation SSE error:', err);
-            hitlLog('CONTINUATION_SSE_ERROR', { message: err.message, name: err.name });
+            ecsLog('CONTINUATION_SSE_ERROR', { message: err.message, name: err.name });
             removeLoadingIndicator();
             isLoading = false;
             onError === null || onError === void 0 ? void 0 : onError(err.message || '连接错误');
@@ -1167,7 +1167,7 @@ function fileToBase64(file) {
         reader.readAsDataURL(file);
     });
 }
-export function sendImageMessage(imageData, action = 'analyze_for_memory', onChunk, onDone, onError, onHITL) {
+export function sendImageMessage(imageData, action = 'analyze_for_memory', onChunk, onDone, onError, onECS) {
     if (isLoading)
         return;
     isLoading = true;
@@ -1199,11 +1199,11 @@ export function sendImageMessage(imageData, action = 'analyze_for_memory', onChu
                         onChunk(data.payload.content);
                     }
                 }
-                else if (event.event === 'hitl') {
+                else if (event.event === 'ecs') {
                     const data = JSON.parse(event.data);
-                    if (data.type === 'hitl' && data.payload) {
-                        currentHITLRequest = data.payload;
-                        onHITL === null || onHITL === void 0 ? void 0 : onHITL(currentHITLRequest);
+                    if (data.type === 'ecs' && data.payload) {
+                        currentECSRequest = data.payload;
+                        onECS === null || onECS === void 0 ? void 0 : onECS(currentECSRequest);
                     }
                 }
                 else if (event.event === 'done') {

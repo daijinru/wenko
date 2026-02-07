@@ -14,7 +14,7 @@ export interface Settings {
   // 系统开关
   'system.memory_enabled': boolean;
   'system.emotion_enabled': boolean;
-  'system.hitl_enabled': boolean;
+  'system.ecs_enabled': boolean;
   'system.intent_recognition_enabled': boolean;
   'system.emotion_confidence_threshold': number;
   // 提醒设置

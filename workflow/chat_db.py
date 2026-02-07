@@ -39,7 +39,7 @@ _DEFAULT_SETTINGS = {
     # 系统开关
     "system.memory_enabled": ("true", "boolean", "启用记忆系统"),
     "system.emotion_enabled": ("true", "boolean", "启用情绪系统"),
-    "system.hitl_enabled": ("true", "boolean", "启用 HITL (人机交互) 系统"),
+    "system.ecs_enabled": ("true", "boolean", "启用 ECS (外部化认知步骤) 系统"),
     "system.intent_recognition_enabled": ("true", "boolean", "启用意图识别系统"),
     "system.emotion_confidence_threshold": ("0.5", "number", "情绪识别置信度阈值"),
     # 提醒设置
@@ -272,9 +272,25 @@ def init_database() -> None:
             # Initialize default settings
             _initialize_default_settings(conn)
 
+            # Migrate old system.hitl_enabled key to system.ecs_enabled
+            cursor = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?",
+                ("system.hitl_enabled",)
+            )
+            old_row = cursor.fetchone()
+            if old_row is not None:
+                conn.execute(
+                    "UPDATE app_settings SET value = ? WHERE key = ?",
+                    (old_row["value"], "system.ecs_enabled")
+                )
+                conn.execute(
+                    "DELETE FROM app_settings WHERE key = ?",
+                    ("system.hitl_enabled",)
+                )
+
         # ============ V6: Graph Checkpoints ============
         if current_version < 6:
-            # Create graph_checkpoints table for HITL state persistence
+            # Create graph_checkpoints table for ECS state persistence
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS graph_checkpoints (
                     session_id TEXT PRIMARY KEY,

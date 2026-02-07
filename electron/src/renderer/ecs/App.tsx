@@ -1,10 +1,10 @@
-import { useHITLWindow } from './hooks/use-hitl-window';
-import { HITLForm } from './components/hitl-form';
-import { HITLActions } from './components/hitl-actions';
-import { HITLDisplay } from './components/hitl-display';
-import { HITLDisplayActions } from './components/hitl-display-actions';
-import { isDisplayRequest } from './types/hitl';
-import type { HITLDisplayRequest } from './types/hitl';
+import { useECSWindow } from './hooks/use-ecs-window';
+import { ECSForm } from './components/ecs-form';
+import { ECSActions } from './components/ecs-actions';
+import { ECSDisplay } from './components/ecs-display';
+import { ECSDisplayActions } from './components/ecs-display-actions';
+import { isDisplayRequest } from './types/ecs';
+import type { ECSDisplayRequest } from './types/ecs';
 import './styles/globals.css';
 import 'classic-stylesheets/layout.css';
 import 'classic-stylesheets/themes/macos9/theme.css';
@@ -19,7 +19,7 @@ export default function App() {
     isLoaded,
     updateField,
     submit,
-  } = useHITLWindow();
+  } = useECSWindow();
 
   if (!isLoaded) {
     return (
@@ -45,30 +45,30 @@ export default function App() {
       <div className="window active flex-1 flex flex-col">
         {/* Title bar */}
         <header className="window-draggable bg-classic-title border-b border-border !p-[6px] !mb-[6px] flex justify-between items-center">
-          <h1 className="flex-1 text-center text-xs font-bold">{request.title || 'HITL'}</h1>
+          <h1 className="flex-1 text-center text-xs font-bold">{request.title || 'ECS'}</h1>
         </header>
 
         {/* Content */}
         <div className="!p-[12px] window-body flex-1 flex flex-col overflow-hidden">
           {isDisplay ? (
             <>
-              <HITLDisplay request={request as HITLDisplayRequest} />
-              {/* <HITLDisplayActions
-                dismissLabel={(request as HITLDisplayRequest).dismiss_label}
+              <ECSDisplay request={request as ECSDisplayRequest} />
+              {/* <ECSDisplayActions
+                dismissLabel={(request as ECSDisplayRequest).dismiss_label}
                 onDismiss={() => submit('reject')}
                 isSubmitting={isSubmitting}
               /> */}
             </>
           ) : (
             <>
-              <HITLForm
+              <ECSForm
                 request={request}
                 formData={formData}
                 onFieldChange={updateField}
                 error={error}
                 readonly={request.readonly}
               />
-              <HITLActions
+              <ECSActions
                 actions={request.actions}
                 isSubmitting={isSubmitting}
                 onApprove={() => submit('approve')}

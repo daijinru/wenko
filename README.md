@@ -10,7 +10,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-Frontend-61DAFB)](https://reactjs.org/)
 
-![HITL](./docs/Snipaste_2026-01-21.png)
+![ECS](./docs/Snipaste_2026-01-21.png)
 ![Memory Management](./docs/Snipaste_2026-01-20.png)
 ![Plan Reminder](./docs/plan-reminder.png)
 
@@ -22,7 +22,7 @@ Unlike standard AI tools, Wenko:
 - **Remembers** your preferences and past conversations (Long-term Memory).
 - **Understands** the context of your current work (Working Memory).
 - **Reacts** with emotions, changing its expression based on the conversation.
-- **Collaborates** with you through Human-in-the-Loop (HITL) workflows.
+- **Collaborates** with you through Externalized Cognitive Step (ECS) workflows.
 
 ## ✨ Key Features
 
@@ -39,7 +39,7 @@ Unlike standard AI tools, Wenko:
   - Supports custom Live2D models (Cubism 2/5).
   - Touch and gaze interactions.
 
-- **🤝 Human-in-the-Loop (HITL)**
+- **🤝 Externalized Cognitive Step (ECS)**
   - Collaborative workflows where the AI proposes actions and you approve/edit them.
   - Perfect for complex tasks requiring human oversight.
   - Supports readonly replay mode for reviewing past decisions.
@@ -100,7 +100,7 @@ Unlike standard AI tools, Wenko:
 │   ├── src/                     # Renderer Process (React)
 │   │   └── renderer/
 │   │       ├── workflow/        # Memory Management UI
-│   │       ├── hitl/            # Human-in-the-Loop UI
+│   │       ├── ecs/             # Externalized Cognitive Step UI
 │   │       └── image-preview/   # Image Preview & Analysis UI
 │   └── live2d/live2d-widget/    # Live2D Widget Implementation
 ├── workflow/                    # Python Backend Service
@@ -116,7 +116,7 @@ Unlike standard AI tools, Wenko:
 | Module | Description |
 |--------|-------------|
 | **workflow/** | Memory management system UI. Contains three tabs: Chat History, Working Memory, Long-term Memory. Used to view and manage AI's conversation records and memory data. |
-| **hitl/** | Human-in-the-Loop collaboration UI. Pops up when AI needs human review, allowing users to approve or reject AI operation requests. Supports readonly replay mode and visual display for structured content. |
+| **ecs/** | Externalized Cognitive Step collaboration UI. Pops up when AI needs human review, allowing users to approve or reject AI operation requests. Supports readonly replay mode and visual display for structured content. |
 | **image-preview/** | Image preview and analysis UI. Supports pasting images for OCR text extraction, and saving results to Long-term Memory. |
 
 ## 🚀 Getting Started

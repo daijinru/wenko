@@ -1,6 +1,6 @@
-"""HITL Handler Module
+"""ECS Handler Module
 
-Handles HITL request processing, state management, and memory integration.
+Handles ECS request processing, state management, and memory integration.
 """
 
 import logging
@@ -11,14 +11,14 @@ from typing import Any, Dict, Optional, Union
 import memory_manager
 from enum import Enum
 
-from hitl_schema import (
-    HITLAction,
-    HITLContinuationData,
-    HITLDisplayRequest,
-    HITLRequest,
-    HITLResponseData,
-    HITLResponseResult,
-    parse_hitl_request_from_dict,
+from ecs_schema import (
+    ECSAction,
+    ECSContinuationData,
+    ECSDisplayRequest,
+    ECSRequest,
+    ECSResponseData,
+    ECSResponseResult,
+    parse_ecs_request_from_dict,
 )
 
 
@@ -30,54 +30,54 @@ class ComplexityLevel(Enum):
 
 logger = logging.getLogger(__name__)
 
-# In-memory storage for pending HITL requests
-# Key: request_id, Value: (HITLRequest, session_id, expires_at)
+# In-memory storage for pending ECS requests
+# Key: request_id, Value: (ECSRequest, session_id, expires_at)
 _pending_requests: Dict[str, tuple] = {}
 _lock = Lock()
 
 
-def store_hitl_request(request: Union[HITLRequest, Dict[str, Any]], session_id: str) -> None:
-    """Store a pending HITL request.
+def store_ecs_request(request: Union[ECSRequest, Dict[str, Any]], session_id: str) -> None:
+    """Store a pending ECS request.
 
     Args:
-        request: The HITL request to store (HITLRequest object or dict)
+        request: The ECS request to store (ECSRequest object or dict)
         session_id: Associated session ID
     """
-    # Convert dict to HITLRequest if needed
+    # Convert dict to ECSRequest if needed
     if isinstance(request, dict):
-        parsed = parse_hitl_request_from_dict(request)
+        parsed = parse_ecs_request_from_dict(request)
         if parsed is None:
-            logger.error(f"[HITL] Failed to parse dict as HITLRequest: {list(request.keys())}")
+            logger.error(f"[ECS] Failed to parse dict as ECSRequest: {list(request.keys())}")
             return
         request = parsed
 
     expires_at = datetime.now() + timedelta(seconds=request.ttl_seconds)
     with _lock:
         _pending_requests[request.id] = (request, session_id, expires_at)
-    logger.info(f"[HITL] Stored request {request.id} for session {session_id[:8]}...")
+    logger.info(f"[ECS] Stored request {request.id} for session {session_id[:8]}...")
 
 
-def store_display_request(request: HITLDisplayRequest, session_id: str) -> None:
-    """Store a pending HITL visual display request.
+def store_display_request(request: ECSDisplayRequest, session_id: str) -> None:
+    """Store a pending ECS visual display request.
 
     Args:
-        request: The HITL display request to store
+        request: The ECS display request to store
         session_id: Associated session ID
     """
     expires_at = datetime.now() + timedelta(seconds=request.ttl_seconds)
     with _lock:
         _pending_requests[request.id] = (request, session_id, expires_at)
-    logger.info(f"[HITL] Stored display request {request.id} for session {session_id[:8]}...")
+    logger.info(f"[ECS] Stored display request {request.id} for session {session_id[:8]}...")
 
 
-def get_hitl_request(request_id: str) -> Optional[tuple]:
-    """Get a pending HITL request.
+def get_ecs_request(request_id: str) -> Optional[tuple]:
+    """Get a pending ECS request.
 
     Args:
         request_id: The request ID to look up
 
     Returns:
-        Tuple of (HITLRequest, session_id, expires_at) or None if not found/expired
+        Tuple of (ECSRequest, session_id, expires_at) or None if not found/expired
     """
     with _lock:
         if request_id not in _pending_requests:
@@ -88,14 +88,14 @@ def get_hitl_request(request_id: str) -> Optional[tuple]:
         # Check expiration
         if datetime.now() > expires_at:
             del _pending_requests[request_id]
-            logger.info(f"[HITL] Request {request_id} expired")
+            logger.info(f"[ECS] Request {request_id} expired")
             return None
 
         return (request, session_id, expires_at)
 
 
-def remove_hitl_request(request_id: str) -> bool:
-    """Remove a HITL request from storage.
+def remove_ecs_request(request_id: str) -> bool:
+    """Remove a ECS request from storage.
 
     Args:
         request_id: The request ID to remove
@@ -128,84 +128,84 @@ def cleanup_expired_requests() -> int:
             del _pending_requests[request_id]
 
     if expired:
-        logger.info(f"[HITL] Cleaned up {len(expired)} expired requests")
+        logger.info(f"[ECS] Cleaned up {len(expired)} expired requests")
 
     return len(expired)
 
 
-def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
-    """Process user response to a HITL request.
+def process_ecs_response(response: ECSResponseData) -> ECSResponseResult:
+    """Process user response to a ECS request.
 
     Args:
         response: The user's response data
 
     Returns:
-        HITLResponseResult indicating success/failure and next action
+        ECSResponseResult indicating success/failure and next action
     """
-    logger.info(f"[HITL] ========== process_hitl_response START ==========")
-    logger.info(f"[HITL] request_id: {response.request_id}")
-    logger.info(f"[HITL] session_id: {response.session_id[:8]}...")
-    logger.info(f"[HITL] action: {response.action}")
-    logger.info(f"[HITL] data: {response.data}")
+    logger.info(f"[ECS] ========== process_ecs_response START ==========")
+    logger.info(f"[ECS] request_id: {response.request_id}")
+    logger.info(f"[ECS] session_id: {response.session_id[:8]}...")
+    logger.info(f"[ECS] action: {response.action}")
+    logger.info(f"[ECS] data: {response.data}")
 
     # Get the original request
-    request_data = get_hitl_request(response.request_id)
+    request_data = get_ecs_request(response.request_id)
 
     if request_data is None:
-        logger.info(f"[HITL] ERROR: request not found or expired")
-        return HITLResponseResult(
+        logger.info(f"[ECS] ERROR: request not found or expired")
+        return ECSResponseResult(
             success=False,
             next_action="complete",
             error="请求已过期或不存在",
         )
 
     request, session_id, _ = request_data
-    logger.info(f"[HITL] original request.type: {request.type}")
-    logger.info(f"[HITL] original request.context: intent={request.context.intent if request.context else None}, memory_category={request.context.memory_category if request.context else None}")
+    logger.info(f"[ECS] original request.type: {request.type}")
+    logger.info(f"[ECS] original request.context: intent={request.context.intent if request.context else None}, memory_category={request.context.memory_category if request.context else None}")
 
     # Verify session ID matches
     if session_id != response.session_id:
-        logger.info(f"[HITL] ERROR: session mismatch")
-        return HITLResponseResult(
+        logger.info(f"[ECS] ERROR: session mismatch")
+        return ECSResponseResult(
             success=False,
             next_action="complete",
             error="会话不匹配",
         )
 
     # Handle visual_display type (dismiss only)
-    if isinstance(request, HITLDisplayRequest):
-        logger.info(f"[HITL] -> handling visual_display type")
+    if isinstance(request, ECSDisplayRequest):
+        logger.info(f"[ECS] -> handling visual_display type")
         return _process_display_dismiss(request, session_id, response.request_id)
 
     # Build field labels mapping for continuation context
     field_labels = {field.name: field.label for field in request.fields}
 
     # Handle based on action
-    if response.action == HITLAction.REJECT:
-        logger.info(f"[HITL] -> user REJECTED")
+    if response.action == ECSAction.REJECT:
+        logger.info(f"[ECS] -> user REJECTED")
         # User rejected, build continuation data
-        remove_hitl_request(response.request_id)
-        logger.info(f"[HITL] User rejected request {response.request_id}")
-        continuation_data = HITLContinuationData(
+        remove_ecs_request(response.request_id)
+        logger.info(f"[ECS] User rejected request {response.request_id}")
+        continuation_data = ECSContinuationData(
             request_title=request.title,
             action="reject",
             form_data=None,
             field_labels=field_labels,
         )
-        return HITLResponseResult(
+        return ECSResponseResult(
             success=True,
             next_action="continue",
             message="已跳过",
             continuation_data=continuation_data,
         )
 
-    if response.action in (HITLAction.APPROVE, HITLAction.EDIT):
+    if response.action in (ECSAction.APPROVE, ECSAction.EDIT):
         # Process the form data
         result = _process_form_data(request, response.data, session_id)
-        remove_hitl_request(response.request_id)
+        remove_ecs_request(response.request_id)
         # Add continuation data to result
         if result.success:
-            result.continuation_data = HITLContinuationData(
+            result.continuation_data = ECSContinuationData(
                 request_title=request.title,
                 action="approve",
                 form_data=response.data,
@@ -213,7 +213,7 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
             )
         return result
 
-    return HITLResponseResult(
+    return ECSResponseResult(
         success=False,
         next_action="complete",
         error="未知操作",
@@ -221,10 +221,10 @@ def process_hitl_response(response: HITLResponseData) -> HITLResponseResult:
 
 
 def _process_display_dismiss(
-    request: HITLDisplayRequest,
+    request: ECSDisplayRequest,
     session_id: str,
     request_id: str,
-) -> HITLResponseResult:
+) -> ECSResponseResult:
     """Process dismiss action for visual display request.
 
     Args:
@@ -233,17 +233,17 @@ def _process_display_dismiss(
         request_id: Request ID
 
     Returns:
-        HITLResponseResult indicating success
+        ECSResponseResult indicating success
     """
     # Persist display to working memory before removing
     _persist_display_to_working_memory(request, session_id)
 
     # Remove the request
-    remove_hitl_request(request_id)
-    logger.info(f"[HITL] User dismissed display request {request_id}")
+    remove_ecs_request(request_id)
+    logger.info(f"[ECS] User dismissed display request {request_id}")
 
     # Visual display doesn't trigger continuation
-    return HITLResponseResult(
+    return ECSResponseResult(
         success=True,
         next_action="complete",
         message="已关闭",
@@ -251,24 +251,24 @@ def _process_display_dismiss(
 
 
 def _process_form_data(
-    request: HITLRequest,
+    request: ECSRequest,
     data: Optional[Dict[str, Any]],
     session_id: str,
-) -> HITLResponseResult:
+) -> ECSResponseResult:
     """Process form data from user response.
 
     Args:
-        request: Original HITL request
+        request: Original ECS request
         data: Form data from user
         session_id: Session ID
 
     Returns:
-        HITLResponseResult
+        ECSResponseResult
     """
-    logger.info(f"[HITL] ---- _process_form_data START ----")
-    logger.info(f"[HITL] request.type: {request.type}")
-    logger.info(f"[HITL] request.context: {request.context}")
-    logger.info(f"[HITL] form data: {data}")
+    logger.info(f"[ECS] ---- _process_form_data START ----")
+    logger.info(f"[ECS] request.type: {request.type}")
+    logger.info(f"[ECS] request.context: {request.context}")
+    logger.info(f"[ECS] form data: {data}")
 
     if data is None:
         data = {}
@@ -276,8 +276,8 @@ def _process_form_data(
     # Validate required fields
     for field in request.fields:
         if field.required and field.name not in data:
-            logger.info(f"[HITL] ERROR: required field missing: {field.name}")
-            return HITLResponseResult(
+            logger.info(f"[ECS] ERROR: required field missing: {field.name}")
+            return ECSResponseResult(
                 success=False,
                 next_action="continue",
                 error=f"必填字段 '{field.label}' 未填写",
@@ -287,25 +287,25 @@ def _process_form_data(
     # Image types must be checked first - they have their own save logic
     # that respects user's category selection from the form
     if request.type in ("image_memory_confirm", "image_plan_confirm"):
-        logger.info(f"[HITL] -> matched image type, calling _save_image_memory")
-        logger.info(f"[HITL]    user selected category: {data.get('category', 'NOT SET')}")
+        logger.info(f"[ECS] -> matched image type, calling _save_image_memory")
+        logger.info(f"[ECS]    user selected category: {data.get('category', 'NOT SET')}")
         _save_image_memory(request, data, session_id)
     elif request.context and request.context.intent == "collect_preference":
-        logger.info(f"[HITL] -> matched collect_preference, calling _save_to_memory")
+        logger.info(f"[ECS] -> matched collect_preference, calling _save_to_memory")
         _save_to_memory(request, data, session_id)
     elif request.context and request.context.intent == "collect_plan":
-        logger.info(f"[HITL] -> matched collect_plan, calling _save_plan")
+        logger.info(f"[ECS] -> matched collect_plan, calling _save_plan")
         _save_plan(request, data, session_id)
     else:
-        logger.info(f"[HITL] -> no matching handler, data not saved to memory")
+        logger.info(f"[ECS] -> no matching handler, data not saved to memory")
 
     # Persist form data to working memory for session context continuity
     _persist_to_working_memory(request, data, session_id)
 
-    logger.info(f"[HITL] ---- _process_form_data END ----")
-    logger.info(f"[HITL] Processed form data for request {request.id}")
+    logger.info(f"[ECS] ---- _process_form_data END ----")
+    logger.info(f"[ECS] Processed form data for request {request.id}")
 
-    return HITLResponseResult(
+    return ECSResponseResult(
         success=True,
         next_action="continue",
         message="已保存",
@@ -317,17 +317,17 @@ MAX_CONTEXT_VARIABLES_SIZE = 64 * 1024  # 64KB
 
 
 def _persist_to_working_memory(
-    request: HITLRequest,
+    request: ECSRequest,
     data: Dict[str, Any],
     session_id: str,
 ) -> None:
-    """Persist HITL form data to working memory for session context continuity.
+    """Persist ECS form data to working memory for session context continuity.
 
     This ensures that form submissions are available in subsequent conversations
     within the same session.
 
     Args:
-        request: Original HITL request
+        request: Original ECS request
         data: Form data to persist
         session_id: Session ID
     """
@@ -371,7 +371,7 @@ def _persist_to_working_memory(
             fields_def.append(field_dict)
 
         # Store under a key based on request title
-        ctx_key = f"hitl_{request.title}"
+        ctx_key = f"ecs_{request.title}"
         updated_ctx[ctx_key] = {
             "fields": labeled_data,
             "fields_def": fields_def,  # Store original field definitions for replay
@@ -384,29 +384,29 @@ def _persist_to_working_memory(
         if len(ctx_json.encode('utf-8')) > MAX_CONTEXT_VARIABLES_SIZE:
             # Remove oldest entries to make room (LRU eviction)
             updated_ctx = _evict_oldest_context_entries(updated_ctx, ctx_key)
-            logger.warning(f"[HITL] Context variables exceeded size limit, evicted oldest entries")
+            logger.warning(f"[ECS] Context variables exceeded size limit, evicted oldest entries")
 
         # Update working memory
         memory_manager.update_working_memory(
             session_id,
             context_variables=updated_ctx,
         )
-        logger.info(f"[HITL] Persisted form data to working memory: {ctx_key}")
+        logger.info(f"[ECS] Persisted form data to working memory: {ctx_key}")
 
     except Exception as e:
-        logger.warning(f"[HITL] Failed to persist to working memory: {e}")
+        logger.warning(f"[ECS] Failed to persist to working memory: {e}")
 
 
 def _persist_display_to_working_memory(
-    request: HITLDisplayRequest,
+    request: ECSDisplayRequest,
     session_id: str,
 ) -> None:
-    """Persist HITL visual display data to working memory for session context continuity.
+    """Persist ECS visual display data to working memory for session context continuity.
 
     This ensures that visual displays are available for replay in subsequent sessions.
 
     Args:
-        request: Original HITL display request
+        request: Original ECS display request
         session_id: Session ID
     """
     import json
@@ -425,7 +425,7 @@ def _persist_display_to_working_memory(
             })
 
         # Store under a key based on request title
-        ctx_key = f"hitl_{request.title}"
+        ctx_key = f"ecs_{request.title}"
         updated_ctx[ctx_key] = {
             "type": "visual_display",
             "displays": displays_def,
@@ -438,17 +438,17 @@ def _persist_display_to_working_memory(
         if len(ctx_json.encode('utf-8')) > MAX_CONTEXT_VARIABLES_SIZE:
             # Remove oldest entries to make room (LRU eviction)
             updated_ctx = _evict_oldest_context_entries(updated_ctx, ctx_key)
-            logger.warning(f"[HITL] Context variables exceeded size limit, evicted oldest entries")
+            logger.warning(f"[ECS] Context variables exceeded size limit, evicted oldest entries")
 
         # Update working memory
         memory_manager.update_working_memory(
             session_id,
             context_variables=updated_ctx,
         )
-        logger.info(f"[HITL] Persisted display data to working memory: {ctx_key}")
+        logger.info(f"[ECS] Persisted display data to working memory: {ctx_key}")
 
     except Exception as e:
-        logger.warning(f"[HITL] Failed to persist display to working memory: {e}")
+        logger.warning(f"[ECS] Failed to persist display to working memory: {e}")
 
 
 def _evict_oldest_context_entries(
@@ -491,43 +491,43 @@ def _evict_oldest_context_entries(
 
 
 def _save_image_memory(
-    request: HITLRequest,
+    request: ECSRequest,
     data: Dict[str, Any],
     session_id: str,
 ) -> None:
     """Save image-extracted memory to long-term memory.
 
-    Handles the image_memory_confirm HITL type with fields: key, value, category.
+    Handles the image_memory_confirm ECS type with fields: key, value, category.
     If user changed category to 'plan', delegates to _save_image_plan.
 
     Args:
-        request: Original HITL request
+        request: Original ECS request
         data: Form data containing key, value, category
         session_id: Session ID
     """
-    logger.info(f"[HITL] ---- _save_image_memory START ----")
+    logger.info(f"[ECS] ---- _save_image_memory START ----")
     try:
         key = data.get("key", "")
         value = data.get("value", "")
         category = data.get("category", "fact")
 
-        logger.info(f"[HITL] key: {key[:50] if key else 'EMPTY'}...")
-        logger.info(f"[HITL] value length: {len(value) if value else 0}")
-        logger.info(f"[HITL] category: {category}")
+        logger.info(f"[ECS] key: {key[:50] if key else 'EMPTY'}...")
+        logger.info(f"[ECS] value length: {len(value) if value else 0}")
+        logger.info(f"[ECS] category: {category}")
 
         if not key or not value:
-            logger.info(f"[HITL] ERROR: missing required fields (key={bool(key)}, value={bool(value)})")
-            logger.warning("[HITL] Image memory form missing required fields")
+            logger.info(f"[ECS] ERROR: missing required fields (key={bool(key)}, value={bool(value)})")
+            logger.warning("[ECS] Image memory form missing required fields")
             return
 
         # If user changed category to 'plan', delegate to plan handler
         if category == "plan":
-            logger.info(f"[HITL] -> category is 'plan', delegating to _save_image_plan")
-            logger.info(f"[HITL] User changed category to 'plan', delegating to plan handler")
+            logger.info(f"[ECS] -> category is 'plan', delegating to _save_image_plan")
+            logger.info(f"[ECS] User changed category to 'plan', delegating to plan handler")
             _save_image_plan(request, data, session_id)
             return
 
-        logger.info(f"[HITL] -> saving as memory entry with category: {category}")
+        logger.info(f"[ECS] -> saving as memory entry with category: {category}")
         memory_manager.create_memory_entry(
             category=category,
             key=key,
@@ -536,33 +536,33 @@ def _save_image_memory(
             confidence=0.9,
             source="image_extraction",
         )
-        logger.info(f"[HITL] -> SUCCESS: saved memory entry [{category}] {key[:30]}...")
-        logger.info(f"[HITL] Saved image memory: [{category}] {key}")
+        logger.info(f"[ECS] -> SUCCESS: saved memory entry [{category}] {key[:30]}...")
+        logger.info(f"[ECS] Saved image memory: [{category}] {key}")
 
     except Exception as e:
-        logger.info(f"[HITL] ERROR: exception in _save_image_memory: {e}")
-        logger.warning(f"[HITL] Failed to save image memory: {e}")
+        logger.info(f"[ECS] ERROR: exception in _save_image_memory: {e}")
+        logger.warning(f"[ECS] Failed to save image memory: {e}")
     finally:
-        logger.info(f"[HITL] ---- _save_image_memory END ----")
+        logger.info(f"[ECS] ---- _save_image_memory END ----")
 
 
 def _save_image_plan(
-    request: HITLRequest,
+    request: ECSRequest,
     data: Dict[str, Any],
     session_id: str,
 ) -> None:
     """Save image-extracted plan to long-term memory.
 
-    Handles the image_plan_confirm HITL type with fields:
+    Handles the image_plan_confirm ECS type with fields:
     key, value, category, target_time, location, participants.
     If user changed category to non-plan type, delegates to _save_image_memory.
 
     Args:
-        request: Original HITL request
+        request: Original ECS request
         data: Form data containing plan fields
         session_id: Session ID
     """
-    logger.info(f"[HITL] ---- _save_image_plan START ----")
+    logger.info(f"[ECS] ---- _save_image_plan START ----")
     try:
         category = data.get("category", "plan")
         title = data.get("key", "")
@@ -571,22 +571,22 @@ def _save_image_plan(
         location = data.get("location", "")
         participants = data.get("participants", "")
 
-        logger.info(f"[HITL] category: {category}")
-        logger.info(f"[HITL] title: {title[:50] if title else 'EMPTY'}...")
-        logger.info(f"[HITL] target_time_str: {target_time_str or 'EMPTY'}")
-        logger.info(f"[HITL] location: {location or 'EMPTY'}")
-        logger.info(f"[HITL] participants: {participants or 'EMPTY'}")
+        logger.info(f"[ECS] category: {category}")
+        logger.info(f"[ECS] title: {title[:50] if title else 'EMPTY'}...")
+        logger.info(f"[ECS] target_time_str: {target_time_str or 'EMPTY'}")
+        logger.info(f"[ECS] location: {location or 'EMPTY'}")
+        logger.info(f"[ECS] participants: {participants or 'EMPTY'}")
 
         # If user changed category to non-plan type, delegate to memory handler
         if category != "plan":
-            logger.info(f"[HITL] -> category is NOT 'plan', delegating to _save_image_memory")
-            logger.info(f"[HITL] User changed category to '{category}', delegating to memory handler")
+            logger.info(f"[ECS] -> category is NOT 'plan', delegating to _save_image_memory")
+            logger.info(f"[ECS] User changed category to '{category}', delegating to memory handler")
             _save_image_memory(request, data, session_id)
             return
 
         if not title:
-            logger.info(f"[HITL] ERROR: title is required but empty")
-            logger.warning("[HITL] Image plan form missing required title field")
+            logger.info(f"[ECS] ERROR: title is required but empty")
+            logger.warning("[ECS] Image plan form missing required title field")
             return
 
         # Build description with location and participants
@@ -600,17 +600,17 @@ def _save_image_plan(
         # Parse target datetime, use default if not provided
         # (e.g., when user changed category from non-plan to plan)
         if target_time_str:
-            logger.info(f"[HITL] -> parsing target_time from string: {target_time_str}")
+            logger.info(f"[ECS] -> parsing target_time from string: {target_time_str}")
             target_time = datetime.fromisoformat(target_time_str.replace("Z", "+00:00"))
         else:
             # Default to tomorrow 9:00 AM if target_time not provided
             tomorrow = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
             tomorrow = tomorrow + timedelta(days=1)
             target_time = tomorrow
-            logger.info(f"[HITL] -> no target_time provided, using default: {target_time}")
-            logger.info(f"[HITL] No target_time provided, using default: {target_time}")
+            logger.info(f"[ECS] -> no target_time provided, using default: {target_time}")
+            logger.info(f"[ECS] No target_time provided, using default: {target_time}")
 
-        logger.info(f"[HITL] -> creating plan: title={title[:30]}..., target_time={target_time}")
+        logger.info(f"[ECS] -> creating plan: title={title[:30]}..., target_time={target_time}")
         # Create the plan
         plan = memory_manager.create_plan(
             title=title,
@@ -621,30 +621,30 @@ def _save_image_plan(
             repeat_type="none",
         )
 
-        logger.info(f"[HITL] -> SUCCESS: created plan id={plan.id}")
-        logger.info(f"[HITL] Created image plan: {plan.id} - {title} at {target_time}")
+        logger.info(f"[ECS] -> SUCCESS: created plan id={plan.id}")
+        logger.info(f"[ECS] Created image plan: {plan.id} - {title} at {target_time}")
 
     except Exception as e:
-        logger.info(f"[HITL] ERROR: exception in _save_image_plan: {e}")
+        logger.info(f"[ECS] ERROR: exception in _save_image_plan: {e}")
         import traceback
         traceback.print_exc()
-        logger.warning(f"[HITL] Failed to create image plan: {e}")
+        logger.warning(f"[ECS] Failed to create image plan: {e}")
     finally:
-        logger.info(f"[HITL] ---- _save_image_plan END ----")
+        logger.info(f"[ECS] ---- _save_image_plan END ----")
 
 
 def _save_plan(
-    request: HITLRequest,
+    request: ECSRequest,
     data: Dict[str, Any],
     session_id: str,
 ) -> None:
-    """Save HITL plan form data as a plan entry in long_term_memory.
+    """Save ECS plan form data as a plan entry in long_term_memory.
 
     Plans are stored as memory entries with category='plan' and time-specific
     fields (target_time, reminder_offset_minutes, repeat_type, etc.)
 
     Args:
-        request: Original HITL request
+        request: Original ECS request
         data: Form data containing plan fields
         session_id: Session ID
     """
@@ -657,7 +657,7 @@ def _save_plan(
         repeat_type = data.get("repeat_type", "none")
 
         if not title or not target_datetime_str:
-            logger.warning("[HITL] Plan form missing required fields")
+            logger.warning("[ECS] Plan form missing required fields")
             return
 
         # Parse target datetime
@@ -673,21 +673,21 @@ def _save_plan(
             repeat_type=repeat_type,
         )
 
-        logger.info(f"[HITL] Created plan in long_term_memory: {plan.id} - {title} at {target_time}")
+        logger.info(f"[ECS] Created plan in long_term_memory: {plan.id} - {title} at {target_time}")
 
     except Exception as e:
-        logger.warning(f"[HITL] Failed to create plan: {e}")
+        logger.warning(f"[ECS] Failed to create plan: {e}")
 
 
 def _save_to_memory(
-    request: HITLRequest,
+    request: ECSRequest,
     data: Dict[str, Any],
     session_id: str,
 ) -> None:
-    """Save HITL form data to long-term memory.
+    """Save ECS form data to long-term memory.
 
     Args:
-        request: Original HITL request
+        request: Original ECS request
         data: Form data to save
         session_id: Session ID
     """
@@ -715,21 +715,21 @@ def _save_to_memory(
                     value=value,
                     session_id=session_id,
                     confidence=0.9,
-                    source="hitl_form",
+                    source="ecs_form",
                 )
-                logger.info(f"[HITL] Saved memory: [{category}] {field.label}: {value}")
+                logger.info(f"[ECS] Saved memory: [{category}] {field.label}: {value}")
             except Exception as e:
-                logger.warning(f"[HITL] Failed to save memory: {e}")
+                logger.warning(f"[ECS] Failed to save memory: {e}")
 
 
-def extract_hitl_from_llm_response(response_text: str) -> Optional[Union[HITLRequest, HITLDisplayRequest]]:
-    """Extract HITL request from LLM JSON response.
+def extract_ecs_from_llm_response(response_text: str) -> Optional[Union[ECSRequest, ECSDisplayRequest]]:
+    """Extract ECS request from LLM JSON response.
 
     Args:
         response_text: Raw LLM response text (should be JSON)
 
     Returns:
-        HITLRequest or HITLDisplayRequest if found and valid, None otherwise
+        ECSRequest or ECSDisplayRequest if found and valid, None otherwise
     """
     import json
 
@@ -747,32 +747,32 @@ def extract_hitl_from_llm_response(response_text: str) -> Optional[Union[HITLReq
         data = json.loads(json_text.strip())
 
         # Debug: print all top-level keys in the response
-        logger.info(f"[HITL] LLM response keys: {list(data.keys())}")
+        logger.info(f"[ECS] LLM response keys: {list(data.keys())}")
 
-        if "hitl_request" not in data:
-            logger.info(f"[HITL] No hitl_request found. Response preview: {response_text[:300]}...")
+        if "ecs_request" not in data:
+            logger.info(f"[ECS] No ecs_request found. Response preview: {response_text[:300]}...")
             return None
 
-        hitl_data = data["hitl_request"]
-        hitl_type = hitl_data.get("type", "form")
-        logger.info(f"[HITL] Found hitl_request, type={hitl_type}")
-        logger.info(f"[HITL] Raw hitl_request: {json.dumps(hitl_data, ensure_ascii=False)[:500]}")
+        ecs_data = data["ecs_request"]
+        ecs_type = ecs_data.get("type", "form")
+        logger.info(f"[ECS] Found ecs_request, type={ecs_type}")
+        logger.info(f"[ECS] Raw ecs_request: {json.dumps(ecs_data, ensure_ascii=False)[:500]}")
 
-        result = parse_hitl_request_from_dict(data["hitl_request"])
+        result = parse_ecs_request_from_dict(data["ecs_request"])
 
         if result:
-            logger.info(f"[HITL] Successfully parsed: id={result.id}, type={result.type}, title={result.title}")
+            logger.info(f"[ECS] Successfully parsed: id={result.id}, type={result.type}, title={result.title}")
         else:
-            logger.info(f"[HITL] Failed to parse hitl_request: {json.dumps(hitl_data, ensure_ascii=False)[:200]}")
+            logger.info(f"[ECS] Failed to parse ecs_request: {json.dumps(ecs_data, ensure_ascii=False)[:200]}")
 
         return result
 
     except json.JSONDecodeError as e:
-        logger.info(f"[HITL] Response is not valid JSON: {e}")
-        logger.info(f"[HITL] Raw response: {response_text[:300]}...")
+        logger.info(f"[ECS] Response is not valid JSON: {e}")
+        logger.info(f"[ECS] Raw response: {response_text[:300]}...")
         return None
     except Exception as e:
-        logger.info(f"[HITL] Failed to parse HITL request: {e}")
+        logger.info(f"[ECS] Failed to parse ECS request: {e}")
         return None
 
 
@@ -780,7 +780,7 @@ def assess_form_complexity(
     form_data: Optional[Dict[str, Any]],
     field_labels: Optional[Dict[str, str]] = None,
 ) -> ComplexityLevel:
-    """Assess the complexity of a submitted HITL form.
+    """Assess the complexity of a submitted ECS form.
 
     Complexity is determined by:
     - Number of fields with data
@@ -861,11 +861,11 @@ def get_response_guidance(complexity: ComplexityLevel, action: str) -> str:
         return "请简洁地回应用户的选择，并询问是否需要进一步帮助。"
 
 
-def build_continuation_context(continuation_data: HITLContinuationData) -> str:
-    """Build context string for LLM continuation based on user's HITL response.
+def build_continuation_context(continuation_data: ECSContinuationData) -> str:
+    """Build context string for LLM continuation based on user's ECS response.
 
     Args:
-        continuation_data: Data from HITL response
+        continuation_data: Data from ECS response
 
     Returns:
         Formatted context string for LLM prompt
@@ -893,7 +893,7 @@ def build_continuation_context(continuation_data: HITLContinuationData) -> str:
     )
     guidance = get_response_guidance(complexity, "approve")
 
-    logger.info(f"[HITL] Form complexity assessed: {complexity.value} for '{continuation_data.request_title}'")
+    logger.info(f"[ECS] Form complexity assessed: {complexity.value} for '{continuation_data.request_title}'")
 
     # Format the form data with labels
     data_lines = []

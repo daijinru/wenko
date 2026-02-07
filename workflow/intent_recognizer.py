@@ -36,7 +36,7 @@ class RuleBasedMatcher:
     """Layer 1: Fast regex/keyword-based intent matching.
 
     Matches user messages against predefined patterns for
-    memory intents, HITL triggers, and MCP tool calls.
+    memory intents, ECS triggers, and MCP tool calls.
     """
 
     def __init__(self, rules: Optional[List[IntentRule]] = None):
@@ -108,7 +108,7 @@ Memory类（用户分享信息）:
 - pattern: 行为模式（习惯、日常）
 - opinion: 个人观点（认为、觉得、相信）
 
-HITL类（需要表单交互）:
+ECS类（需要表单交互）:
 - proactive_inquiry: 问候或初次对话
 - topic_deepening: 提到兴趣领域但未详细说明
 - emotion_driven: 表达情绪状态

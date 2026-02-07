@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { HITLRequest, HITLField, AnyHITLRequest } from '../types/hitl';
-import { isDisplayRequest } from '../types/hitl';
-import { submitHITL, onHITLRequestData } from '../lib/ipc-client';
+import type { ECSRequest, ECSField, AnyECSRequest } from '../types/ecs';
+import { isDisplayRequest } from '../types/ecs';
+import { submitECS, onECSRequestData } from '../lib/ipc-client';
 
-interface HITLWindowState {
-  request: AnyHITLRequest | null;
+interface ECSWindowState {
+  request: AnyECSRequest | null;
   sessionId: string | null;
   formData: Record<string, unknown>;
   error: string | null;
@@ -12,8 +12,8 @@ interface HITLWindowState {
   isLoaded: boolean;
 }
 
-export function useHITLWindow() {
-  const [state, setState] = useState<HITLWindowState>({
+export function useECSWindow() {
+  const [state, setState] = useState<ECSWindowState>({
     request: null,
     sessionId: null,
     formData: {},
@@ -23,7 +23,7 @@ export function useHITLWindow() {
   });
 
   // Initialize form data with defaults
-  const initializeFormData = useCallback((fields: HITLField[]) => {
+  const initializeFormData = useCallback((fields: ECSField[]) => {
     const initialData: Record<string, unknown> = {};
     fields.forEach((field) => {
       if (field.default !== undefined) {
@@ -41,12 +41,12 @@ export function useHITLWindow() {
 
   // Listen for request data from main process
   useEffect(() => {
-    const unsubscribe = onHITLRequestData((data) => {
-      console.log('[HITL Window] Received request data:', data);
+    const unsubscribe = onECSRequestData((data) => {
+      console.log('[ECS Window] Received request data:', data);
       // For visual display, no form data needed
       const initialFormData = isDisplayRequest(data.request)
         ? {}
-        : initializeFormData((data.request as HITLRequest).fields);
+        : initializeFormData((data.request as ECSRequest).fields);
       setState({
         request: data.request,
         sessionId: data.sessionId,
@@ -75,13 +75,13 @@ export function useHITLWindow() {
   // Submit form (approve or reject)
   const submit = useCallback(async (action: 'approve' | 'reject') => {
     if (!state.request || !state.sessionId) {
-      console.error('[HITL Window] No request data');
+      console.error('[ECS Window] No request data');
       return;
     }
 
     setState((prev) => ({ ...prev, isSubmitting: true, error: null }));
 
-    const result = await submitHITL({
+    const result = await submitECS({
       requestId: state.request.id,
       sessionId: state.sessionId,
       action,

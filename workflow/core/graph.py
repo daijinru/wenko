@@ -1,8 +1,8 @@
 """GraphOrchestrator - Builds and configures the cognitive graph workflow.
 
 Supports two entry points:
-- Text chat: IntentNode → EmotionNode → MemoryNode → ReasoningNode → (Tools/HITL/END)
-- Image chat: ImageNode → MemoryExtractionNode → (HITL/END)
+- Text chat: IntentNode → EmotionNode → MemoryNode → ReasoningNode → (Tools/ECS/END)
+- Image chat: ImageNode → MemoryExtractionNode → (ECS/END)
 """
 
 from typing import Any, Optional, Literal
@@ -12,7 +12,7 @@ from core.nodes.emotion import EmotionNode
 from core.nodes.memory import MemoryNode
 from core.nodes.reasoning import ReasoningNode
 from core.nodes.tool_node import ToolNode
-from core.nodes.hitl import HITLNode
+from core.nodes.ecs import ECSNode
 from core.nodes.intent import IntentNode
 
 
@@ -57,7 +57,7 @@ class GraphOrchestrator:
             temperature=temperature,
         )
         self.tool_node = ToolNode()
-        self.hitl_node = HITLNode()
+        self.ecs_node = ECSNode()
 
         # Image nodes (lazy import to avoid circular deps)
         self._image_node = None
@@ -98,7 +98,7 @@ class GraphOrchestrator:
         workflow.add_node("memory", self.memory_node.recall)
         workflow.add_node("reasoning", self._reasoning_wrapper)
         workflow.add_node("tools", self.tool_node.execute)
-        workflow.add_node("hitl", self.hitl_node.execute)
+        workflow.add_node("ecs", self.ecs_node.execute)
 
         # Define Edges: Intent -> Emotion -> Memory -> Reasoning
         workflow.set_entry_point("intent")
@@ -110,8 +110,8 @@ class GraphOrchestrator:
         def route_reasoning(state: GraphState):
             if state.pending_tool_calls:
                 return "tools"
-            if state.hitl_request:
-                return "hitl"
+            if state.ecs_request:
+                return "ecs"
             return END
 
         workflow.add_conditional_edges(
@@ -119,7 +119,7 @@ class GraphOrchestrator:
             route_reasoning,
             {
                 "tools": "tools",
-                "hitl": "hitl",
+                "ecs": "ecs",
                 END: END
             }
         )
@@ -127,8 +127,8 @@ class GraphOrchestrator:
         # From Tools -> Reasoning (Re-evaluate with observation)
         workflow.add_edge("tools", "reasoning")
 
-        # From HITL -> END (suspend and wait for resume)
-        workflow.add_edge("hitl", END)
+        # From ECS -> END (suspend and wait for resume)
+        workflow.add_edge("ecs", END)
 
         return workflow
 
@@ -143,29 +143,29 @@ class GraphOrchestrator:
         # Add Nodes
         workflow.add_node("image", image_node.compute)
         workflow.add_node("memory_extraction", memory_extraction_node.compute)
-        workflow.add_node("hitl", self.hitl_node.execute)
+        workflow.add_node("ecs", self.ecs_node.execute)
 
-        # Define Edges: Image -> MemoryExtraction -> (HITL or END)
+        # Define Edges: Image -> MemoryExtraction -> (ECS or END)
         workflow.set_entry_point("image")
         workflow.add_edge("image", "memory_extraction")
 
         # Conditional edge from memory extraction
         def route_memory_extraction(state: GraphState):
-            if state.hitl_request:
-                return "hitl"
+            if state.ecs_request:
+                return "ecs"
             return END
 
         workflow.add_conditional_edges(
             "memory_extraction",
             route_memory_extraction,
             {
-                "hitl": "hitl",
+                "ecs": "ecs",
                 END: END
             }
         )
 
-        # HITL -> END
-        workflow.add_edge("hitl", END)
+        # ECS -> END
+        workflow.add_edge("ecs", END)
 
         return workflow
 
