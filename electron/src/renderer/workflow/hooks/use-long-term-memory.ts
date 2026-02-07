@@ -12,6 +12,8 @@ import type {
   MemoryFormData,
 } from '@/types/api';
 
+export type MemoryOrderBy = 'created_at' | 'access_count' | 'last_accessed';
+
 export function useLongTermMemory() {
   const { toast } = useToast();
   const [memories, setMemories] = useState<LongTermMemory[]>([]);
@@ -19,12 +21,13 @@ export function useLongTermMemory() {
   const [loading, setLoading] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<MemoryCategory | ''>('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [orderBy, setOrderByState] = useState<MemoryOrderBy>('created_at');
 
   const loadMemories = useCallback(
-    async (category: MemoryCategory | '' = categoryFilter) => {
+    async (category: MemoryCategory | '' = categoryFilter, order: MemoryOrderBy = orderBy) => {
       setLoading(true);
       try {
-        const params: Record<string, string | number> = { limit: 100 };
+        const params: Record<string, string | number> = { limit: 100, order_by: order };
         if (category) {
           params.category = category;
         }
@@ -41,7 +44,7 @@ export function useLongTermMemory() {
         setLoading(false);
       }
     },
-    [toast, categoryFilter]
+    [toast, categoryFilter, orderBy]
   );
 
   const createMemory = useCallback(
@@ -185,11 +188,20 @@ export function useLongTermMemory() {
     [loadMemories]
   );
 
+  const setOrderBy = useCallback(
+    (order: MemoryOrderBy) => {
+      setOrderByState(order);
+      loadMemories(categoryFilter, order);
+    },
+    [loadMemories, categoryFilter]
+  );
+
   return {
     memories,
     total,
     loading,
     categoryFilter,
+    orderBy,
     selectedIds,
     loadMemories,
     createMemory,
@@ -200,6 +212,7 @@ export function useLongTermMemory() {
     exportMemories,
     toggleSelect,
     setFilter,
+    setOrderBy,
     setSelectedIds,
   };
 }

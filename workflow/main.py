@@ -814,7 +814,7 @@ async def list_long_term_memories(
     category: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    order_by: str = "last_accessed",
+    order_by: str = "created_at",
 ):
     """获取长期记忆列表
 

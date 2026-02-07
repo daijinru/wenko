@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { useLongTermMemory } from "@/hooks/use-long-term-memory"
+import type { MemoryOrderBy } from "@/hooks/use-long-term-memory"
 import { MemoryFilter } from "./memory-filter"
 import { LongTermMemoryList } from "./memory-list"
 import { MemoryFormDialog } from "./memory-form-dialog"
+import { cn } from "@/lib/utils"
 import type { LongTermMemory, MemoryFormData } from "@/types/api"
 
 interface ConfirmDialogState {
@@ -17,12 +19,49 @@ interface LongTermMemoryTabProps {
   onConfirmDialog: (state: ConfirmDialogState) => void
 }
 
+const SORT_OPTIONS: { key: MemoryOrderBy; label: string }[] = [
+  { key: "created_at", label: "创建时间" },
+  { key: "access_count", label: "访问次数" },
+  { key: "last_accessed", label: "最后访问" },
+]
+
+function MemorySortBar({
+  currentOrder,
+  onOrderChange,
+}: {
+  currentOrder: MemoryOrderBy
+  onOrderChange: (order: MemoryOrderBy) => void
+}) {
+  return (
+    <div className="flex items-center gap-2 bg-secondary border-classic-inset !p-1">
+      <span className="text-[11px] font-bold">排序:</span>
+      <div className="flex gap-0.5">
+        {SORT_OPTIONS.map((item) => (
+          <button
+            key={item.key}
+            className={cn(
+              "px-2 py-0.5 text-[11px] border border-border cursor-pointer transition-colors",
+              currentOrder === item.key
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-secondary hover:bg-accent"
+            )}
+            onClick={() => onOrderChange(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function LongTermMemoryTab({ onConfirmDialog }: LongTermMemoryTabProps) {
   const {
     memories,
     total,
     loading,
     categoryFilter,
+    orderBy,
     selectedIds,
     loadMemories,
     createMemory,
@@ -33,6 +72,7 @@ export function LongTermMemoryTab({ onConfirmDialog }: LongTermMemoryTabProps) {
     exportMemories,
     toggleSelect,
     setFilter,
+    setOrderBy,
   } = useLongTermMemory()
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -122,6 +162,8 @@ export function LongTermMemoryTab({ onConfirmDialog }: LongTermMemoryTabProps) {
         total={total}
         onFilterChange={setFilter}
       />
+
+      <MemorySortBar currentOrder={orderBy} onOrderChange={setOrderBy} />
 
       <div className="flex-1 min-h-0 flex flex-col">
         <LongTermMemoryList

@@ -695,7 +695,7 @@ def list_memory_entries(
     category: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    order_by: str = "last_accessed",
+    order_by: str = "created_at",
     order_desc: bool = True,
 ) -> List[MemoryEntry]:
     """List long-term memory entries with optional filtering.
@@ -704,7 +704,7 @@ def list_memory_entries(
         category: Filter by category (optional)
         limit: Maximum number of entries to return
         offset: Number of entries to skip
-        order_by: Column to order by
+        order_by: Primary column to order by (default: created_at)
         order_desc: Whether to order descending
 
     Returns:
@@ -722,7 +722,9 @@ def list_memory_entries(
             params.append(category)
 
         order_dir = "DESC" if order_desc else "ASC"
-        query += f" ORDER BY {order_by} {order_dir} LIMIT ? OFFSET ?"
+        # Primary sort by order_by, secondary sort by last_accessed
+        secondary = "last_accessed" if order_by != "last_accessed" else "created_at"
+        query += f" ORDER BY {order_by} {order_dir}, {secondary} {order_dir} LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         cursor = conn.execute(query, params)
