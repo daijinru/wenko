@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, AsyncGenerator, Callable
 
 import httpx
 
-from core.state import GraphState, ECSRequest
+from core.state import GraphState, ECSRequest, ExecutionContract, ExecutionStatus, ExecutionStep, compute_idempotency_key, can_create_contract
 
 logger = logging.getLogger(f"workflow.{__name__}")
 
@@ -116,7 +116,14 @@ class ReasoningNode:
         messages.append({"role": "user", "content": state.semantic_input.text})
 
         # Add tool execution result if available (critical for multi-step tool workflows)
-        if state.observation:
+        # Prefer structured contract data over raw observation strings
+        tool_result_text = self._build_tool_result_from_contracts(state)
+        if tool_result_text:
+            logger.info(f"[ReasoningNode] Using structured contract results ({len(state.completed_executions)} contracts)")
+            tool_result_msg = f"【工具执行结果】\n{tool_result_text}\n\n请根据以上工具返回的结果继续处理用户的请求。如果需要调用其他工具（如使用返回的ID查询文档），请继续调用。如果结果已经足够回答用户问题，请直接给出回复。"
+            messages.append({"role": "user", "content": tool_result_msg})
+        elif state.observation:
+            logger.info(f"[ReasoningNode] Using legacy observation string (length={len(state.observation)})")
             tool_result_msg = f"【工具执行结果】\n{state.observation}\n\n请根据以上工具返回的结果继续处理用户的请求。如果需要调用其他工具（如使用返回的ID查询文档），请继续调用。如果结果已经足够回答用户问题，请直接给出回复。"
             messages.append({"role": "user", "content": tool_result_msg})
 
@@ -169,7 +176,30 @@ class ReasoningNode:
             tool_history.append(current_call)
             updates["tool_call_history"] = tool_history
 
+            # Create ExecutionContract for the tool call
+            all_contracts = list(state.completed_executions) + list(state.pending_executions)
+            irreversible = current_call.get("args", {}).get("irreversible", False)
+            idempotency_key = compute_idempotency_key(current_call) if irreversible else None
+
+            if irreversible and not can_create_contract(current_call, all_contracts):
+                logger.warning(f"[ReasoningNode] Irreversible operation already completed: {tool_call.name}.{tool_call.method}")
+                updates["response"] = f"操作已完成，无需重复执行：{tool_call.name}.{tool_call.method}"
+                updates["pending_tool_calls"] = []
+                return updates
+
+            contract = ExecutionContract(
+                action_type="tool_call",
+                action_detail=current_call,
+                irreversible=irreversible,
+                idempotency_key=idempotency_key,
+            )
+            logger.info(
+                f"[ReasoningNode] Created tool contract {contract.execution_id[:8]}: "
+                f"{tool_call.name}.{tool_call.method} (irreversible={irreversible})"
+            )
+
             updates["pending_tool_calls"] = [current_call]
+            updates["pending_executions"] = [contract]
             updates["observation"] = None
             # Also store the response text for display
             try:
@@ -195,6 +225,22 @@ class ReasoningNode:
                 updates["status"] = "suspended"
                 # Store full ECS data for frontend (as dict for LangGraph serialization)
                 updates["ecs_full_request"] = ecs_request.model_dump(mode='json') if hasattr(ecs_request, 'model_dump') else dict(ecs_request)
+
+                # Create ExecutionContract for the ECS request
+                ecs_contract = ExecutionContract(
+                    action_type="ecs_request",
+                    action_detail={
+                        "type": ecs_request.type,
+                        "id": ecs_request.id,
+                        "title": ecs_request.title,
+                    },
+                )
+                updates["pending_executions"] = [ecs_contract]
+                logger.info(
+                    f"[ReasoningNode] Created ECS contract {ecs_contract.execution_id[:8]}: "
+                    f"type={ecs_request.type}, id={ecs_request.id}"
+                )
+
                 # Also extract response text
                 try:
                     parsed = json.loads(full_response)
@@ -244,6 +290,30 @@ class ReasoningNode:
             updates["response"] = response_text
 
         return updates
+
+    def _build_tool_result_from_contracts(self, state: GraphState) -> str:
+        """
+        Build tool result text from completed ExecutionContracts.
+        Provides structured status instead of raw observation parsing.
+
+        Returns:
+            Formatted result string, or empty string if no completed tool contracts.
+        """
+        results = []
+        for contract in state.completed_executions:
+            if contract.action_type != "tool_call":
+                continue
+            method = contract.action_detail.get("method", "unknown")
+            if contract.status == ExecutionStatus.COMPLETED:
+                results.append(f"[SUCCESS] Tool {method} output: {contract.result}")
+                logger.debug(f"[ReasoningNode] Contract {contract.execution_id[:8]} result: SUCCESS ({method})")
+            elif contract.status == ExecutionStatus.FAILED:
+                results.append(f"[FAILED] Tool {method} error: {contract.error_message}")
+                logger.debug(f"[ReasoningNode] Contract {contract.execution_id[:8]} result: FAILED ({method})")
+            elif contract.status == ExecutionStatus.REJECTED:
+                results.append(f"[REJECTED] Tool {method}: {contract.error_message}")
+                logger.debug(f"[ReasoningNode] Contract {contract.execution_id[:8]} result: REJECTED ({method})")
+        return "\n\n".join(results)
 
     async def _stream_llm(self, messages: list) -> AsyncGenerator[str, None]:
         """

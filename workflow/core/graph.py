@@ -113,9 +113,17 @@ class GraphOrchestrator:
 
         # Conditional Edges from Reasoning
         def route_reasoning(state: GraphState):
-            if state.pending_tool_calls:
+            # Check both legacy and new contract-based fields
+            has_tool_contracts = any(
+                c.action_type == "tool_call" for c in state.pending_executions
+            )
+            has_ecs_contracts = any(
+                c.action_type == "ecs_request" for c in state.pending_executions
+            )
+
+            if state.pending_tool_calls or has_tool_contracts:
                 return "tools"
-            if state.ecs_request:
+            if state.ecs_request or has_ecs_contracts:
                 return "ecs"
             return END
 

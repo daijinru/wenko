@@ -290,15 +290,17 @@ def init_database() -> None:
 
         # ============ V6: Graph Checkpoints ============
         if current_version < 6:
-            # Create graph_checkpoints table for ECS state persistence
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS graph_checkpoints (
-                    session_id TEXT PRIMARY KEY,
-                    state_json TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            pass  # Version bump only; table created unconditionally below
+
+        # Always ensure graph_checkpoints exists (may have been missed in earlier migrations)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS graph_checkpoints (
+                session_id TEXT PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
         # Update schema version
         if current_version < _DB_VERSION:
