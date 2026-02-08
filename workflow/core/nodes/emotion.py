@@ -3,7 +3,7 @@ from typing import Dict, Any
 from core.state import GraphState, EmotionalContext
 from emotion_detector import extract_emotion_from_text, EmotionResult
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 def _is_emotion_enabled() -> bool:

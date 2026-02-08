@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Pattern
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 @dataclass

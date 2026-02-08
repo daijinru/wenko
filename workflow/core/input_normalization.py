@@ -3,7 +3,7 @@ import logging
 from core.state import SemanticInput
 from intent_recognizer import IntentRecognizer, IntentResult
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 class InputNormalizer:
     """

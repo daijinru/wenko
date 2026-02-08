@@ -1154,7 +1154,7 @@ def retrieve_relevant_memories(
         List of RetrievalResult sorted by relevance score
     """
     import logging
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger(f"workflow.{__name__}")
 
     # Stage 1: Keyword extraction
     keywords = extract_keywords(user_message)

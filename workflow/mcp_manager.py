@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 import chat_db
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 class MCPServerStatus(str, Enum):

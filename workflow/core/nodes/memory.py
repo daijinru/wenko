@@ -3,7 +3,7 @@ from typing import Dict, Any, List
 from core.state import GraphState, MemoryRef
 import memory_manager as mm
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 def _is_memory_enabled() -> bool:

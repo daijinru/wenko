@@ -11,7 +11,7 @@ from core.state import GraphState, SemanticInput, WorkingMemory, EmotionalContex
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 async def test_graph():
     logger.info("Starting Graph Verification...")

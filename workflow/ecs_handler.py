@@ -28,7 +28,7 @@ class ComplexityLevel(Enum):
     MEDIUM = "medium"
     LOW = "low"
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 # In-memory storage for pending ECS requests
 # Key: request_id, Value: (ECSRequest, session_id, expires_at)

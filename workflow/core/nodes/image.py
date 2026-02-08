@@ -10,7 +10,7 @@ from typing import Dict, Any
 
 from core.state import GraphState, ECSRequest
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 class ImageNode:

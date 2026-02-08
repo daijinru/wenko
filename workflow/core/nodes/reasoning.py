@@ -12,7 +12,7 @@ import httpx
 
 from core.state import GraphState, ECSRequest
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 # Maximum consecutive identical tool calls before forcing termination
 MAX_IDENTICAL_TOOL_CALLS = 3

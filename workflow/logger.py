@@ -53,7 +53,8 @@ def _cleanup_old_logs() -> None:
 def setup_logging(level: int = logging.INFO) -> None:
     """初始化日志配置
 
-    配置 root logger 使用文件和控制台双通道输出。
+    配置 "workflow" 命名 logger 使用文件和控制台双通道输出，
+    隔离第三方库日志，只收集业务日志。
     文件日志按日期命名，保留 LOG_RETENTION_DAYS 天。
 
     Args:
@@ -88,25 +89,29 @@ def setup_logging(level: int = logging.INFO) -> None:
     console_handler.setFormatter(formatter)
     console_handler.setLevel(level)
 
-    # 配置 root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
+    # 配置 "workflow" 命名 logger（而非 root logger）
+    # 这样第三方库（watchfiles、uvicorn 等）的日志不会写入业务日志文件
+    app_logger = logging.getLogger("workflow")
+    app_logger.setLevel(level)
+    app_logger.propagate = False
 
     # 清除现有 handlers 避免重复
-    root_logger.handlers.clear()
+    app_logger.handlers.clear()
 
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
+    app_logger.addHandler(file_handler)
+    app_logger.addHandler(console_handler)
 
     _initialized = True
 
     # 记录初始化日志
-    logger = logging.getLogger(__name__)
-    logger.info(f"Logging initialized. Log file: {log_file}")
+    app_logger.info(f"Logging initialized. Log file: {log_file}")
 
 
 def get_logger(name: str) -> logging.Logger:
     """获取指定名称的 logger
+
+    返回 "workflow.<name>" 命名的子 logger，
+    日志会自动传播到 "workflow" 父 logger 的 handlers。
 
     Args:
         name: logger 名称，通常使用 __name__
@@ -116,4 +121,4 @@ def get_logger(name: str) -> logging.Logger:
     """
     if not _initialized:
         setup_logging()
-    return logging.getLogger(name)
+    return logging.getLogger(f"workflow.{name}")

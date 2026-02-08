@@ -87,7 +87,7 @@ DISABLE_THINKING_PROMPT_SUFFIX = "\n\n请直接回答问题，不需要展示思
 
 
 # Logger for this module
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 # ============ Prompt Templates ============
@@ -486,7 +486,7 @@ def build_chat_context(session_id: str, user_message: str) -> ChatContext:
         ChatContext with all relevant information
     """
     import logging
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger(f"workflow.{__name__}")
 
     memory_on = is_memory_enabled()
     emotion_on = is_emotion_enabled()
@@ -799,7 +799,7 @@ def _store_suggested_memories(
         List of stored memory info
     """
     import logging
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger(f"workflow.{__name__}")
 
     stored = []
 

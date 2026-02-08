@@ -37,7 +37,7 @@ from ecs_schema import (
     ECSResponseResult,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 # Chat 相关配置和模型

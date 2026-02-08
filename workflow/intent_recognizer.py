@@ -15,7 +15,7 @@ import json
 import logging
 from typing import Any, List, Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 from intent_rules import (
     IntentRule,

@@ -14,7 +14,7 @@ import httpx
 
 import chat_db
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 from chat_processor import DISABLE_THINKING_PROMPT_SUFFIX
 
 

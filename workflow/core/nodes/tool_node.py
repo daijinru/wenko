@@ -4,7 +4,7 @@ from typing import Dict, Any, List
 from core.state import GraphState
 from mcp_tool_executor import execute_mcp_tool, ToolCallResult
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 class ToolNode:
     """

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 import mcp_manager
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 from mcp_manager import MCPServerInfo, MCPServerStatus
 
 

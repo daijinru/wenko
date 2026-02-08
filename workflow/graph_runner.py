@@ -17,7 +17,7 @@ import httpx
 from core.graph import GraphOrchestrator
 from core.state import GraphState, SemanticInput, WorkingMemory, EmotionalContext
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 def load_chat_config():

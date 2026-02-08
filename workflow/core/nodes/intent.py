@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional
 
 from core.state import GraphState
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 class IntentNode:
