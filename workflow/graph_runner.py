@@ -15,7 +15,7 @@ from typing import AsyncGenerator, Dict, Any, Optional
 import httpx
 
 from core.graph import GraphOrchestrator
-from core.state import GraphState, SemanticInput, WorkingMemory, EmotionalContext, ExecutionStatus, ExecutionContract, ExecutionStep, InvalidTransitionError
+from core.state import GraphState, SemanticInput, WorkingMemory, EmotionalContext, ExecutionStatus, ExecutionContract, ExecutionStep, InvalidTransitionError, TERMINAL_STATUSES
 
 logger = logging.getLogger(f"workflow.{__name__}")
 
@@ -283,39 +283,65 @@ class GraphRunner:
 
         # Try to load checkpoint and validate contract state
         checkpoint = self._load_checkpoint(session_id)
-        if checkpoint:
-            # Validate waiting contracts
-            completed_executions = checkpoint.get("completed_executions", [])
-            statuses = [ce.get("status") for ce in completed_executions]
-            logger.info(f"[GraphRunner Resume] Loaded checkpoint: {len(completed_executions)} contracts, statuses={statuses}")
-            has_waiting_contract = False
+        if not checkpoint:
+            # Fix #2: No checkpoint = nothing to resume, reject immediately
+            logger.warning(f"[GraphRunner Resume] No checkpoint found for session {session_id}, cannot resume")
+            yield self._format_sse("error", {
+                "type": "error",
+                "payload": {"message": "Cannot resume: no checkpoint found for this session"}
+            })
+            return
+
+        # Validate waiting contracts
+        completed_executions = checkpoint.get("completed_executions", [])
+        statuses = [ce.get("status") for ce in completed_executions]
+        logger.info(f"[GraphRunner Resume] Loaded checkpoint: {len(completed_executions)} contracts, statuses={statuses}")
+
+        # Fix #1: Use TERMINAL_STATUSES to check ALL terminal states (COMPLETED, FAILED, REJECTED, CANCELLED)
+        terminal_values = {s.value for s in TERMINAL_STATUSES}
+        has_waiting_contract = False
+        for ce in completed_executions:
+            if ce.get("status") == ExecutionStatus.WAITING.value:
+                has_waiting_contract = True
+            elif ce.get("status") in terminal_values:
+                # Contract already terminated, reject resume
+                logger.warning(f"[GraphRunner Resume] Contract already in terminal state: {ce.get('status')}")
+                yield self._format_sse("error", {
+                    "type": "error",
+                    "payload": {"message": f"Cannot resume: contract already in {ce.get('status')} state"}
+                })
+                return
+
+        # Transition waiting contracts: WAITING → RUNNING → COMPLETED
+        if has_waiting_contract:
             for ce in completed_executions:
                 if ce.get("status") == ExecutionStatus.WAITING.value:
-                    has_waiting_contract = True
-                elif ce.get("status") in {s.value for s in [ExecutionStatus.COMPLETED, ExecutionStatus.CANCELLED]}:
-                    # Contract already terminated, reject resume
-                    logger.warning(f"[GraphRunner Resume] Contract already in terminal state: {ce.get('status')}")
-                    yield self._format_sse("error", {
-                        "type": "error",
-                        "payload": {"message": f"Cannot resume: contract already in {ce.get('status')} state"}
-                    })
-                    return
+                    try:
+                        contract = ExecutionContract.model_validate(ce)
+                        contract.transition("resume", actor="graph_runner")
+                        contract.transition("succeed", actor="graph_runner")
+                        contract.result = "User submitted ECS response"
+                        logger.info(f"[GraphRunner Resume] Contract {contract.execution_id} transitioned to COMPLETED")
+                    except InvalidTransitionError as e:
+                        # Fix #3: InvalidTransitionError must stop the flow, not be swallowed
+                        logger.error(f"[GraphRunner Resume] Contract transition rejected: {e}")
+                        self._delete_checkpoint(session_id)
+                        yield self._format_sse("error", {
+                            "type": "error",
+                            "payload": {"message": f"Cannot resume: contract transition rejected — {e}"}
+                        })
+                        return
+                    except Exception as e:
+                        logger.error(f"[GraphRunner Resume] Failed to validate contract: {e}")
+                        self._delete_checkpoint(session_id)
+                        yield self._format_sse("error", {
+                            "type": "error",
+                            "payload": {"message": f"Cannot resume: contract validation error — {e}"}
+                        })
+                        return
 
-            # Transition waiting contracts: WAITING → RUNNING → COMPLETED
-            if has_waiting_contract:
-                for ce in completed_executions:
-                    if ce.get("status") == ExecutionStatus.WAITING.value:
-                        try:
-                            contract = ExecutionContract.model_validate(ce)
-                            contract.transition("resume", actor="graph_runner")
-                            contract.transition("succeed", actor="graph_runner")
-                            contract.result = "User submitted ECS response"
-                            logger.info(f"[GraphRunner Resume] Contract {contract.execution_id} transitioned to COMPLETED")
-                        except (InvalidTransitionError, Exception) as e:
-                            logger.error(f"[GraphRunner Resume] Failed to transition contract: {e}")
-
-            # Delete checkpoint after loading
-            self._delete_checkpoint(session_id)
+        # Delete checkpoint after successful validation
+        self._delete_checkpoint(session_id)
 
         # Build continuation context from the ECS response data
         continuation_data = ECSContinuationData(
