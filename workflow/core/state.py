@@ -207,6 +207,147 @@ def can_create_contract(
     return True
 
 
+# --- Observation Layer Data Models (v1) ---
+
+ACTOR_CATEGORY_MAP: Dict[str, str] = {
+    "tool_node": "tool",
+    "ecs_node": "system",
+    "graph_runner": "system",
+    "reasoning": "agent",
+    "human": "human",
+}
+
+STATUS_TO_CONSEQUENCE: Dict[ExecutionStatus, str] = {
+    ExecutionStatus.COMPLETED: "SUCCESS",
+    ExecutionStatus.FAILED: "FAILED",
+    ExecutionStatus.REJECTED: "REJECTED",
+    ExecutionStatus.CANCELLED: "CANCELLED",
+    ExecutionStatus.WAITING: "WAITING",
+    ExecutionStatus.RUNNING: "IN_PROGRESS",
+    ExecutionStatus.PENDING: "NOT_STARTED",
+}
+
+
+class ExecutionSnapshot(BaseModel):
+    """Read-only observation view: current state snapshot of an ExecutionContract."""
+
+    # Identity
+    execution_id: str
+    action_type: str
+    action_summary: str
+
+    # Current State
+    current_status: str
+    entered_at: float
+    duration_in_state_ms: float
+
+    # Derived Properties
+    is_terminal: bool
+    is_stable: bool
+    is_resumable: bool
+    has_side_effects: bool
+
+    # Constraints
+    irreversible: bool
+    idempotency_key: Optional[str] = None
+    timeout_seconds: Optional[int] = None
+
+    # Result (only if terminal)
+    result: Optional[str] = None
+    error_message: Optional[str] = None
+
+    # Transition Count
+    transition_count: int
+    last_actor: Optional[str] = None
+    last_trigger: Optional[str] = None
+
+
+class ExecutionConsequenceView(BaseModel):
+    """
+    Simplified execution consequence view for ReasoningNode.
+
+    Design goals:
+    1. Only fields needed for ReasoningNode decisions, no system internals
+    2. All fields have clear semantics, suitable for LLM prompt injection
+    3. Derived properties help LLM understand "world state" not "system state"
+    """
+
+    # Identity (minimal)
+    execution_id: str
+    action_type: str
+    action_summary: str
+
+    # Consequence
+    consequence_label: str  # "SUCCESS" | "FAILED" | "REJECTED" | "CANCELLED" | "WAITING"
+    result: Optional[str] = None
+    error_message: Optional[str] = None
+
+    # Reality Awareness
+    has_side_effects: bool
+    was_suspended: bool
+    is_still_pending: bool
+
+    # Duration
+    total_duration_ms: Optional[float] = None
+
+
+class TransitionRecord(BaseModel):
+    """Observation view: a single state transition record."""
+
+    execution_id: str
+    sequence_number: int
+    from_status: str
+    to_status: str
+    trigger: str
+    actor: str
+    actor_category: str
+    timestamp: float
+    is_terminal_transition: bool
+
+
+class StateNode(BaseModel):
+    """State node description for topology."""
+    status: str
+    is_terminal: bool
+    is_initial: bool
+    is_stable: bool
+    is_resumable: bool
+
+
+class StateTransitionEdge(BaseModel):
+    """Valid transition edge."""
+    from_status: str
+    to_status: str
+    trigger: str
+
+
+class StateMachineTopology(BaseModel):
+    """Complete state machine topology for debugging and architectural validation."""
+
+    nodes: List[StateNode]
+    edges: List[StateTransitionEdge]
+    forbidden_transitions: List[Dict[str, str]]
+    terminal_statuses: List[str]
+    resumable_statuses: List[str]
+    initial_status: str
+
+
+class ExecutionTimeline(BaseModel):
+    """Observation view: ordered execution events within a session."""
+
+    session_id: str
+    contracts: List[ExecutionSnapshot]
+    transitions: List[TransitionRecord]
+    total_contracts: int
+    terminal_contracts: int
+    active_contracts: int
+    has_suspended: bool
+    has_irreversible_completed: bool
+
+    started_at: Optional[float] = None
+    ended_at: Optional[float] = None
+
+
 class GraphState(BaseModel):
     """
     The Single Source of Truth for the cognitive system.

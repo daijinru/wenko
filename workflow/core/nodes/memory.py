@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Any, List
-from core.state import GraphState, MemoryRef
+from core.state import GraphState, MemoryRef, TERMINAL_STATUSES
 import memory_manager as mm
 
 logger = logging.getLogger(f"workflow.{__name__}")
@@ -76,12 +76,15 @@ class MemoryNode:
     async def consolidate(self, state: GraphState) -> Dict[str, Any]:
         """
         Save new memories extracted during the turn.
-        Expected to be called with specific instructions or automatically based on intent.
+        Also records execution fact summaries for terminal contracts.
         """
         # Check if memory system is enabled
         if not _is_memory_enabled():
             logger.info("[MemoryNode] Memory system disabled, skipping consolidate")
             return {}
+
+        # Record execution fact summaries for terminal contracts
+        self._record_execution_summaries(state)
 
         # This logic depends on how we extract information to save.
         # If the SemanticInput has 'intent' of type 'memory' (preference, fact, etc.), we can save it.
@@ -103,3 +106,52 @@ class MemoryNode:
                 pass
 
         return {}
+
+    def _record_execution_summaries(self, state: GraphState) -> None:
+        """
+        Record structured execution fact summaries for terminal contracts.
+        Best-effort: failures do not affect the main flow.
+        """
+        try:
+            from observation import ExecutionObserver
+        except ImportError:
+            logger.debug("[MemoryNode] observation module not available, skipping execution summaries")
+            return
+
+        observer = ExecutionObserver()
+        terminal_contracts = [
+            c for c in state.completed_executions
+            if c.status in TERMINAL_STATUSES
+        ]
+
+        if not terminal_contracts:
+            return
+
+        for contract in terminal_contracts:
+            try:
+                cv = observer.consequence_view(contract)
+                execution_memory = {
+                    "type": "execution_fact",
+                    "execution_id": contract.execution_id,
+                    "action_type": contract.action_type,
+                    "action_summary": cv.action_summary,
+                    "final_status": cv.consequence_label.lower(),
+                    "irreversible": contract.irreversible,
+                    "duration_ms": cv.total_duration_ms,
+                    "result_summary": (contract.result[:200] if contract.result else None),
+                    "error_summary": (contract.error_message[:200] if contract.error_message else None),
+                }
+                logger.info(
+                    f"[MemoryNode] Execution fact: {cv.action_summary} → {cv.consequence_label}"
+                    f"{' (irreversible)' if contract.irreversible else ''}"
+                )
+
+                # Store as a memory entry via memory_manager
+                mm.save_memory(
+                    key=f"execution:{contract.execution_id[:8]}",
+                    value=str(execution_memory),
+                    category="fact",
+                    source="execution_observation",
+                )
+            except Exception as e:
+                logger.warning(f"[MemoryNode] Failed to record execution summary: {e}")

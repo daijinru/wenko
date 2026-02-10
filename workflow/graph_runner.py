@@ -292,10 +292,31 @@ class GraphRunner:
             })
             return
 
-        # Validate waiting contracts
+        # Validate waiting contracts with alignment check
         completed_executions = checkpoint.get("completed_executions", [])
         statuses = [ce.get("status") for ce in completed_executions]
         logger.info(f"[GraphRunner Resume] Loaded checkpoint: {len(completed_executions)} contracts, statuses={statuses}")
+
+        # Alignment check: generate pre-resume snapshots and validate WAITING count
+        from observation import ExecutionObserver
+        observer = ExecutionObserver()
+        waiting_count = sum(1 for ce in completed_executions if ce.get("status") == ExecutionStatus.WAITING.value)
+        if waiting_count == 0:
+            logger.warning(f"[GraphRunner Resume] Alignment check: no WAITING contracts found in checkpoint")
+        else:
+            # Generate pre-resume snapshots for logging
+            for ce in completed_executions:
+                if ce.get("status") == ExecutionStatus.WAITING.value:
+                    try:
+                        temp_contract = ExecutionContract.model_validate(ce)
+                        snap = observer.snapshot(temp_contract)
+                        logger.info(
+                            f"[GraphRunner Resume] Pre-resume snapshot: {snap.execution_id[:8]} "
+                            f"status={snap.current_status}, resumable={snap.is_resumable}, "
+                            f"duration_in_state_ms={snap.duration_in_state_ms:.0f}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[GraphRunner Resume] Failed to generate pre-resume snapshot: {e}")
 
         # Fix #1: Use TERMINAL_STATUSES to check ALL terminal states (COMPLETED, FAILED, REJECTED, CANCELLED)
         terminal_values = {s.value for s in TERMINAL_STATUSES}

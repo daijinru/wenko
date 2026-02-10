@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, AsyncGenerator, Callable
 
 import httpx
 
-from core.state import GraphState, ECSRequest, ExecutionContract, ExecutionStatus, ExecutionStep, compute_idempotency_key, can_create_contract
+from core.state import GraphState, ECSRequest, ExecutionContract, ExecutionStatus, ExecutionStep, ExecutionConsequenceView, compute_idempotency_key, can_create_contract
 
 logger = logging.getLogger(f"workflow.{__name__}")
 
@@ -116,11 +116,16 @@ class ReasoningNode:
         messages.append({"role": "user", "content": state.semantic_input.text})
 
         # Add tool execution result if available (critical for multi-step tool workflows)
-        # Prefer structured contract data over raw observation strings
-        tool_result_text = self._build_tool_result_from_contracts(state)
+        # Prefer structured consequence views over raw observation strings
+        tool_result_text = self._build_tool_result_from_consequences(state)
         if tool_result_text:
-            logger.info(f"[ReasoningNode] Using structured contract results ({len(state.completed_executions)} contracts)")
-            tool_result_msg = f"【工具执行结果】\n{tool_result_text}\n\n请根据以上工具返回的结果继续处理用户的请求。如果需要调用其他工具（如使用返回的ID查询文档），请继续调用。如果结果已经足够回答用户问题，请直接给出回复。"
+            logger.info(f"[ReasoningNode] Using structured consequence views ({len(state.completed_executions)} contracts)")
+            has_irreversible = any(
+                c.irreversible and c.status == ExecutionStatus.COMPLETED
+                for c in state.completed_executions
+            )
+            warning_suffix = "\n注意：标记 IRREVERSIBLE 的操作已在现实中生效，无法撤回。" if has_irreversible else ""
+            tool_result_msg = f"【工具执行结果】\n{tool_result_text}{warning_suffix}\n\n请根据以上工具返回的结果继续处理用户的请求。如果需要调用其他工具（如使用返回的ID查询文档），请继续调用。如果结果已经足够回答用户问题，请直接给出回复。"
             messages.append({"role": "user", "content": tool_result_msg})
         elif state.observation:
             logger.info(f"[ReasoningNode] Using legacy observation string (length={len(state.observation)})")
@@ -291,28 +296,39 @@ class ReasoningNode:
 
         return updates
 
-    def _build_tool_result_from_contracts(self, state: GraphState) -> str:
+    def _build_tool_result_from_consequences(self, state: GraphState) -> str:
         """
-        Build tool result text from completed ExecutionContracts.
-        Provides structured status instead of raw observation parsing.
+        Build tool result text from ExecutionConsequenceView projections.
+        Uses the observation layer to perceive execution outcomes rather than
+        reading ExecutionContract fields directly.
 
         Returns:
             Formatted result string, or empty string if no completed tool contracts.
         """
+        from observation import ExecutionObserver
+
+        if not state.completed_executions:
+            return ""
+
+        observer = ExecutionObserver()
+        consequences = observer.consequence_views(list(state.completed_executions))
+
         results = []
-        for contract in state.completed_executions:
-            if contract.action_type != "tool_call":
+        for cv in consequences:
+            if cv.action_type != "tool_call":
                 continue
-            method = contract.action_detail.get("method", "unknown")
-            if contract.status == ExecutionStatus.COMPLETED:
-                results.append(f"[SUCCESS] Tool {method} output: {contract.result}")
-                logger.debug(f"[ReasoningNode] Contract {contract.execution_id[:8]} result: SUCCESS ({method})")
-            elif contract.status == ExecutionStatus.FAILED:
-                results.append(f"[FAILED] Tool {method} error: {contract.error_message}")
-                logger.debug(f"[ReasoningNode] Contract {contract.execution_id[:8]} result: FAILED ({method})")
-            elif contract.status == ExecutionStatus.REJECTED:
-                results.append(f"[REJECTED] Tool {method}: {contract.error_message}")
-                logger.debug(f"[ReasoningNode] Contract {contract.execution_id[:8]} result: REJECTED ({method})")
+
+            label = cv.consequence_label
+            side_effect_tag = " IRREVERSIBLE" if cv.has_side_effects else ""
+            suspended_tag = " (human-confirmed)" if cv.was_suspended else ""
+
+            if label == "SUCCESS":
+                results.append(f"[{label}{side_effect_tag}{suspended_tag}] {cv.action_summary}: {cv.result}")
+            elif label in ("FAILED", "REJECTED", "CANCELLED"):
+                results.append(f"[{label}] {cv.action_summary}: {cv.error_message}")
+
+            logger.debug(f"[ReasoningNode] Consequence {cv.execution_id[:8]}: {label} ({cv.action_summary})")
+
         return "\n\n".join(results)
 
     async def _stream_llm(self, messages: list) -> AsyncGenerator[str, None]:
