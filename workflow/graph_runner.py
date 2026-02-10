@@ -15,7 +15,7 @@ from typing import AsyncGenerator, Dict, Any, Optional
 import httpx
 
 from core.graph import GraphOrchestrator
-from core.state import GraphState, SemanticInput, WorkingMemory, EmotionalContext, ExecutionStatus, ExecutionContract, ExecutionStep, InvalidTransitionError, TERMINAL_STATUSES
+from core.state import GraphState, SemanticInput, WorkingMemory, EmotionalContext, ExecutionStatus, ExecutionContract, ExecutionStep, InvalidTransitionError, TERMINAL_STATUSES, ACTOR_CATEGORY_MAP
 
 logger = logging.getLogger(f"workflow.{__name__}")
 
@@ -96,6 +96,8 @@ class GraphRunner:
         yield self._format_sse("status", {"status": "starting", "session_id": session_id})
 
         final_response = ""
+        # Track contract transition counts for execution_state SSE detection
+        prev_contract_transitions: Dict[str, int] = {}
         try:
             async for output in app.astream(initial_state, config={"recursion_limit": 50}):
                 # output is a dict of {node_name: state_update}
@@ -177,6 +179,25 @@ class GraphRunner:
                             "entries": update["memories_to_store"],
                         }
                         yield self._format_sse("memory_saved", {"type": "memory_saved", "payload": memory_payload})
+
+                    # Emit execution_state SSE events for contract transitions
+                    completed = update.get("completed_executions", [])
+                    pending = update.get("pending_executions", [])
+                    if completed or pending:
+                        new_transitions = self._detect_new_transitions(
+                            prev_contract_transitions, completed, pending
+                        )
+                        for contract, from_s, to_s, trigger in new_transitions:
+                            event_data = self._build_execution_state_event(
+                                contract, from_s, to_s, trigger
+                            )
+                            logger.info(
+                                f"[GraphRunner] SSE execution_state: "
+                                f"{contract.execution_id[:8]} {from_s}--{trigger}-->{to_s} "
+                                f"(terminal={event_data['is_terminal']}, node={node_name})"
+                            )
+                            yield self._format_sse("execution_state", event_data)
+                            prev_contract_transitions[contract.execution_id] = len(contract.transitions)
 
             # Save assistant response to database
             if request.session_id and final_response:
@@ -334,13 +355,20 @@ class GraphRunner:
                 return
 
         # Transition waiting contracts: WAITING → RUNNING → COMPLETED
+        resume_sse_events = []
         if has_waiting_contract:
             for ce in completed_executions:
                 if ce.get("status") == ExecutionStatus.WAITING.value:
                     try:
                         contract = ExecutionContract.model_validate(ce)
                         contract.transition("resume", actor="graph_runner")
+                        resume_sse_events.append(
+                            self._build_execution_state_event(contract, "waiting", "running", "resume")
+                        )
                         contract.transition("succeed", actor="graph_runner")
+                        resume_sse_events.append(
+                            self._build_execution_state_event(contract, "running", "completed", "succeed")
+                        )
                         contract.result = "User submitted ECS response"
                         logger.info(f"[GraphRunner Resume] Contract {contract.execution_id} transitioned to COMPLETED")
                     except InvalidTransitionError as e:
@@ -405,6 +433,15 @@ class GraphRunner:
 
         # 3. Stream Execution with increased recursion limit
         yield self._format_sse("status", {"status": "resuming", "session_id": session_id})
+
+        # Emit execution_state SSE events for resume transitions
+        for event_data in resume_sse_events:
+            logger.info(
+                f"[GraphRunner Resume] SSE execution_state: "
+                f"{event_data['execution_id'][:8]} {event_data['from_status']}--{event_data['trigger']}-->{event_data['to_status']} "
+                f"(terminal={event_data['is_terminal']})"
+            )
+            yield self._format_sse("execution_state", event_data)
 
         final_response = ""
         try:
@@ -473,6 +510,66 @@ class GraphRunner:
     def _format_sse(self, event: str, data: dict) -> str:
         """Format an SSE event string."""
         return f'event: {event}\ndata: {json.dumps(data)}\n\n'
+
+    def _build_execution_state_event(self, contract: ExecutionContract, from_status: str, to_status: str, trigger: str) -> dict:
+        """Build execution_state SSE event payload from a contract transition."""
+        from observation import _generate_action_summary
+
+        actor = contract.transitions[-1].get("actor", "unknown") if contract.transitions else "unknown"
+        actor_category = ACTOR_CATEGORY_MAP.get(actor, "system")
+        is_terminal = contract.status in TERMINAL_STATUSES
+        is_resumable = contract.status == ExecutionStatus.WAITING
+        has_side_effects = contract.irreversible and contract.status == ExecutionStatus.COMPLETED
+
+        return {
+            "execution_id": contract.execution_id,
+            "action_summary": _generate_action_summary(contract),
+            "from_status": from_status,
+            "to_status": to_status,
+            "trigger": trigger,
+            "actor_category": actor_category,
+            "is_terminal": is_terminal,
+            "is_resumable": is_resumable,
+            "has_side_effects": has_side_effects,
+            "timestamp": contract.updated_at,
+        }
+
+    def _detect_new_transitions(
+        self,
+        prev_contracts: dict,
+        current_completed: list,
+        current_pending: list,
+    ) -> list:
+        """Detect new transitions by comparing previous and current contract states.
+
+        Returns list of (contract, from_status, to_status, trigger) tuples.
+        """
+        new_transitions = []
+        all_current = []
+        for ce in current_completed:
+            if isinstance(ce, dict):
+                all_current.append(ExecutionContract.model_validate(ce))
+            else:
+                all_current.append(ce)
+        for pe in current_pending:
+            if isinstance(pe, dict):
+                all_current.append(ExecutionContract.model_validate(pe))
+            else:
+                all_current.append(pe)
+
+        for contract in all_current:
+            eid = contract.execution_id
+            prev_transition_count = prev_contracts.get(eid, 0)
+            if len(contract.transitions) > prev_transition_count:
+                for t in contract.transitions[prev_transition_count:]:
+                    new_transitions.append((contract, t["from"], t["to"], t["trigger"]))
+
+        if new_transitions:
+            logger.debug(
+                f"[GraphRunner] Detected {len(new_transitions)} new transition(s) "
+                f"across {len(all_current)} contract(s)"
+            )
+        return new_transitions
 
     def _format_ecs_payload(self, ecs_req, session_id: str) -> Dict[str, Any]:
         """Format ECS request for frontend SSE payload."""

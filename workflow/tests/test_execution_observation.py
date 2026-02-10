@@ -10,6 +10,7 @@ Covers:
 """
 
 import pytest
+import json
 import time
 import sys
 import os
@@ -623,6 +624,328 @@ class TestReasoningNodeConsequencePrompt:
         elif label in ("FAILED", "REJECTED", "CANCELLED"):
             return f"[{label}] {cv.action_summary}: {cv.error_message}"
         return ""
+
+
+# ==========================================
+# v2 Tests: API Endpoints
+# ==========================================
+
+class TestAPIEndpointHelpers:
+    """Test checkpoint-based data retrieval helpers used by API endpoints."""
+
+    def setup_method(self):
+        """Create an in-memory SQLite database with graph_checkpoints table."""
+        import sqlite3
+        self._conn = sqlite3.connect(":memory:")
+        self._conn.execute(
+            "CREATE TABLE graph_checkpoints (session_id TEXT PRIMARY KEY, state_json TEXT, updated_at TIMESTAMP)"
+        )
+        self._conn.commit()
+
+    def teardown_method(self):
+        self._conn.close()
+
+    def _insert_checkpoint(self, session_id, state_data):
+        """Insert a checkpoint for testing."""
+        self._conn.execute(
+            "INSERT INTO graph_checkpoints (session_id, state_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+            (session_id, json.dumps(state_data)),
+        )
+        self._conn.commit()
+
+    def _load_contracts(self, session_id):
+        """Simulate _load_contracts_from_checkpoint logic."""
+        cursor = self._conn.execute(
+            "SELECT state_json FROM graph_checkpoints WHERE session_id = ?",
+            (session_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        state_data = json.loads(row[0])
+        contracts = []
+        for ce in state_data.get("completed_executions", []):
+            contracts.append(ExecutionContract.model_validate(ce))
+        for pe in state_data.get("pending_executions", []):
+            contracts.append(ExecutionContract.model_validate(pe))
+        return contracts
+
+    def _find_contract(self, execution_id):
+        """Simulate _find_contract_by_execution_id logic."""
+        cursor = self._conn.execute("SELECT state_json FROM graph_checkpoints")
+        for row in cursor.fetchall():
+            state_data = json.loads(row[0])
+            for ce in state_data.get("completed_executions", []):
+                if ce.get("execution_id") == execution_id:
+                    return ExecutionContract.model_validate(ce)
+            for pe in state_data.get("pending_executions", []):
+                if pe.get("execution_id") == execution_id:
+                    return ExecutionContract.model_validate(pe)
+        return None
+
+    def test_load_contracts_success(self):
+        """9.4: Checkpoint-based retrieval returns contracts."""
+        c = _make_completed_tool_contract()
+        self._insert_checkpoint("sess-001", {
+            "completed_executions": [c.model_dump()],
+            "pending_executions": [],
+        })
+        contracts = self._load_contracts("sess-001")
+        assert contracts is not None
+        assert len(contracts) == 1
+        assert contracts[0].execution_id == c.execution_id
+
+    def test_load_contracts_not_found(self):
+        """9.4: Non-existent session returns None."""
+        result = self._load_contracts("nonexistent")
+        assert result is None
+
+    def test_load_contracts_mixed(self):
+        """9.4: Returns both completed and pending contracts."""
+        c1 = _make_completed_tool_contract()
+        c2 = _make_contract()  # pending
+        self._insert_checkpoint("sess-002", {
+            "completed_executions": [c1.model_dump()],
+            "pending_executions": [c2.model_dump()],
+        })
+        contracts = self._load_contracts("sess-002")
+        assert len(contracts) == 2
+
+    def test_find_contract_by_execution_id_success(self):
+        """9.4: Find a specific contract by execution_id across checkpoints."""
+        c = _make_completed_tool_contract()
+        self._insert_checkpoint("sess-003", {
+            "completed_executions": [c.model_dump()],
+            "pending_executions": [],
+        })
+        found = self._find_contract(c.execution_id)
+        assert found is not None
+        assert found.execution_id == c.execution_id
+
+    def test_find_contract_by_execution_id_not_found(self):
+        """9.4: Non-existent execution_id returns None."""
+        found = self._find_contract("nonexistent-id")
+        assert found is None
+
+
+class TestAPIEndpointTimeline:
+    """Test timeline endpoint behavior (integration logic)."""
+
+    def setup_method(self):
+        self.observer = ExecutionObserver()
+
+    def test_timeline_returns_correct_structure(self):
+        """9.1: Timeline endpoint returns ExecutionTimeline JSON structure."""
+        contracts = [
+            _make_completed_tool_contract(),
+            _make_waiting_contract(),
+        ]
+        tl = self.observer.timeline("sess-api-001", contracts)
+        data = tl.model_dump()
+        assert data["session_id"] == "sess-api-001"
+        assert data["total_contracts"] == 2
+        assert "contracts" in data
+        assert "transitions" in data
+
+    def test_timeline_empty_session(self):
+        """9.1: Timeline with no contracts returns empty but valid structure."""
+        tl = self.observer.timeline("empty-sess", [])
+        data = tl.model_dump()
+        assert data["total_contracts"] == 0
+        assert data["contracts"] == []
+        assert data["transitions"] == []
+
+
+class TestAPIEndpointSnapshot:
+    """Test snapshot endpoint behavior (integration logic)."""
+
+    def setup_method(self):
+        self.observer = ExecutionObserver()
+
+    def test_snapshot_returns_correct_structure(self):
+        """9.2: Snapshot endpoint returns ExecutionSnapshot JSON structure."""
+        c = _make_completed_tool_contract()
+        snap = self.observer.snapshot(c)
+        data = snap.model_dump()
+        assert "execution_id" in data
+        assert "current_status" in data
+        assert "is_terminal" in data
+        assert "action_summary" in data
+        assert data["current_status"] == "completed"
+
+    def test_snapshot_waiting_contract_structure(self):
+        """9.2: Snapshot of WAITING contract shows resumable."""
+        c = _make_waiting_contract()
+        snap = self.observer.snapshot(c)
+        data = snap.model_dump()
+        assert data["is_resumable"] is True
+        assert data["is_terminal"] is False
+
+
+class TestAPIEndpointTopology:
+    """Test topology endpoint behavior (integration logic)."""
+
+    def test_topology_returns_correct_structure(self):
+        """9.3: Topology endpoint returns StateMachineTopology JSON structure."""
+        topo = ExecutionObserver.topology()
+        data = topo.model_dump()
+        assert "nodes" in data
+        assert "edges" in data
+        assert "terminal_statuses" in data
+        assert "initial_status" in data
+        assert data["initial_status"] == "pending"
+
+    def test_topology_is_static_and_cacheable(self):
+        """9.3: Two calls return structurally identical results."""
+        t1 = ExecutionObserver.topology().model_dump()
+        t2 = ExecutionObserver.topology().model_dump()
+        assert t1 == t2
+
+
+# ==========================================
+# v2 Tests: SSE Event Emission
+# ==========================================
+
+class TestSSEExecutionStatePayload:
+    """Test execution_state SSE event payload structure and correctness."""
+
+    def test_build_execution_state_event_completed(self):
+        """10.4: Verify execution_state payload for a completed contract."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)  # Skip __init__
+
+        c = _make_completed_tool_contract(irreversible=True)
+        last_t = c.transitions[-1]
+        event = runner._build_execution_state_event(
+            c, last_t["from"], last_t["to"], last_t["trigger"]
+        )
+
+        assert event["execution_id"] == c.execution_id
+        assert event["from_status"] == "running"
+        assert event["to_status"] == "completed"
+        assert event["trigger"] == "succeed"
+        assert event["is_terminal"] is True
+        assert event["is_resumable"] is False
+        assert event["has_side_effects"] is True
+        assert event["action_summary"] == "email.send"
+        assert "actor_category" in event
+        assert "timestamp" in event
+
+    def test_build_execution_state_event_waiting(self):
+        """10.4: Verify execution_state payload for a waiting (suspended) contract."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+
+        c = _make_waiting_contract()
+        last_t = c.transitions[-1]
+        event = runner._build_execution_state_event(
+            c, last_t["from"], last_t["to"], last_t["trigger"]
+        )
+
+        assert event["to_status"] == "waiting"
+        assert event["is_terminal"] is False
+        assert event["is_resumable"] is True
+        assert event["has_side_effects"] is False
+
+    def test_build_execution_state_event_failed(self):
+        """10.4: Verify execution_state payload for a failed contract."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+
+        c = _make_failed_contract()
+        last_t = c.transitions[-1]
+        event = runner._build_execution_state_event(
+            c, last_t["from"], last_t["to"], last_t["trigger"]
+        )
+
+        assert event["to_status"] == "failed"
+        assert event["is_terminal"] is True
+        assert event["is_resumable"] is False
+        assert event["has_side_effects"] is False
+
+    def test_detect_new_transitions(self):
+        """10.4: Detect new transitions from contract state changes."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+
+        c = _make_completed_tool_contract()
+
+        # Initially no previous state
+        prev = {}
+        new = runner._detect_new_transitions(prev, [c.model_dump()], [])
+        assert len(new) == 2  # start + succeed transitions
+        assert new[0][2] == "running"  # to_status
+        assert new[1][2] == "completed"  # to_status
+
+    def test_detect_new_transitions_incremental(self):
+        """10.4: Only detect transitions newer than previously seen."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+
+        c = _make_completed_tool_contract()
+        prev = {c.execution_id: 1}  # Already saw 1 transition (start)
+        new = runner._detect_new_transitions(prev, [c.model_dump()], [])
+        assert len(new) == 1  # Only the succeed transition
+        assert new[0][2] == "completed"
+
+    def test_detect_new_transitions_no_change(self):
+        """10.4: No new transitions when count hasn't changed."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+
+        c = _make_completed_tool_contract()
+        prev = {c.execution_id: 2}  # Saw all 2 transitions
+        new = runner._detect_new_transitions(prev, [c.model_dump()], [])
+        assert len(new) == 0
+
+
+class TestSSEExistingEventsUnaffected:
+    """10.3: Verify existing SSE event formats are not modified."""
+
+    def test_format_sse_text(self):
+        """Existing text event format is preserved."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        result = runner._format_sse("text", {"type": "text", "payload": {"content": "hello"}})
+        assert result.startswith("event: text\n")
+        assert '"type": "text"' in result
+        assert result.endswith("\n\n")
+
+    def test_format_sse_emotion(self):
+        """Existing emotion event format is preserved."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        result = runner._format_sse("emotion", {"type": "emotion", "payload": {"primary": "happy"}})
+        assert result.startswith("event: emotion\n")
+        assert '"primary": "happy"' in result
+
+    def test_format_sse_done(self):
+        """Existing done event format is preserved."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        result = runner._format_sse("done", {"type": "done"})
+        assert result.startswith("event: done\n")
+
+    def test_format_sse_execution_state(self):
+        """New execution_state event uses same SSE format."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        payload = {
+            "execution_id": "test-001",
+            "action_summary": "email.send",
+            "from_status": "running",
+            "to_status": "completed",
+            "trigger": "succeed",
+            "actor_category": "tool",
+            "is_terminal": True,
+            "is_resumable": False,
+            "has_side_effects": False,
+            "timestamp": 1707350400.123,
+        }
+        result = runner._format_sse("execution_state", payload)
+        assert result.startswith("event: execution_state\n")
+        assert '"execution_id": "test-001"' in result
+        assert result.endswith("\n\n")
 
 
 if __name__ == "__main__":

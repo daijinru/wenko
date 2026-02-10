@@ -6,8 +6,11 @@ Projects ExecutionContract data into observation views (Snapshot, ConsequenceVie
 TransitionRecord, Timeline, Topology).
 """
 
+import logging
 import time
 from typing import List, Optional
+
+logger = logging.getLogger(f"workflow.{__name__}")
 
 from core.state import (
     ExecutionContract,
@@ -52,6 +55,7 @@ class ExecutionObserver:
 
     def snapshot(self, contract: ExecutionContract) -> ExecutionSnapshot:
         """Project a single contract into an observation snapshot."""
+        logger.debug(f"[Observer] snapshot: {contract.execution_id[:8]} status={contract.status.value}")
         now = time.time()
 
         # Determine entered_at: timestamp of the last transition (when current state was entered)
@@ -97,6 +101,7 @@ class ExecutionObserver:
 
     def consequence_view(self, contract: ExecutionContract) -> ExecutionConsequenceView:
         """Project a single contract into a ReasoningNode consequence view."""
+        logger.debug(f"[Observer] consequence_view: {contract.execution_id[:8]} status={contract.status.value}")
         consequence_label = STATUS_TO_CONSEQUENCE.get(contract.status, "UNKNOWN")
         was_suspended = any(t["to"] == "waiting" for t in contract.transitions)
         is_terminal = contract.status in TERMINAL_STATUSES
@@ -125,10 +130,16 @@ class ExecutionObserver:
 
     def consequence_views(self, contracts: List[ExecutionContract]) -> List[ExecutionConsequenceView]:
         """Batch projection for ReasoningNode consumption."""
-        return [self.consequence_view(c) for c in contracts]
+        logger.info(f"[Observer] consequence_views: projecting {len(contracts)} contracts for ReasoningNode")
+        views = [self.consequence_view(c) for c in contracts]
+        terminal = sum(1 for v in views if not v.is_still_pending)
+        irreversible = sum(1 for v in views if v.has_side_effects)
+        logger.info(f"[Observer] consequence_views: {terminal} terminal, {irreversible} irreversible")
+        return views
 
     def transition_records(self, contract: ExecutionContract) -> List[TransitionRecord]:
         """Project a single contract's transitions into TransitionRecord list."""
+        logger.debug(f"[Observer] transition_records: {contract.execution_id[:8]} ({len(contract.transitions)} transitions)")
         records = []
         for i, t in enumerate(contract.transitions):
             actor = t.get("actor", "unknown")
@@ -152,6 +163,7 @@ class ExecutionObserver:
     @staticmethod
     def topology() -> StateMachineTopology:
         """Return the state machine topology (static constant)."""
+        logger.debug("[Observer] topology: generating state machine topology")
         all_statuses = list(ExecutionStatus)
         terminal_values = {s.value for s in TERMINAL_STATUSES}
 
@@ -194,7 +206,7 @@ class ExecutionObserver:
                         "reason": reason,
                     })
 
-        return StateMachineTopology(
+        topo = StateMachineTopology(
             nodes=nodes,
             edges=edges,
             forbidden_transitions=forbidden,
@@ -202,6 +214,11 @@ class ExecutionObserver:
             resumable_statuses=[ExecutionStatus.WAITING.value],
             initial_status=ExecutionStatus.PENDING.value,
         )
+        logger.debug(
+            f"[Observer] topology: {len(topo.nodes)} nodes, {len(topo.edges)} edges, "
+            f"{len(topo.forbidden_transitions)} forbidden"
+        )
+        return topo
 
     def timeline(
         self,
@@ -210,6 +227,7 @@ class ExecutionObserver:
         trace: Optional[List[ExecutionStep]] = None,
     ) -> ExecutionTimeline:
         """Project a list of contracts into an ExecutionTimeline."""
+        logger.info(f"[Observer] timeline: session={session_id[:8]}, {len(contracts)} contracts")
         snapshots = [self.snapshot(c) for c in contracts]
         snapshots.sort(key=lambda s: s.entered_at)
 
@@ -236,7 +254,7 @@ class ExecutionObserver:
                 for t in c.transitions
             ) if any(c.transitions for c in contracts) else None
 
-        return ExecutionTimeline(
+        tl = ExecutionTimeline(
             session_id=session_id,
             contracts=snapshots,
             transitions=all_transitions,
@@ -248,3 +266,9 @@ class ExecutionObserver:
             started_at=started_at,
             ended_at=ended_at,
         )
+        logger.info(
+            f"[Observer] timeline result: total={tl.total_contracts}, terminal={tl.terminal_contracts}, "
+            f"active={tl.active_contracts}, suspended={tl.has_suspended}, "
+            f"irreversible_completed={tl.has_irreversible_completed}"
+        )
+        return tl

@@ -2193,6 +2193,116 @@ async def get_log_content(
         raise HTTPException(status_code=500, detail=f"读取日志文件失败: {str(e)}")
 
 
+# ============ Execution Observation API (v2) ============
+
+
+@app.get("/api/execution/{session_id}/timeline")
+async def get_execution_timeline(session_id: str):
+    """获取 session 执行时间线
+
+    从 checkpoint 还原 contracts，投影为 ExecutionTimeline。
+    """
+    from observation import ExecutionObserver
+    from core.state import ExecutionContract
+
+    logger.info(f"[Observation API] GET /api/execution/{session_id}/timeline")
+    contracts = _load_contracts_from_checkpoint(session_id)
+    if contracts is None:
+        logger.info(f"[Observation API] Timeline 404: no checkpoint for session={session_id}")
+        raise HTTPException(status_code=404, detail="No execution data found for this session")
+    observer = ExecutionObserver()
+    timeline = observer.timeline(session_id, contracts)
+    logger.info(
+        f"[Observation API] Timeline OK: session={session_id}, "
+        f"contracts={timeline.total_contracts}, terminal={timeline.terminal_contracts}, "
+        f"active={timeline.active_contracts}"
+    )
+    return timeline.model_dump()
+
+
+@app.get("/api/execution/{execution_id}/snapshot")
+async def get_execution_snapshot(execution_id: str):
+    """获取单个 contract 快照
+
+    遍历所有 checkpoint 查找 execution_id 对应的 contract。
+    """
+    from observation import ExecutionObserver
+
+    logger.info(f"[Observation API] GET /api/execution/{execution_id}/snapshot")
+    contract = _find_contract_by_execution_id(execution_id)
+    if not contract:
+        logger.info(f"[Observation API] Snapshot 404: execution_id={execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
+    observer = ExecutionObserver()
+    snap = observer.snapshot(contract)
+    logger.info(
+        f"[Observation API] Snapshot OK: execution_id={execution_id[:8]}, "
+        f"status={snap.current_status}, terminal={snap.is_terminal}, resumable={snap.is_resumable}"
+    )
+    return snap.model_dump()
+
+
+@app.get("/api/execution/topology")
+async def get_execution_topology():
+    """获取状态机拓扑（静态常量）"""
+    from observation import ExecutionObserver
+
+    logger.info("[Observation API] GET /api/execution/topology")
+    return ExecutionObserver.topology().model_dump()
+
+
+def _load_contracts_from_checkpoint(session_id: str):
+    """从 checkpoint 还原 contracts。返回 None 表示 session 不存在。"""
+    from core.state import ExecutionContract
+
+    try:
+        with chat_db.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT state_json FROM graph_checkpoints WHERE session_id = ?",
+                (session_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            state_data = json.loads(row[0])
+            contracts = []
+            for ce in state_data.get("completed_executions", []):
+                contracts.append(ExecutionContract.model_validate(ce))
+            for pe in state_data.get("pending_executions", []):
+                contracts.append(ExecutionContract.model_validate(pe))
+            logger.info(
+                f"[Observation API] Loaded {len(contracts)} contracts from checkpoint "
+                f"(session={session_id[:8]}, completed={len(state_data.get('completed_executions', []))}, "
+                f"pending={len(state_data.get('pending_executions', []))})"
+            )
+            return contracts
+    except Exception as e:
+        logger.error(f"Failed to load contracts from checkpoint: {e}")
+        return None
+
+
+def _find_contract_by_execution_id(execution_id: str):
+    """遍历所有 checkpoint 查找指定 execution_id 的 contract。"""
+    from core.state import ExecutionContract
+
+    try:
+        with chat_db.get_connection() as conn:
+            cursor = conn.execute("SELECT state_json FROM graph_checkpoints")
+            rows = cursor.fetchall()
+            logger.info(f"[Observation API] Searching {len(rows)} checkpoints for execution_id={execution_id[:8]}")
+            for row in rows:
+                state_data = json.loads(row[0])
+                for ce in state_data.get("completed_executions", []):
+                    if ce.get("execution_id") == execution_id:
+                        return ExecutionContract.model_validate(ce)
+                for pe in state_data.get("pending_executions", []):
+                    if pe.get("execution_id") == execution_id:
+                        return ExecutionContract.model_validate(pe)
+    except Exception as e:
+        logger.error(f"Failed to find contract by execution_id: {e}")
+    return None
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
