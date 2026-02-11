@@ -31,10 +31,11 @@ from core.state import (
     TERMINAL_STATUSES,
     ACTOR_CATEGORY_MAP,
     STATUS_TO_CONSEQUENCE,
+    STATUS_TO_HUMAN_LABEL,
     _VALID_TRANSITIONS,
 )
 
-from observation import ExecutionObserver, _generate_action_summary
+from observation import ExecutionObserver, _generate_action_summary, _humanize_action_summary, _humanize_consequence
 
 
 # --- Helpers ---
@@ -178,6 +179,35 @@ class TestObservationDataModels:
         assert ACTOR_CATEGORY_MAP["tool_node"] == "tool"
         assert ExecutionStatus.COMPLETED in STATUS_TO_CONSEQUENCE
         assert STATUS_TO_CONSEQUENCE[ExecutionStatus.COMPLETED] == "SUCCESS"
+
+
+class TestHumanLabels:
+    """Verify STATUS_TO_HUMAN_LABEL covers all statuses with Chinese labels."""
+
+    def test_all_statuses_covered(self):
+        for status in ExecutionStatus:
+            assert status in STATUS_TO_HUMAN_LABEL, f"Missing human label for {status}"
+
+    def test_labels_are_chinese_strings(self):
+        for status, label in STATUS_TO_HUMAN_LABEL.items():
+            assert isinstance(label, str)
+            assert len(label) > 0
+            # Chinese chars are in CJK Unified Ideographs range
+            assert any("\u4e00" <= ch <= "\u9fff" for ch in label), (
+                f"Label for {status} is not Chinese: {label}"
+            )
+
+    def test_keys_match_consequence_keys(self):
+        assert set(STATUS_TO_HUMAN_LABEL.keys()) == set(STATUS_TO_CONSEQUENCE.keys())
+
+    def test_expected_labels(self):
+        assert STATUS_TO_HUMAN_LABEL[ExecutionStatus.PENDING] == "准备中"
+        assert STATUS_TO_HUMAN_LABEL[ExecutionStatus.RUNNING] == "进行中"
+        assert STATUS_TO_HUMAN_LABEL[ExecutionStatus.WAITING] == "需要关注"
+        assert STATUS_TO_HUMAN_LABEL[ExecutionStatus.COMPLETED] == "已完成"
+        assert STATUS_TO_HUMAN_LABEL[ExecutionStatus.FAILED] == "出了问题"
+        assert STATUS_TO_HUMAN_LABEL[ExecutionStatus.REJECTED] == "已拒绝"
+        assert STATUS_TO_HUMAN_LABEL[ExecutionStatus.CANCELLED] == "已停止"
 
 
 # ==========================================
@@ -517,6 +547,64 @@ class TestActionSummaryGeneration:
         )
         summary = _generate_action_summary(c)
         assert summary == "unknown_type"
+
+
+class TestHumanizeActionSummary:
+    """Test _humanize_action_summary translates technical summaries to Chinese."""
+
+    def test_service_method_format(self):
+        assert _humanize_action_summary("email.send") == "发送email"
+
+    def test_known_methods(self):
+        assert _humanize_action_summary("data.read") == "读取data"
+        assert _humanize_action_summary("file.delete") == "删除file"
+        assert _humanize_action_summary("user.create") == "创建user"
+
+    def test_unknown_method_passthrough(self):
+        result = _humanize_action_summary("service.custom_action")
+        assert result == "custom_actionservice"
+
+    def test_ecs_type_form(self):
+        assert _humanize_action_summary("ecs:form") == "填写表单"
+
+    def test_ecs_type_confirm(self):
+        assert _humanize_action_summary("ecs:confirm") == "确认操作"
+
+    def test_ecs_type_unknown(self):
+        result = _humanize_action_summary("ecs:custom")
+        assert result == "执行 custom"
+
+    def test_unrecognized_passthrough(self):
+        assert _humanize_action_summary("tool_call") == "tool_call"
+        assert _humanize_action_summary("unknown_type") == "unknown_type"
+
+
+class TestHumanizeConsequence:
+    """Test _humanize_consequence translates machine labels to Chinese."""
+
+    def test_success_with_side_effects(self):
+        assert _humanize_consequence("SUCCESS", True) == "已完成（不可撤销）"
+
+    def test_success_without_side_effects(self):
+        assert _humanize_consequence("SUCCESS", False) == "已完成"
+
+    def test_failed(self):
+        assert _humanize_consequence("FAILED", False) == "出了问题"
+
+    def test_rejected(self):
+        assert _humanize_consequence("REJECTED", False) == "已拒绝"
+
+    def test_cancelled(self):
+        assert _humanize_consequence("CANCELLED", False) == "已停止"
+
+    def test_waiting(self):
+        assert _humanize_consequence("WAITING", False) == "等待中"
+
+    def test_in_progress(self):
+        assert _humanize_consequence("IN_PROGRESS", False) == "进行中"
+
+    def test_unknown_passthrough(self):
+        assert _humanize_consequence("UNKNOWN", False) == "UNKNOWN"
 
 
 # ==========================================
@@ -897,6 +985,74 @@ class TestSSEExecutionStatePayload:
         prev = {c.execution_id: 2}  # Saw all 2 transitions
         new = runner._detect_new_transitions(prev, [c.model_dump()], [])
         assert len(new) == 0
+
+
+class TestHumanizeExecutionStateEvent:
+    """Test _humanize_execution_state_event translates SSE events to human-readable format."""
+
+    def _make_event(self, **overrides):
+        defaults = {
+            "execution_id": "test-001",
+            "action_summary": "email.send",
+            "from_status": "running",
+            "to_status": "completed",
+            "trigger": "succeed",
+            "actor_category": "tool",
+            "is_terminal": True,
+            "is_resumable": False,
+            "has_side_effects": True,
+            "timestamp": 1707350400.0,
+        }
+        defaults.update(overrides)
+        return defaults
+
+    def test_no_actor_category_in_output(self):
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        event = self._make_event()
+        result = runner._humanize_execution_state_event(event)
+        assert "actor_category" not in result
+
+    def test_no_execution_id_in_output(self):
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        event = self._make_event()
+        result = runner._humanize_execution_state_event(event)
+        assert "execution_id" not in result
+
+    def test_statuses_translated_to_chinese(self):
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        event = self._make_event(from_status="running", to_status="completed")
+        result = runner._humanize_execution_state_event(event)
+        assert result["原状态"] == "进行中"
+        assert result["新状态"] == "已完成"
+
+    def test_action_summary_translated(self):
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        event = self._make_event(action_summary="email.send")
+        result = runner._humanize_execution_state_event(event)
+        assert result["行动"] == "发送email"
+
+    def test_waiting_event(self):
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        event = self._make_event(
+            to_status="waiting", is_terminal=False, is_resumable=True, has_side_effects=False
+        )
+        result = runner._humanize_execution_state_event(event)
+        assert result["新状态"] == "需要关注"
+        assert result["是否需要关注"] is True
+        assert result["是否已结束"] is False
+
+    def test_original_event_not_modified(self):
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+        event = self._make_event()
+        original_keys = set(event.keys())
+        runner._humanize_execution_state_event(event)
+        assert set(event.keys()) == original_keys  # Not modified
 
 
 class TestSSEExistingEventsUnaffected:

@@ -26,6 +26,7 @@ from core.state import (
     TERMINAL_STATUSES,
     ACTOR_CATEGORY_MAP,
     STATUS_TO_CONSEQUENCE,
+    STATUS_TO_HUMAN_LABEL,
     _VALID_TRANSITIONS,
 )
 
@@ -45,6 +46,66 @@ def _generate_action_summary(contract: ExecutionContract) -> str:
         ecs_type = detail.get("type", "")
         return f"ecs:{ecs_type}" if ecs_type else "ecs_request"
     return contract.action_type
+
+
+# --- UI Humanization Helpers ---
+
+# Known service.method → Chinese translations
+_ACTION_SUMMARY_TRANSLATIONS = {
+    "send": "发送",
+    "read": "读取",
+    "write": "写入",
+    "search": "搜索",
+    "delete": "删除",
+    "update": "更新",
+    "create": "创建",
+    "get": "获取",
+    "list": "列出",
+    "fetch": "获取",
+}
+
+# Known ecs types → Chinese translations
+_ECS_TYPE_TRANSLATIONS = {
+    "form": "填写表单",
+    "confirm": "确认操作",
+    "select": "选择选项",
+}
+
+
+def _humanize_action_summary(summary: str) -> str:
+    """Translate technical action summary to human-readable Chinese.
+
+    Handles:
+    - service.method format (e.g. "email.send" → "发送邮件")
+    - ecs:type format (e.g. "ecs:form" → "填写表单")
+    - Unrecognized formats pass through unchanged
+    """
+    if "." in summary:
+        parts = summary.split(".", 1)
+        service = parts[0]
+        method = parts[1] if len(parts) > 1 else ""
+        verb = _ACTION_SUMMARY_TRANSLATIONS.get(method, method)
+        return f"{verb}{service}"
+
+    if summary.startswith("ecs:"):
+        ecs_type = summary[4:]
+        return _ECS_TYPE_TRANSLATIONS.get(ecs_type, f"执行 {ecs_type}")
+
+    return summary
+
+
+def _humanize_consequence(consequence_label: str, has_side_effects: bool) -> str:
+    """Translate machine consequence label to human-readable Chinese narrative."""
+    label_map = {
+        "SUCCESS": "已完成（不可撤销）" if has_side_effects else "已完成",
+        "FAILED": "出了问题",
+        "REJECTED": "已拒绝",
+        "CANCELLED": "已停止",
+        "WAITING": "等待中",
+        "IN_PROGRESS": "进行中",
+        "NOT_STARTED": "尚未开始",
+    }
+    return label_map.get(consequence_label, consequence_label)
 
 
 class ExecutionObserver:

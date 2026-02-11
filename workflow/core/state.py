@@ -227,6 +227,16 @@ STATUS_TO_CONSEQUENCE: Dict[ExecutionStatus, str] = {
     ExecutionStatus.PENDING: "NOT_STARTED",
 }
 
+STATUS_TO_HUMAN_LABEL: Dict[ExecutionStatus, str] = {
+    ExecutionStatus.PENDING: "准备中",
+    ExecutionStatus.RUNNING: "进行中",
+    ExecutionStatus.WAITING: "需要关注",
+    ExecutionStatus.COMPLETED: "已完成",
+    ExecutionStatus.FAILED: "出了问题",
+    ExecutionStatus.REJECTED: "已拒绝",
+    ExecutionStatus.CANCELLED: "已停止",
+}
+
 
 class ExecutionSnapshot(BaseModel):
     """Read-only observation view: current state snapshot of an ExecutionContract."""

@@ -534,6 +534,30 @@ class GraphRunner:
             "timestamp": contract.updated_at,
         }
 
+    def _humanize_execution_state_event(self, event: dict) -> dict:
+        """Wrap a machine-facing SSE event into a human-readable format.
+
+        Removes engineering fields and translates status values to Chinese labels.
+        The original event is NOT modified.
+        """
+        from core.state import STATUS_TO_HUMAN_LABEL
+        from observation import _humanize_action_summary
+
+        def _status_label(status_str: str) -> str:
+            for es in ExecutionStatus:
+                if es.value == status_str:
+                    return STATUS_TO_HUMAN_LABEL.get(es, status_str)
+            return status_str
+
+        return {
+            "行动": _humanize_action_summary(event.get("action_summary", "")),
+            "原状态": _status_label(event.get("from_status", "")),
+            "新状态": _status_label(event.get("to_status", "")),
+            "是否已结束": event.get("is_terminal", False),
+            "是否需要关注": event.get("is_resumable", False),
+            "是否不可逆": event.get("has_side_effects", False),
+        }
+
     def _detect_new_transitions(
         self,
         prev_contracts: dict,

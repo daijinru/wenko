@@ -2197,15 +2197,16 @@ async def get_log_content(
 
 
 @app.get("/api/execution/{session_id}/timeline")
-async def get_execution_timeline(session_id: str):
+async def get_execution_timeline(session_id: str, human: bool = False):
     """获取 session 执行时间线
 
     从 checkpoint 还原 contracts，投影为 ExecutionTimeline。
+    当 ?human=true 时返回人类可读的中文语义化数据。
     """
     from observation import ExecutionObserver
     from core.state import ExecutionContract
 
-    logger.info(f"[Observation API] GET /api/execution/{session_id}/timeline")
+    logger.info(f"[Observation API] GET /api/execution/{session_id}/timeline (human={human})")
     contracts = _load_contracts_from_checkpoint(session_id)
     if contracts is None:
         logger.info(f"[Observation API] Timeline 404: no checkpoint for session={session_id}")
@@ -2217,18 +2218,22 @@ async def get_execution_timeline(session_id: str):
         f"contracts={timeline.total_contracts}, terminal={timeline.terminal_contracts}, "
         f"active={timeline.active_contracts}"
     )
+    if human:
+        from ui_translation import ExecutionUITranslator
+        return ExecutionUITranslator().translate_timeline(timeline)
     return timeline.model_dump()
 
 
 @app.get("/api/execution/{execution_id}/snapshot")
-async def get_execution_snapshot(execution_id: str):
+async def get_execution_snapshot(execution_id: str, human: bool = False):
     """获取单个 contract 快照
 
     遍历所有 checkpoint 查找 execution_id 对应的 contract。
+    当 ?human=true 时返回人类可读的中文语义化数据。
     """
     from observation import ExecutionObserver
 
-    logger.info(f"[Observation API] GET /api/execution/{execution_id}/snapshot")
+    logger.info(f"[Observation API] GET /api/execution/{execution_id}/snapshot (human={human})")
     contract = _find_contract_by_execution_id(execution_id)
     if not contract:
         logger.info(f"[Observation API] Snapshot 404: execution_id={execution_id}")
@@ -2239,6 +2244,9 @@ async def get_execution_snapshot(execution_id: str):
         f"[Observation API] Snapshot OK: execution_id={execution_id[:8]}, "
         f"status={snap.current_status}, terminal={snap.is_terminal}, resumable={snap.is_resumable}"
     )
+    if human:
+        from ui_translation import ExecutionUITranslator
+        return ExecutionUITranslator().translate_snapshot(snap)
     return snap.model_dump()
 
 
