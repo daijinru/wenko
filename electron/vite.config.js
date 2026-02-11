@@ -11,6 +11,7 @@ export default defineConfig({
       '@': resolve(__dirname, 'src/renderer/workflow'),
       '@ecs': resolve(__dirname, 'src/renderer/ecs'),
       '@reminder': resolve(__dirname, 'src/renderer/reminder'),
+      '@shared': resolve(__dirname, 'src/shared'),
     },
   },
 

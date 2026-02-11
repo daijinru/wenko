@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react';
 import './styles/globals.css';
-import 'classic-stylesheets/layout.css';
-import 'classic-stylesheets/themes/macos9/theme.css';
-import 'classic-stylesheets/themes/macos9/skins/bubbles.css';
 
 interface PlanReminder {
   id: string;

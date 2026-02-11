@@ -1,8 +1,5 @@
 import { useImagePreview } from './hooks/use-image-preview';
 import './styles/globals.css';
-import 'classic-stylesheets/layout.css';
-import 'classic-stylesheets/themes/macos9/theme.css';
-import 'classic-stylesheets/themes/macos9/skins/bubbles.css';
 
 export default function App() {
   const {

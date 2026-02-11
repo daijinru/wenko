@@ -6,9 +6,6 @@ import { ECSDisplayActions } from './components/ecs-display-actions';
 import { isDisplayRequest } from './types/ecs';
 import type { ECSDisplayRequest } from './types/ecs';
 import './styles/globals.css';
-import 'classic-stylesheets/layout.css';
-import 'classic-stylesheets/themes/macos9/theme.css';
-import 'classic-stylesheets/themes/macos9/skins/bubbles.css';
 
 export default function App() {
   const {

@@ -13,9 +13,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ToastProvider } from "@/hooks/use-toast"
 import { useHealth } from "@/hooks/use-health"
 import "@/styles/globals.css"
-import 'classic-stylesheets/layout.css';
-import 'classic-stylesheets/themes/macos9/theme.css';
-import 'classic-stylesheets/themes/macos9/skins/bubbles.css';
 
 interface ConfirmDialogState {
   open: boolean

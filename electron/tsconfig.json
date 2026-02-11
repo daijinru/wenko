@@ -24,9 +24,10 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/renderer/workflow/*"],
-      "@ecs/*": ["./src/renderer/ecs/*"]
+      "@ecs/*": ["./src/renderer/ecs/*"],
+      "@shared/*": ["./src/shared/*"]
     }
   },
-  "include": ["src/renderer/workflow/**/*", "src/renderer/ecs/**/*"],
+  "include": ["src/renderer/workflow/**/*", "src/renderer/ecs/**/*", "src/shared/**/*"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
