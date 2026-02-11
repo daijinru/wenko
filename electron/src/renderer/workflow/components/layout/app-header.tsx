@@ -8,7 +8,7 @@ interface AppHeaderProps {
 
 export function AppHeader({ title, online, checking }: AppHeaderProps) {
   return (
-    <header className="window-draggable bg-classic-title border-b border-border !p-[6px] !mb-[6px] flex justify-between items-center">
+    <header className="window-draggable border-b border-border !p-[6px] !mb-[6px] flex justify-between items-center">
       <h1 className="flex-1 text-center text-xs font-bold">{title}</h1>
       <div className="flex items-center gap-1.5 window-not-draggable">
         <span

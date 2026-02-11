@@ -97,7 +97,7 @@ export default function App() {
     <div className="theme-classic h-screen flex flex-col">
       <div className="window active flex-1 flex flex-col">
         {/* Title bar */}
-        <header className="window-draggable bg-classic-title border-b border-border !p-[6px] !mb-[6px] flex justify-between items-center">
+        <header className="window-draggable border-b border-border !p-[6px] !mb-[6px] flex justify-between items-center">
           <h1 className="flex-1 text-center text-xs font-bold">计划提醒</h1>
         </header>
 
