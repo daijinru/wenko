@@ -102,18 +102,214 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* Scrollbar styling for classic theme */
-.theme-classic ::-webkit-scrollbar {
+/*
+ * Win9x-style scrollbar (from classic-stylesheets/themes/win9x)
+ * Mapped to macos9 color palette, applied globally with highest specificity
+ * SVGs inlined as data URIs for reliable resolution
+ *
+ * Color ramp (Win9x 3D widget convention):
+ *   --sb-lightest   highlight edge (top-left outer)
+ *   --sb-lighter    subtle highlight fill
+ *   --sb-light      top-left border / default button face
+ *   --sb-dark       inner shadow (bottom-right inset)
+ *   --sb-darker     deep shadow
+ *   --sb-darkest    bottom-right outer edge
+ *   --sb-btn-bg     button & thumb face color
+ *   --sb-btn-fg     arrow glyph fill
+ *   --sb-track-bg   dithered track base
+ *   --sb-track-fg   dithered track dots
+ */
+:root {
+  --sb-lightest: #FFFFFF;
+  --sb-lighter: #EEEEEE;
+  --sb-light: #DDDDDD;
+  --sb-dark: #888888;
+  --sb-darker: #555555;
+  --sb-darkest: #000000;
+  --sb-btn-bg: #DDDDDD;
+  --sb-btn-fg: #000000;
+  --sb-track-bg: #CCCCCC;
+  --sb-track-fg: #FFFFFF;
+}
+
+/* ── Track ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  background-color: var(--sb-track-bg);
+  background-image:
+    linear-gradient(45deg, var(--sb-track-fg) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--sb-track-fg) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--sb-track-fg) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--sb-track-fg) 75%);
+  background-size: 2px 2px;
+  background-position: 0 0, 0 1px, 1px -1px, -1px 0px;
   width: 16px;
+  height: 16px;
 }
 
-.theme-classic ::-webkit-scrollbar-track {
-  background: hsl(0 0% 93%);
-  border-left: 1px solid hsl(0 0% 53%);
+/* Track piece (gutter between thumb and buttons) inherits dither */
+::-webkit-scrollbar-track-piece {
+  background: transparent;
 }
 
-.theme-classic ::-webkit-scrollbar-thumb {
-  background: hsl(0 0% 87%);
-  border: 2px solid;
-  border-color: hsl(0 0% 100%) hsl(0 0% 53%) hsl(0 0% 53%) hsl(0 0% 100%);
+/* Pressed track piece — Win9x darkens the gutter when you click-hold above/below thumb */
+::-webkit-scrollbar-track-piece:active {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Corner (where H and V scrollbars meet) ────────────────────── */
+::-webkit-scrollbar-corner {
+  background-color: var(--sb-light);
+  border: 1px solid var(--sb-dark);
+}
+
+/* ── Resize handle (bottom-right drag grip) ────────────────────── */
+::-webkit-resizer {
+  background-color: var(--sb-light);
+  border: 1px solid var(--sb-dark);
+  background-image: url("data:image/svg+xml,%3Csvg width='8' height='8' viewBox='0 0 8 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cline x1='7' y1='1' x2='1' y2='7' stroke='%23888' stroke-width='1'/%3E%3Cline x1='7' y1='4' x2='4' y2='7' stroke='%23888' stroke-width='1'/%3E%3Cline x1='7' y1='6' x2='6' y2='7' stroke='%23888' stroke-width='1'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: bottom 1px right 1px;
+}
+
+/* ── Shared: buttons + thumb raised face ───────────────────────── */
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-thumb {
+  background-color: var(--sb-btn-bg);
+  color: var(--sb-btn-fg);
+  border: 1px solid var(--sb-darkest);
+  border-top-color: var(--sb-light);
+  border-left-color: var(--sb-light);
+  box-shadow: inset -1px -1px 0 var(--sb-dark), inset 1px 1px 0 var(--sb-lightest);
+}
+
+/* ── Thumb ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar-thumb {
+  min-height: 24px;
+  min-width: 24px;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--sb-btn-bg);
+  border: 1px solid var(--sb-dark);
+  border-top-color: var(--sb-dark);
+  border-left-color: var(--sb-dark);
+  box-shadow: none;
+}
+
+/* ── Arrow buttons ─────────────────────────────────────────────── */
+::-webkit-scrollbar-button {
+  width: 16px;
+  height: 16px;
+  display: none;
+}
+
+::-webkit-scrollbar-button:single-button {
+  display: block;
+}
+
+::-webkit-scrollbar-button:hover {
+  background-color: var(--sb-lighter);
+}
+
+::-webkit-scrollbar-button:active {
+  background-color: var(--sb-btn-bg);
+  border: 1px solid var(--sb-dark);
+  border-top-color: var(--sb-dark);
+  border-left-color: var(--sb-dark);
+  box-shadow: none;
+}
+
+/* ── Arrow glyphs (inline SVG data URIs) ───────────────────────── */
+
+/* Vertical ▲ up */
+::-webkit-scrollbar-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg width='7' height='4' viewBox='0 0 7 4' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m7 4-3.5-4-3.5 4z' fill-rule='evenodd'/%3E%3C/svg%3E");
+  background-position: 3px 5px;
+  background-repeat: no-repeat;
+}
+::-webkit-scrollbar-button:vertical:decrement:active {
+  background-position: 4px 6px;
+}
+
+/* Vertical ▼ down */
+::-webkit-scrollbar-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg width='7' height='4' viewBox='0 0 7 4' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m7 0-3.5 4-3.5-4z' fill-rule='evenodd'/%3E%3C/svg%3E");
+  background-position: 3px 5px;
+  background-repeat: no-repeat;
+}
+::-webkit-scrollbar-button:vertical:increment:active {
+  background-position: 4px 6px;
+}
+
+/* Horizontal ◀ left */
+::-webkit-scrollbar-button:horizontal:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg width='4' height='7' viewBox='0 0 4 7' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m4 0-4 3.5 4 3.5z' fill-rule='evenodd'/%3E%3C/svg%3E");
+  background-position: 4px 3px;
+  background-repeat: no-repeat;
+}
+::-webkit-scrollbar-button:horizontal:decrement:active {
+  background-position: 5px 4px;
+}
+
+/* Horizontal ▶ right */
+::-webkit-scrollbar-button:horizontal:increment {
+  background-image: url("data:image/svg+xml,%3Csvg width='4' height='7' viewBox='0 0 4 7' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m0 0 4 3.5-4 3.5z' fill-rule='evenodd'/%3E%3C/svg%3E");
+  background-position: 5px 3px;
+  background-repeat: no-repeat;
+}
+::-webkit-scrollbar-button:horizontal:increment:active {
+  background-position: 6px 4px;
+}
+
+/* ── Disabled scrollbar (no overflow / content fits) ───────────── */
+::-webkit-scrollbar-thumb:window-inactive {
+  background-color: var(--sb-light);
+  box-shadow: inset -1px -1px 0 var(--sb-dark), inset 1px 1px 0 var(--sb-lighter);
+}
+
+::-webkit-scrollbar-button:window-inactive {
+  background-color: var(--sb-light);
+  box-shadow: inset -1px -1px 0 var(--sb-dark), inset 1px 1px 0 var(--sb-lighter);
+}
+
+/* ── Utility: hide scrollbar but keep scroll ───────────────────── */
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hidden {
+  scrollbar-width: none; /* Firefox fallback */
+}
+
+/* ── Utility: thin scrollbar (12px instead of 16px) ────────────── */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.scrollbar-thin::-webkit-scrollbar-button {
+  width: 12px;
+  height: 12px;
+}
+.scrollbar-thin::-webkit-scrollbar-button:vertical:decrement {
+  background-position: 1px 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-button:vertical:decrement:active {
+  background-position: 2px 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-button:vertical:increment {
+  background-position: 1px 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-button:vertical:increment:active {
+  background-position: 2px 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-button:horizontal:decrement {
+  background-position: 2px 1px;
+}
+.scrollbar-thin::-webkit-scrollbar-button:horizontal:decrement:active {
+  background-position: 3px 2px;
+}
+.scrollbar-thin::-webkit-scrollbar-button:horizontal:increment {
+  background-position: 3px 1px;
+}
+.scrollbar-thin::-webkit-scrollbar-button:horizontal:increment:active {
+  background-position: 4px 2px;
 }
