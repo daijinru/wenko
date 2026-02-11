@@ -1,5 +1,6 @@
 import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
 import { showSSEMessage, showMemoryNotification } from './message.js';
+import { updateExecutionStage } from './execution-stage.js';
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const IMAGE_CHAT_API_URL = 'http://localhost:8002/chat/image';
 const ECS_API_URL = 'http://localhost:8002/ecs/respond';
@@ -207,7 +208,7 @@ export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, on
             throw new Error(`HTTP ${res.status}`);
         },
         onmessage: (event) => {
-            var _a, _b, _c, _d;
+            var _a, _b, _c, _d, _e;
             ecsLog('SSE_EVENT', { event: event.event, data: (_a = event.data) === null || _a === void 0 ? void 0 : _a.substring(0, 200) });
             try {
                 if (event.event === 'text') {
@@ -252,6 +253,15 @@ export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, on
                         onECS === null || onECS === void 0 ? void 0 : onECS(currentECSRequest);
                     }
                 }
+                else if (event.event === 'execution_state') {
+                    const data = JSON.parse(event.data);
+                    if (data.human) {
+                        updateExecutionStage(data.human);
+                        if ((_d = window.electronAPI) === null || _d === void 0 ? void 0 : _d.send) {
+                            window.electronAPI.send('execution-state-update', data.human);
+                        }
+                    }
+                }
                 else if (event.event === 'done') {
                     if (assistantResponse) {
                         historyManager.addMessage({ role: 'assistant', content: assistantResponse });
@@ -261,7 +271,7 @@ export function sendChatMessage(message, onChunk, onDone, onError, onEmotion, on
                 }
                 else if (event.event === 'error') {
                     const data = JSON.parse(event.data);
-                    const errorMsg = ((_d = data.payload) === null || _d === void 0 ? void 0 : _d.message) || '未知错误';
+                    const errorMsg = ((_e = data.payload) === null || _e === void 0 ? void 0 : _e.message) || '未知错误';
                     isLoading = false;
                     onError === null || onError === void 0 ? void 0 : onError(errorMsg);
                 }

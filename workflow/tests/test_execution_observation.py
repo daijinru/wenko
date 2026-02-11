@@ -1055,6 +1055,72 @@ class TestHumanizeExecutionStateEvent:
         assert set(event.keys()) == original_keys  # Not modified
 
 
+class TestSSEAutoHumanization:
+    """Verify _build_execution_state_event auto-attaches 'human' field."""
+
+    def test_build_event_contains_human_field(self):
+        """SSE payload includes both original fields and 'human' dict."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+
+        c = _make_completed_tool_contract(irreversible=True)
+        last_t = c.transitions[-1]
+        event = runner._build_execution_state_event(
+            c, last_t["from"], last_t["to"], last_t["trigger"]
+        )
+
+        # Original fields still present
+        assert event["execution_id"] == c.execution_id
+        assert event["from_status"] == "running"
+        assert event["to_status"] == "completed"
+        assert event["trigger"] == "succeed"
+        assert event["is_terminal"] is True
+        assert event["actor_category"] == "tool"
+        assert "timestamp" in event
+
+        # Human field present and correct
+        assert "human" in event
+        human = event["human"]
+        assert human["行动"] == "发送email"
+        assert human["新状态"] == "已完成"
+        assert human["原状态"] == "进行中"
+        assert human["是否已结束"] is True
+        assert human["是否不可逆"] is True
+
+    def test_build_event_human_field_waiting(self):
+        """SSE payload 'human' field correctly reflects waiting state."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+
+        c = _make_waiting_contract()
+        last_t = c.transitions[-1]
+        event = runner._build_execution_state_event(
+            c, last_t["from"], last_t["to"], last_t["trigger"]
+        )
+
+        human = event["human"]
+        assert human["新状态"] == "需要关注"
+        assert human["是否需要关注"] is True
+        assert human["是否已结束"] is False
+
+    def test_build_event_original_fields_unchanged(self):
+        """Adding 'human' field does not alter original machine fields."""
+        from graph_runner import GraphRunner
+        runner = GraphRunner.__new__(GraphRunner)
+
+        c = _make_completed_tool_contract(irreversible=True)
+        last_t = c.transitions[-1]
+        event = runner._build_execution_state_event(
+            c, last_t["from"], last_t["to"], last_t["trigger"]
+        )
+
+        # Machine fields retain raw values (not translated)
+        assert event["from_status"] == "running"  # Not "进行中"
+        assert event["to_status"] == "completed"  # Not "已完成"
+        assert event["action_summary"] == "email.send"  # Not "发送email"
+        assert event["actor_category"] == "tool"  # Still present
+
+
 class TestSSEExistingEventsUnaffected:
     """10.3: Verify existing SSE event formats are not modified."""
 

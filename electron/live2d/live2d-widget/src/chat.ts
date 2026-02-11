@@ -9,6 +9,7 @@
 // @ts-ignore
 import { fetchEventSource } from "https://esm.sh/@microsoft/fetch-event-source";
 import { showSSEMessage, showMemoryNotification } from './message.js';
+import { updateExecutionStage } from './execution-stage.js';
 
 const CHAT_API_URL = 'http://localhost:8002/chat';
 const IMAGE_CHAT_API_URL = 'http://localhost:8002/chat/image';
@@ -421,6 +422,15 @@ export function sendChatMessage(
               fields: currentECSRequest.fields?.length
             });
             onECS?.(currentECSRequest);
+          }
+        } else if (event.event === 'execution_state') {
+          // Handle execution state event — show overlay and forward to workflow panel
+          const data = JSON.parse(event.data);
+          if (data.human) {
+            updateExecutionStage(data.human);
+            if (window.electronAPI?.send) {
+              window.electronAPI.send('execution-state-update', data.human);
+            }
           }
         } else if (event.event === 'done') {
           // 添加助手响应到本地历史

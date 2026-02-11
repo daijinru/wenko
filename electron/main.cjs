@@ -83,6 +83,9 @@ let reminderWindow = null;
 let currentReminderPlan = null;
 let reminderQueue = []; // Queue for multiple reminders
 
+// Workflow window management
+let workflowWindow = null;
+
 // API configuration
 const ECS_API_URL = 'http://localhost:8002/ecs/respond';
 const IMAGE_ANALYZE_API_URL = 'http://localhost:8002/chat/image';
@@ -207,8 +210,13 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
   // 处理快捷键事件: action: open
   const { action } = data;
   if (action === 'open') {
+    // Focus existing workflow window if already open
+    if (workflowWindow && !workflowWindow.isDestroyed()) {
+      workflowWindow.focus();
+      return;
+    }
     // 打开窗口用于 workflow API 测试
-    const shortcutWindow = new BrowserWindow({
+    workflowWindow = new BrowserWindow({
       width: 1200,
       height: 800,
       title: 'Memory Palace',
@@ -228,10 +236,18 @@ ipcMain.on('wenko_shortcut', async (event, data) => {
         webSecurity: false  // 关闭同源策略和 CSP 检查，方便开发加载任意脚本
       }
     });
+    workflowWindow.on('closed', () => { workflowWindow = null; });
     // Use environment-aware loading
-    loadRendererPage(shortcutWindow, 'workflow');
+    loadRendererPage(workflowWindow, 'workflow');
   } else {
     console.warn('Unknown action:', action);
+  }
+});
+
+// Forward execution state updates from Live2D window to workflow window
+ipcMain.on('execution-state-update', (event, data) => {
+  if (workflowWindow && !workflowWindow.isDestroyed()) {
+    workflowWindow.webContents.send('execution-state-update', data);
   }
 });
 

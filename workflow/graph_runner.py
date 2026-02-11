@@ -98,6 +98,18 @@ class GraphRunner:
         final_response = ""
         # Track contract transition counts for execution_state SSE detection
         prev_contract_transitions: Dict[str, int] = {}
+        # Accumulate all contracts across node updates for checkpoint persistence.
+        # Node updates only carry their own contracts, so we merge by execution_id.
+        # Seed from existing checkpoint so previous rounds' contracts are not lost.
+        all_contracts: Dict[str, ExecutionContract] = {}
+        existing_checkpoint = self._load_checkpoint(session_id)
+        if existing_checkpoint:
+            for ce in existing_checkpoint.get("completed_executions", []):
+                c = ExecutionContract.model_validate(ce)
+                all_contracts[c.execution_id] = c
+            for pe in existing_checkpoint.get("pending_executions", []):
+                c = ExecutionContract.model_validate(pe)
+                all_contracts[c.execution_id] = c
         try:
             async for output in app.astream(initial_state, config={"recursion_limit": 50}):
                 # output is a dict of {node_name: state_update}
@@ -150,16 +162,23 @@ class GraphRunner:
                     # Save checkpoint when ECSNode suspends (contracts are now in WAITING state)
                     if update.get("status") == "suspended" and node_name == "ecs":
                         try:
+                            # Merge ECS contracts into cumulative tracker
+                            for c in update.get("completed_executions", []):
+                                all_contracts[c.execution_id] = c
+                            for c in update.get("pending_executions", []):
+                                all_contracts[c.execution_id] = c
+                            merged = list(all_contracts.values())
                             checkpoint_state = GraphState(
                                 conversation_id=session_id,
                                 status="suspended",
-                                completed_executions=update.get("completed_executions", []),
-                                pending_executions=update.get("pending_executions", []),
+                                completed_executions=[c for c in merged if c.status in TERMINAL_STATUSES or c.status == ExecutionStatus.WAITING],
+                                pending_executions=[c for c in merged if c.status not in TERMINAL_STATUSES and c.status != ExecutionStatus.WAITING],
                             )
                             self._save_checkpoint(session_id, checkpoint_state)
                             logger.info(
                                 f"[GraphRunner] Checkpoint saved: "
-                                f"{len(update.get('completed_executions', []))} completed contracts "
+                                f"{len(checkpoint_state.completed_executions)} completed, "
+                                f"{len(checkpoint_state.pending_executions)} pending "
                                 f"(session={session_id[:8]})"
                             )
                         except Exception as e:
@@ -198,6 +217,33 @@ class GraphRunner:
                             )
                             yield self._format_sse("execution_state", event_data)
                             prev_contract_transitions[contract.execution_id] = len(contract.transitions)
+
+                        # Persist execution records so timeline API can serve them.
+                        # ECS checkpoint (status=suspended) is handled above; here we
+                        # cover tool-call completions and other non-ECS nodes.
+                        # Merge into cumulative dict to avoid overwriting earlier contracts.
+                        for c in completed:
+                            all_contracts[c.execution_id] = c
+                        for c in pending:
+                            all_contracts[c.execution_id] = c
+                        if node_name != "ecs":
+                            try:
+                                merged = list(all_contracts.values())
+                                checkpoint_state = GraphState(
+                                    conversation_id=session_id,
+                                    status="processing",
+                                    completed_executions=[c for c in merged if c.status in TERMINAL_STATUSES or c.status == ExecutionStatus.WAITING],
+                                    pending_executions=[c for c in merged if c.status not in TERMINAL_STATUSES and c.status != ExecutionStatus.WAITING],
+                                )
+                                self._save_checkpoint(session_id, checkpoint_state)
+                                logger.info(
+                                    f"[GraphRunner] Execution checkpoint saved: "
+                                    f"{len(checkpoint_state.completed_executions)} completed, "
+                                    f"{len(checkpoint_state.pending_executions)} pending "
+                                    f"(node={node_name}, session={session_id[:8]})"
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to save execution checkpoint: {e}")
 
             # Save assistant response to database
             if request.session_id and final_response:
@@ -323,7 +369,12 @@ class GraphRunner:
         observer = ExecutionObserver()
         waiting_count = sum(1 for ce in completed_executions if ce.get("status") == ExecutionStatus.WAITING.value)
         if waiting_count == 0:
-            logger.warning(f"[GraphRunner Resume] Alignment check: no WAITING contracts found in checkpoint")
+            logger.warning(f"[GraphRunner Resume] No WAITING contracts found in checkpoint, cannot resume")
+            yield self._format_sse("error", {
+                "type": "error",
+                "payload": {"message": "Cannot resume: no waiting contracts found"}
+            })
+            return
         else:
             # Generate pre-resume snapshots for logging
             for ce in completed_executions:
@@ -339,23 +390,17 @@ class GraphRunner:
                     except Exception as e:
                         logger.warning(f"[GraphRunner Resume] Failed to generate pre-resume snapshot: {e}")
 
-        # Fix #1: Use TERMINAL_STATUSES to check ALL terminal states (COMPLETED, FAILED, REJECTED, CANCELLED)
-        terminal_values = {s.value for s in TERMINAL_STATUSES}
+        # Check for WAITING contracts that need to be resumed.
+        # Terminal contracts (COMPLETED, FAILED, etc.) from earlier tool calls are
+        # expected in the cumulative checkpoint and should be skipped, not rejected.
         has_waiting_contract = False
         for ce in completed_executions:
             if ce.get("status") == ExecutionStatus.WAITING.value:
                 has_waiting_contract = True
-            elif ce.get("status") in terminal_values:
-                # Contract already terminated, reject resume
-                logger.warning(f"[GraphRunner Resume] Contract already in terminal state: {ce.get('status')}")
-                yield self._format_sse("error", {
-                    "type": "error",
-                    "payload": {"message": f"Cannot resume: contract already in {ce.get('status')} state"}
-                })
-                return
 
         # Transition waiting contracts: WAITING → RUNNING → COMPLETED
         resume_sse_events = []
+        resumed_contracts = []  # Collect transitioned contracts for checkpoint update
         if has_waiting_contract:
             for ce in completed_executions:
                 if ce.get("status") == ExecutionStatus.WAITING.value:
@@ -370,6 +415,7 @@ class GraphRunner:
                             self._build_execution_state_event(contract, "running", "completed", "succeed")
                         )
                         contract.result = "User submitted ECS response"
+                        resumed_contracts.append(contract)
                         logger.info(f"[GraphRunner Resume] Contract {contract.execution_id} transitioned to COMPLETED")
                     except InvalidTransitionError as e:
                         # Fix #3: InvalidTransitionError must stop the flow, not be swallowed
@@ -389,8 +435,17 @@ class GraphRunner:
                         })
                         return
 
-        # Delete checkpoint after successful validation
-        self._delete_checkpoint(session_id)
+        # Update checkpoint with resumed contracts (now COMPLETED, not WAITING).
+        try:
+            checkpoint_state = GraphState(
+                conversation_id=session_id,
+                status="processing",
+                completed_executions=resumed_contracts,
+                pending_executions=[],
+            )
+            self._save_checkpoint(session_id, checkpoint_state)
+        except Exception as e:
+            logger.error(f"[GraphRunner Resume] Failed to update checkpoint after resume: {e}")
 
         # Build continuation context from the ECS response data
         continuation_data = ECSContinuationData(
@@ -444,6 +499,17 @@ class GraphRunner:
             yield self._format_sse("execution_state", event_data)
 
         final_response = ""
+        prev_contract_transitions: Dict[str, int] = {}
+        # Seed from checkpoint (which now contains resumed ECS contracts + any earlier contracts)
+        all_contracts: Dict[str, ExecutionContract] = {c.execution_id: c for c in resumed_contracts}
+        existing_checkpoint = self._load_checkpoint(session_id)
+        if existing_checkpoint:
+            for ce in existing_checkpoint.get("completed_executions", []):
+                c = ExecutionContract.model_validate(ce)
+                all_contracts.setdefault(c.execution_id, c)
+            for pe in existing_checkpoint.get("pending_executions", []):
+                c = ExecutionContract.model_validate(pe)
+                all_contracts.setdefault(c.execution_id, c)
         try:
             async for output in app.astream(initial_state, config={"recursion_limit": 50}):
                 for node_name, update in output.items():
@@ -494,6 +560,43 @@ class GraphRunner:
                         }
                         yield self._format_sse("memory_saved", {"type": "memory_saved", "payload": memory_payload})
 
+                    # Emit execution_state SSE events and persist checkpoint
+                    completed = update.get("completed_executions", [])
+                    pending = update.get("pending_executions", [])
+                    if completed or pending:
+                        new_transitions = self._detect_new_transitions(
+                            prev_contract_transitions, completed, pending
+                        )
+                        for contract, from_s, to_s, trigger in new_transitions:
+                            event_data = self._build_execution_state_event(
+                                contract, from_s, to_s, trigger
+                            )
+                            logger.info(
+                                f"[GraphRunner Resume] SSE execution_state: "
+                                f"{contract.execution_id[:8]} {from_s}--{trigger}-->{to_s} "
+                                f"(terminal={event_data['is_terminal']}, node={node_name})"
+                            )
+                            yield self._format_sse("execution_state", event_data)
+                            prev_contract_transitions[contract.execution_id] = len(contract.transitions)
+
+                        # Persist execution records (merge with cumulative contracts)
+                        for c in completed:
+                            all_contracts[c.execution_id] = c
+                        for c in pending:
+                            all_contracts[c.execution_id] = c
+                        if node_name != "ecs":
+                            try:
+                                merged = list(all_contracts.values())
+                                checkpoint_state = GraphState(
+                                    conversation_id=session_id,
+                                    status="processing",
+                                    completed_executions=[c for c in merged if c.status in TERMINAL_STATUSES or c.status == ExecutionStatus.WAITING],
+                                    pending_executions=[c for c in merged if c.status not in TERMINAL_STATUSES and c.status != ExecutionStatus.WAITING],
+                                )
+                                self._save_checkpoint(session_id, checkpoint_state)
+                            except Exception as e:
+                                logger.error(f"Failed to save execution checkpoint in resume: {e}")
+
             # Save assistant response to database
             if final_response:
                 try:
@@ -512,7 +615,11 @@ class GraphRunner:
         return f'event: {event}\ndata: {json.dumps(data)}\n\n'
 
     def _build_execution_state_event(self, contract: ExecutionContract, from_status: str, to_status: str, trigger: str) -> dict:
-        """Build execution_state SSE event payload from a contract transition."""
+        """Build execution_state SSE event payload from a contract transition.
+
+        The payload includes both machine-facing fields (for programmatic consumers)
+        and a ``human`` field with Chinese-translated labels (for UI consumption).
+        """
         from observation import _generate_action_summary
 
         actor = contract.transitions[-1].get("actor", "unknown") if contract.transitions else "unknown"
@@ -521,7 +628,7 @@ class GraphRunner:
         is_resumable = contract.status == ExecutionStatus.WAITING
         has_side_effects = contract.irreversible and contract.status == ExecutionStatus.COMPLETED
 
-        return {
+        event = {
             "execution_id": contract.execution_id,
             "action_summary": _generate_action_summary(contract),
             "from_status": from_status,
@@ -533,6 +640,8 @@ class GraphRunner:
             "has_side_effects": has_side_effects,
             "timestamp": contract.updated_at,
         }
+        event["human"] = self._humanize_execution_state_event(event)
+        return event
 
     def _humanize_execution_state_event(self, event: dict) -> dict:
         """Wrap a machine-facing SSE event into a human-readable format.
