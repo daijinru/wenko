@@ -181,7 +181,7 @@ export function MemoryList({
                             handleShowContextVariables(wm)
                           }}
                         >
-                          上下文
+                          采集数据
                         </Button>
                       )}
                     </div>

@@ -191,13 +191,13 @@ export function ContextVariableDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>上下文变量</DialogTitle>
+          <DialogTitle>采集数据</DialogTitle>
         </DialogHeader>
 
         <div className="p-4">
           {entries.length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-4">
-              无上下文变量
+              无采集数据
             </div>
           ) : (
             <div className="border-classic-inset bg-card overflow-y-auto max-h-[400px]">
@@ -236,7 +236,7 @@ export function ContextVariableDialog({
                             className="h-3 text-[10px] px-2"
                             onClick={() => handleReplay(key, value, memory?.session_id || '')}
                           >
-                            replay
+                            回放
                           </Button>
                         </td>
                       </tr>
