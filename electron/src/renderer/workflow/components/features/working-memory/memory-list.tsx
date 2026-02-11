@@ -6,6 +6,7 @@ import { Fragment, useState } from "react"
 import { formatTime, cn } from "@/lib/utils"
 import type { WorkingMemory, ChatMessage, EmotionHistoryEntry } from "@/types/api"
 import { MemoryDrilldown } from "./memory-drilldown"
+import { SessionExecutionSection } from "./session-execution-section"
 import { ContextVariableDialog } from "./context-variable-dialog"
 
 const EMOTION_COLORS: Record<string, string> = {
@@ -192,13 +193,17 @@ export function MemoryList({
                       <div className="p-4">
                         {/* Emotion History */}
                         {wm.emotion_history && wm.emotion_history.length > 0 && (
-                          <div className="mb-3">
-                            <div className="text-[10px] font-bold text-muted-foreground mb-1 px-2">
+                          <div className="!mb-1">
+                            <div className="text-[10px] font-bold text-muted-foreground !mb-1 px-2">
                               情感历史
                             </div>
                             <EmotionHistory history={wm.emotion_history} />
                           </div>
                         )}
+                        {/* Execution State */}
+                        <div className="!mb-1">
+                          <SessionExecutionSection sessionId={wm.session_id} />
+                        </div>
                         {/* Drilldown */}
                         <MemoryDrilldown
                           messages={expandedMessages}
