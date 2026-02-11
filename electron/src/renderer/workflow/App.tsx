@@ -2,7 +2,6 @@ import { useState } from "react"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { AppLayout, AppContent } from "@/components/layout/app-layout"
 import { AppHeader } from "@/components/layout/app-header"
-import { ChatHistoryTab } from "@/components/features/chat-history/chat-history-tab"
 import { WorkingMemoryTab } from "@/components/features/working-memory/working-memory-tab"
 import { LongTermMemoryTab } from "@/components/features/long-term-memory/long-term-memory-tab"
 import { SettingsTab } from "@/components/features/settings/settings-tab"
@@ -22,7 +21,7 @@ interface ConfirmDialogState {
 
 function AppInner() {
   const { online, checking } = useHealth()
-  const [activeTab, setActiveTab] = useState("chatHistory")
+  const [activeTab, setActiveTab] = useState("workingMemory")
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
     open: false,
     title: "",
@@ -48,16 +47,12 @@ function AppInner() {
           className="h-full flex flex-col"
         >
           <TabsList className="w-full justify-start">
-            <TabsTrigger value="chatHistory">聊天历史</TabsTrigger>
             <TabsTrigger value="workingMemory">工作记忆</TabsTrigger>
             <TabsTrigger value="longTermMemory">长期记忆</TabsTrigger>
             <TabsTrigger value="mcpServices">MCP 服务</TabsTrigger>
             <TabsTrigger value="logs">日志</TabsTrigger>
             <TabsTrigger value="settings">设置</TabsTrigger>
           </TabsList>
-          <TabsContent value="chatHistory" className="flex-1">
-            <ChatHistoryTab onConfirmDialog={handleConfirmDialog} />
-          </TabsContent>
           <TabsContent value="workingMemory" className="flex-1">
             <WorkingMemoryTab onConfirmDialog={handleConfirmDialog} />
           </TabsContent>
