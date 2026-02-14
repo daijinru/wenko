@@ -130,6 +130,9 @@ class ExecutionContract(BaseModel):
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     updated_at: float = Field(default_factory=lambda: datetime.now().timestamp())
 
+    # Cognitive Object ownership (optional, for COL integration)
+    cognitive_object_id: Optional[str] = None
+
     def transition(self, trigger: str, actor: str) -> None:
         """
         Advance the state machine via a named trigger.
@@ -172,6 +175,128 @@ class ExecutionContract(BaseModel):
     @property
     def is_terminal(self) -> bool:
         return self.status in TERMINAL_STATUSES
+
+
+# --- Cognitive Object Layer (COL) ---
+
+class CognitiveObjectStatus(str, Enum):
+    """CO lifecycle: six-state state machine."""
+    EMERGING = "emerging"    # Just identified, not yet fully defined
+    ACTIVE = "active"        # Being actively pursued
+    WAITING = "waiting"      # Waiting for external world (not waiting for Execution)
+    BLOCKED = "blocked"      # Blocked, needs dependency resolved
+    STABLE = "stable"        # Goal achieved, entered stable state
+    ARCHIVED = "archived"    # No longer active, archived
+
+
+# Valid CO state transitions: {from_status: {trigger: to_status}}
+_CO_VALID_TRANSITIONS: Dict[str, Dict[str, str]] = {
+    CognitiveObjectStatus.EMERGING: {
+        "clarify": CognitiveObjectStatus.ACTIVE,
+        "archive": CognitiveObjectStatus.ARCHIVED,
+    },
+    CognitiveObjectStatus.ACTIVE: {
+        "wait": CognitiveObjectStatus.WAITING,
+        "block": CognitiveObjectStatus.BLOCKED,
+        "achieve": CognitiveObjectStatus.STABLE,
+        "archive": CognitiveObjectStatus.ARCHIVED,
+    },
+    CognitiveObjectStatus.WAITING: {
+        "resume": CognitiveObjectStatus.ACTIVE,
+        "block": CognitiveObjectStatus.BLOCKED,
+        "achieve": CognitiveObjectStatus.STABLE,
+        "archive": CognitiveObjectStatus.ARCHIVED,
+    },
+    CognitiveObjectStatus.BLOCKED: {
+        "unblock": CognitiveObjectStatus.ACTIVE,
+        "archive": CognitiveObjectStatus.ARCHIVED,
+    },
+    CognitiveObjectStatus.STABLE: {
+        "reactivate": CognitiveObjectStatus.ACTIVE,
+        "archive": CognitiveObjectStatus.ARCHIVED,
+    },
+    CognitiveObjectStatus.ARCHIVED: {
+        "reactivate": CognitiveObjectStatus.ACTIVE,
+    },
+}
+
+
+class CognitiveObject(BaseModel):
+    """Persistent entity representing a 'thing' in the user's cognitive space."""
+
+    # === Identity ===
+    co_id: str = Field(default_factory=lambda: str(uuid4()))
+    title: str
+    description: str = ""
+
+    # === Semantic Boundary ===
+    semantic_type: Optional[str] = None
+    domain_tag: Optional[str] = None
+    intent_category: Optional[str] = None
+
+    # === Lifecycle ===
+    status: CognitiveObjectStatus = CognitiveObjectStatus.EMERGING
+    transitions: List[Dict[str, Any]] = Field(default_factory=list)
+
+    # === Execution Links ===
+    linked_execution_ids: List[str] = Field(default_factory=list)
+
+    # === Memory References ===
+    linked_memory_ids: List[str] = Field(default_factory=list)
+
+    # === External References ===
+    external_references: List[Dict[str, str]] = Field(default_factory=list)
+
+    # === CO → CO Relations (reserved) ===
+    related_co_ids: List[Dict[str, str]] = Field(default_factory=list)
+
+    # === Metadata ===
+    created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+    updated_at: float = Field(default_factory=lambda: datetime.now().timestamp())
+    created_by: str = "user"
+    conversation_id: Optional[str] = None
+    creation_context: Optional[str] = None
+
+    def transition(self, trigger: str, actor: str, reason: str = "") -> None:
+        """
+        Advance the CO state machine via a named trigger.
+
+        Args:
+            trigger: The transition trigger (e.g. "clarify", "wait", "achieve")
+            actor: Who is performing this transition ("user" | "system" | "execution_event" | "timeout")
+            reason: Human-readable reason for the transition
+
+        Raises:
+            InvalidTransitionError: If the transition is not valid from current status
+        """
+        valid = _CO_VALID_TRANSITIONS.get(self.status, {})
+        if trigger not in valid:
+            logger.warning(
+                f"[CO:{self.co_id[:8]}] Invalid transition: "
+                f"trigger='{trigger}' from status='{self.status.value}' "
+                f"(valid: {list(valid.keys()) or 'none'})"
+            )
+            raise InvalidTransitionError(
+                f"Cannot apply trigger '{trigger}' from CO status '{self.status.value}'. "
+                f"Valid triggers: {list(valid.keys()) or '(none)'}"
+            )
+
+        from_status = self.status
+        to_status = valid[trigger]
+        self.status = to_status
+        self.updated_at = datetime.now().timestamp()
+        self.transitions.append({
+            "from": from_status.value,
+            "to": to_status.value,
+            "trigger": trigger,
+            "timestamp": self.updated_at,
+            "actor": actor,
+            "reason": reason,
+        })
+        logger.info(
+            f"[CO:{self.co_id[:8]}] {from_status.value} --{trigger}--> {to_status.value} "
+            f"(actor={actor}, reason={reason!r})"
+        )
 
 
 def compute_idempotency_key(action_detail: Dict[str, Any]) -> Optional[str]:

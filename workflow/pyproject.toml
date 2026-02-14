@@ -23,3 +23,8 @@ packages = ["."]
 
 [tool.langgraph]
 studio = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

@@ -8,6 +8,7 @@ vocabulary (snapshot, contract, topology, transition, observer) appears
 in the output.
 """
 
+import logging
 from core.state import (
     ExecutionSnapshot,
     ExecutionConsequenceView,
@@ -16,6 +17,8 @@ from core.state import (
     ExecutionStatus,
 )
 from observation import _humanize_action_summary, _humanize_consequence
+
+logger = logging.getLogger(f"workflow.{__name__}")
 
 
 # Engineering terms that MUST NOT appear in human-facing output
@@ -34,6 +37,7 @@ def _status_to_human(status_str: str) -> str:
     for es in ExecutionStatus:
         if es.value == status_str:
             return STATUS_TO_HUMAN_LABEL.get(es, status_str)
+    logger.warning(f"[UITranslator] Unknown status: {status_str!r}, returning as-is")
     return status_str
 
 
@@ -42,7 +46,12 @@ class ExecutionUITranslator:
 
     def translate_snapshot(self, snapshot: ExecutionSnapshot) -> dict:
         """Translate ExecutionSnapshot → 执行舞台 view data."""
-        return {
+        logger.info(
+            f"[UITranslator] translate_snapshot: "
+            f"status={snapshot.current_status} action={snapshot.action_summary!r} "
+            f"terminal={snapshot.is_terminal} resumable={snapshot.is_resumable}"
+        )
+        result = {
             "行动": _humanize_action_summary(snapshot.action_summary),
             "状态": _status_to_human(snapshot.current_status),
             "是否需要关注": snapshot.is_resumable,
@@ -51,10 +60,19 @@ class ExecutionUITranslator:
             "结果": snapshot.result,
             "错误": snapshot.error_message,
         }
+        if snapshot.error_message:
+            logger.warning(f"[UITranslator] snapshot error: {snapshot.error_message!r}")
+        return result
 
     def translate_consequence(self, view: ExecutionConsequenceView) -> dict:
         """Translate ExecutionConsequenceView → 行动解释 view data."""
-        return {
+        logger.info(
+            f"[UITranslator] translate_consequence: "
+            f"action={view.action_summary!r} consequence={view.consequence_label!r} "
+            f"side_effects={view.has_side_effects} pending={view.is_still_pending} "
+            f"duration={view.total_duration_ms}ms"
+        )
+        result = {
             "行动": _humanize_action_summary(view.action_summary),
             "后果": _humanize_consequence(view.consequence_label, view.has_side_effects),
             "是否不可逆": view.has_side_effects,
@@ -64,11 +82,19 @@ class ExecutionUITranslator:
             "错误": view.error_message,
             "耗时毫秒": view.total_duration_ms,
         }
+        if view.error_message:
+            logger.warning(f"[UITranslator] consequence error: {view.error_message!r}")
+        return result
 
     def translate_timeline(self, timeline: ExecutionTimeline) -> dict:
         """Translate ExecutionTimeline → 执行历史 view data."""
+        logger.info(
+            f"[UITranslator] translate_timeline: "
+            f"total={timeline.total_contracts} terminal={timeline.terminal_contracts} "
+            f"active={timeline.active_contracts}"
+        )
         actions = []
-        for snap in timeline.contracts:
+        for i, snap in enumerate(timeline.contracts):
             actions.append({
                 "行动": _humanize_action_summary(snap.action_summary),
                 "状态": _status_to_human(snap.current_status),

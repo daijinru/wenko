@@ -2311,6 +2311,115 @@ def _find_contract_by_execution_id(execution_id: str):
     return None
 
 
+# ============ Cognitive Object Layer API ============
+
+class COCreateRequest(BaseModel):
+    """Request body for creating a Cognitive Object."""
+    title: str
+    description: str = ""
+    semantic_type: Optional[str] = None
+    domain_tag: Optional[str] = None
+    intent_category: Optional[str] = None
+    conversation_id: Optional[str] = None
+    creation_context: Optional[str] = None
+    external_references: Optional[List[Dict[str, str]]] = None
+
+
+class COTransitionRequest(BaseModel):
+    """Request body for transitioning a Cognitive Object."""
+    trigger: str
+    actor: str = "user"
+    reason: str = ""
+
+
+class COLinkExecutionRequest(BaseModel):
+    """Request body for linking an Execution to a CO."""
+    execution_id: str
+
+
+@app.post("/api/co")
+async def create_cognitive_object(req: COCreateRequest):
+    """创建 Cognitive Object"""
+    from cognitive_object import CORegistry
+
+    logger.info(f"[CO API] POST /api/co title={req.title!r}")
+    registry = CORegistry()
+    co = registry.create(
+        title=req.title,
+        description=req.description,
+        semantic_type=req.semantic_type,
+        domain_tag=req.domain_tag,
+        intent_category=req.intent_category,
+        conversation_id=req.conversation_id,
+        creation_context=req.creation_context,
+        external_references=req.external_references,
+    )
+    return co.model_dump()
+
+
+@app.get("/api/co")
+async def list_cognitive_objects(status: Optional[str] = None):
+    """查询 Cognitive Object 列表"""
+    from cognitive_object import CORegistry
+    from core.state import CognitiveObjectStatus
+
+    logger.info(f"[CO API] GET /api/co status={status}")
+    registry = CORegistry()
+    if status:
+        try:
+            s = CognitiveObjectStatus(status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+        cos = registry.list_by_status(s)
+    else:
+        cos = registry.list_active()
+    return [co.model_dump() for co in cos]
+
+
+@app.get("/api/co/{co_id}")
+async def get_cognitive_object(co_id: str):
+    """获取 Cognitive Object 详情"""
+    from cognitive_object import CORegistry
+
+    logger.info(f"[CO API] GET /api/co/{co_id[:8]}")
+    registry = CORegistry()
+    co = registry.get(co_id)
+    if co is None:
+        raise HTTPException(status_code=404, detail="Cognitive Object not found")
+    return co.model_dump()
+
+
+@app.patch("/api/co/{co_id}/transition")
+async def transition_cognitive_object(co_id: str, req: COTransitionRequest):
+    """CO 状态迁移"""
+    from cognitive_object import CORegistry
+    from core.state import InvalidTransitionError
+
+    logger.info(f"[CO API] PATCH /api/co/{co_id[:8]}/transition trigger={req.trigger}")
+    registry = CORegistry()
+    try:
+        co = registry.transition(co_id, req.trigger, req.actor, req.reason)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except InvalidTransitionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return co.model_dump()
+
+
+@app.post("/api/co/{co_id}/link-execution")
+async def link_execution_to_co(co_id: str, req: COLinkExecutionRequest):
+    """关联 Execution 到 CO"""
+    from cognitive_object import CORegistry
+
+    logger.info(f"[CO API] POST /api/co/{co_id[:8]}/link-execution exec={req.execution_id[:8]}")
+    registry = CORegistry()
+    co = registry.get(co_id)
+    if co is None:
+        raise HTTPException(status_code=404, detail="Cognitive Object not found")
+    registry.link_execution(co_id, req.execution_id)
+    return {"status": "linked", "co_id": co_id, "execution_id": req.execution_id}
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",

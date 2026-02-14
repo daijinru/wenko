@@ -23,7 +23,7 @@ _DB_DIR = os.path.join(os.path.dirname(__file__), "data")
 _DB_PATH = os.path.join(_DB_DIR, "chat_history.db")
 
 # Database schema version for migrations
-_DB_VERSION = 6
+_DB_VERSION = 7
 
 # Default settings configuration
 _DEFAULT_SETTINGS = {
@@ -47,6 +47,8 @@ _DEFAULT_SETTINGS = {
     "system.os_notification_enabled": ("true", "boolean", "启用系统通知"),
     # MCP 服务配置
     "mcp.servers": ("[]", "json", "MCP 服务器配置列表"),
+    # Cognitive Object Layer
+    "system.col_enabled": ("false", "boolean", "启用 Cognitive Object Layer"),
 }
 
 
@@ -301,6 +303,66 @@ def init_database() -> None:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # ============ V7: Cognitive Object Layer ============
+        if current_version < 7:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS cognitive_objects (
+                    co_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    semantic_type TEXT,
+                    domain_tag TEXT,
+                    intent_category TEXT,
+                    status TEXT NOT NULL DEFAULT 'emerging',
+                    transitions TEXT DEFAULT '[]',
+                    external_references TEXT DEFAULT '[]',
+                    related_co_ids TEXT DEFAULT '[]',
+                    linked_memory_ids TEXT DEFAULT '[]',
+                    created_by TEXT NOT NULL,
+                    conversation_id TEXT,
+                    creation_context TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS co_execution_links (
+                    co_id TEXT NOT NULL,
+                    execution_id TEXT NOT NULL,
+                    linked_at REAL NOT NULL,
+                    PRIMARY KEY (co_id, execution_id),
+                    FOREIGN KEY (co_id) REFERENCES cognitive_objects(co_id)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_co_status
+                ON cognitive_objects(status)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_co_domain
+                ON cognitive_objects(domain_tag)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_co_type
+                ON cognitive_objects(semantic_type)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_co_links_execution
+                ON co_execution_links(execution_id)
+            """)
+
+            # Add COL configuration flag
+            now_ts = datetime.utcnow().isoformat()
+            conn.execute(
+                """INSERT OR IGNORE INTO app_settings
+                   (key, value, value_type, description, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                ("system.col_enabled", "false", "boolean",
+                 "启用 Cognitive Object Layer", now_ts, now_ts)
+            )
 
         # Update schema version
         if current_version < _DB_VERSION:
